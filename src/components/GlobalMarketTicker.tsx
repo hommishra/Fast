@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { TrendingUp, TrendingDown, DollarSign, Activity, RefreshCw, X, Award, ChevronLeft, ChevronRight } from "lucide-react";
+import { 
+  TrendingUp, 
+  TrendingDown, 
+  Activity, 
+  RefreshCw, 
+  X, 
+  Award, 
+  Tv, 
+  LayoutGrid, 
+  Radio,
+  Flame,
+  Globe,
+  TrendingUp as IconUp,
+  TrendingDown as IconDown
+} from "lucide-react";
 
 interface MarketIndex {
   symbol: string;
@@ -142,17 +156,18 @@ export default function GlobalMarketTicker() {
   const [selectedAsset, setSelectedAsset] = useState<MarketIndex | null>(null);
   const [activeTab, setActiveTab] = useState<"All" | "Indices" | "Crypto" | "Commodities" | "Forex">("All");
   const [tickingItem, setTickingItem] = useState<{ symbol: string; direction: "up" | "down" } | null>(null);
+  
+  // Ticker layout toggle: "cnn-cable" (CNN TV scroll ticker) or "dashboard-grid" (interactive tiles)
+  const [tickerView, setTickerView] = useState<"cnn-cable" | "dashboard-grid">("cnn-cable");
 
-  // Update dynamic ticking data realistically
+  // Dynamic interval to simulate live feed ticking fluctuations (similar to real quote updates)
   useEffect(() => {
     const timer = setInterval(() => {
-      // Pick a random index to update
       const randomIndex = Math.floor(Math.random() * markets.length);
       const target = markets[randomIndex];
 
-      // Walk percentage (either positive or negative)
-      const isUp = Math.random() > 0.42; // slight positive bias
-      const changeMagnitude = (Math.random() * 0.12 + 0.01) / 100; // 0.01% - 0.13%
+      const isUp = Math.random() > 0.45; // balanced updates
+      const changeMagnitude = (Math.random() * 0.15 + 0.02) / 100; // 0.02% - 0.17% shift
       const multiplier = isUp ? 1 + changeMagnitude : 1 - changeMagnitude;
 
       const newValue = target.value * multiplier;
@@ -164,45 +179,42 @@ export default function GlobalMarketTicker() {
           if (idx === randomIndex) {
             const updatedChange = m.change + diff;
             const percentageFromBase = (updatedChange / (m.value - m.change)) * 100;
-
-            // Keep sparkline length to max 10
             const newSparkline = [...m.sparkline.slice(1), parseFloat(newValue.toFixed(4))];
+
+            const decimals = m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2;
 
             return {
               ...m,
-              value: parseFloat(newValue.toFixed(m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2)),
-              change: parseFloat(updatedChange.toFixed(m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2)),
+              value: parseFloat(newValue.toFixed(decimals)),
+              change: parseFloat(updatedChange.toFixed(decimals)),
               changePercent: parseFloat(percentageFromBase.toFixed(2)),
               sparkline: newSparkline,
-              high: parseFloat(Math.max(m.high, newValue).toFixed(m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2)),
-              low: parseFloat(Math.min(m.low, newValue).toFixed(m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2)),
+              high: parseFloat(Math.max(m.high, newValue).toFixed(decimals)),
+              low: parseFloat(Math.min(m.low, newValue).toFixed(decimals)),
             };
           }
           return m;
         })
       );
 
-      // Flash active item
+      // Trigger visual flash feedback
       setTickingItem({ symbol: target.symbol, direction: isUp ? "up" : "down" });
-      const flashTimeout = setTimeout(() => setTickingItem(null), 1000);
+      const flashTimeout = setTimeout(() => setTickingItem(null), 1500);
       return () => clearTimeout(flashTimeout);
 
-    }, 3500);
+    }, 3000);
 
     return () => clearInterval(timer);
   }, [markets]);
 
   const filteredMarkets = markets.filter(m => activeTab === "All" || m.category === activeTab);
 
-  // SVG Sparkline generator
-  const drawSparkline = (points: number[], isPositive: boolean) => {
+  // Sparkline mini generator
+  const drawSparkline = (points: number[], isPositive: boolean, width = 60, height = 18) => {
     if (points.length < 2) return null;
     const min = Math.min(...points);
     const max = Math.max(...points);
     const range = max - min || 1;
-    
-    const width = 60;
-    const height = 18;
     const padding = 1;
 
     const coordinates = points.map((p, i) => {
@@ -212,7 +224,7 @@ export default function GlobalMarketTicker() {
     });
 
     return (
-      <svg className="w-[60px] h-[18px] opacity-80" viewBox={`0 0 ${width} ${height}`}>
+      <svg className="opacity-90" width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <path
           d={`M ${coordinates.join(" L ")}`}
           fill="none"
@@ -226,158 +238,282 @@ export default function GlobalMarketTicker() {
   };
 
   return (
-    <div className="bg-slate-900 border-b border-slate-950 font-sans select-none" id="global_market_block">
-      {/* Upper sub-segment filter + metadata info */}
-      <div className="max-w-7xl mx-auto px-6 py-1.5 flex flex-col sm:flex-row justify-between items-center gap-2 border-b border-slate-950 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-        <div className="flex items-center gap-2.5">
-          <span className="flex items-center gap-1.5 text-blue-400">
-            <Activity size={12} className="animate-pulse" />
-            LIVE WORLD INDICES
-          </span>
-          <span className="text-slate-800">|</span>
-          <div className="flex gap-2">
-            {(["All", "Indices", "Crypto", "Commodities", "Forex"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-1.5 py-0.5 rounded transition ${
-                  activeTab === tab 
-                    ? "bg-slate-800 text-white" 
-                    : "hover:text-slate-200"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+    <div className="bg-zinc-950 border-b border-neutral-900 font-sans select-none relative z-21" id="global_market_cnn_container">
+      
+      {/* Custom Styles for Scrolling Crawler Performance */}
+      <style>{`
+        @keyframes scrollCNNMarket {
+          0% { transform: translate3d(0, 0, 0); }
+          100% { transform: translate3d(-50%, 0, 0); }
+        }
+        .cnn-animate-track {
+          display: flex;
+          width: max-content;
+          animation: scrollCNNMarket 45s linear infinite;
+        }
+        .cnn-animate-track:hover {
+          animation-play-state: paused;
+        }
+        .tick-flash-up {
+          animation: flashGlowUp 1.2s ease-out;
+        }
+        .tick-flash-down {
+          animation: flashGlowDown 1.2s ease-out;
+        }
+        @keyframes flashGlowUp {
+          0% { background-color: rgba(16, 185, 129, 0.4); }
+          100% { background-color: transparent; }
+        }
+        @keyframes flashGlowDown {
+          0% { background-color: rgba(239, 68, 68, 0.4); }
+          100% { background-color: transparent; }
+        }
+      `}</style>
+
+      {/* Main Bar Shell */}
+      <div className="flex flex-col lg:flex-row items-stretch">
+        
+        {/* Left Side: Branded Live Market Badge */}
+        <div className="shrink-0 flex items-center bg-zinc-900 border-r border-neutral-900 overflow-hidden relative">
+          <div className="px-4 py-2.5 flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="font-extrabold text-white text-xs tracking-widest uppercase">GLOBAL</span>
+            <span className="bg-emerald-500 text-black font-black text-[9px] px-1.5 py-0.5 rounded tracking-tighter">LIVE MARKETS</span>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-slate-500 text-[9px] font-mono">
-          <span className="flex items-center gap-1">
-            <RefreshCw size={9} className="animate-spin" style={{ animationDuration: "5s" }} />
-            Streaming socket feedback active
-          </span>
-        </div>
-      </div>
 
-      {/* Financial horizontal slider container */}
-      <div className="relative">
-        <div className="overflow-x-auto scrollbar-none py-2.5 px-6">
-          <div className="flex gap-4 min-w-max">
-            {filteredMarkets.map((m) => {
-              const isPositive = m.changePercent >= 0;
-              const isCurrentlyTicking = tickingItem?.symbol === m.symbol;
-              const tickBorder = isCurrentlyTicking
-                ? tickingItem.direction === "up"
-                  ? "border-emerald-500 shadow-sm shadow-emerald-900/30"
-                  : "border-rose-500 shadow-sm shadow-rose-900/30"
-                : "border-slate-800 hover:border-slate-700";
+        {/* Middle Area: Interactive Live Market Panel */}
+        <div className="flex-1 flex flex-col md:flex-row items-stretch justify-between min-h-[44px]">
+          
+          {/* Main content viewport: either Cable Crawler or Modern Grid */}
+          <div className="flex-1 overflow-hidden relative flex items-center bg-zinc-950/85">
+            {tickerView === "cnn-cable" ? (
+              /* TV CABLE CAROUSEL CRAWLER (Seamless Continuous Roll, mimicking television broadcasts) */
+              <div className="w-full overflow-hidden relative flex items-center select-none py-2">
+                <div className="cnn-animate-track">
+                  {/* Repeated items for infinite animation wrap */}
+                  {[...markets, ...markets].map((m, idx) => {
+                    const isPositive = m.changePercent >= 0;
+                    const isTicking = tickingItem?.symbol === m.symbol;
+                    const flashClass = isTicking 
+                      ? tickingItem.direction === "up" 
+                        ? "tick-flash-up" 
+                        : "tick-flash-down"
+                      : "";
 
-              return (
-                <div
-                  key={m.symbol}
-                  onClick={() => setSelectedAsset(m)}
-                  className={`bg-slate-950 p-2 rounded-lg border text-xs cursor-pointer flex items-center gap-4 transition-all duration-300 w-52 select-none ${tickBorder}`}
-                >
-                  <div className="flex flex-col flex-1 truncate">
-                    <div className="flex justify-between items-center">
-                      <span className="font-extrabold text-slate-200 font-sans tracking-wide">{m.symbol}</span>
-                      <span className="text-[9px] text-slate-500 uppercase shrink-0">{m.category}</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-400 mt-0.5 whitespace-nowrap">
-                      {m.value.toLocaleString(undefined, { minimumFractionDigits: m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2 })}
-                    </span>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {isPositive ? (
-                        <TrendingUp size={11} className="text-emerald-400 shrink-0" />
-                      ) : (
-                        <TrendingDown size={11} className="text-rose-400 shrink-0" />
-                      )}
-                      <span className={`font-mono text-[10px] font-extrabold ${isPositive ? "text-emerald-400" : "text-rose-450"}`}>
-                        {isPositive ? "+" : ""}{m.changePercent}%
-                      </span>
-                    </div>
-                  </div>
-                  {/* Miniature SVG charts sparklines */}
-                  <div className="shrink-0 flex items-center justify-center">
-                    {drawSparkline(m.sparkline, isPositive)}
-                  </div>
+                    return (
+                      <div
+                        key={`${m.symbol}-${idx}`}
+                        onClick={() => setSelectedAsset(m)}
+                        className={`inline-flex items-center gap-3 px-5 py-1 border-r border-neutral-900 cursor-pointer hover:bg-neutral-900/55 transition duration-150 rounded-xs select-none ${flashClass}`}
+                      >
+                        <span className="text-neutral-400 font-extrabold text-xs tracking-tight">{m.symbol}</span>
+                        <span className="font-mono font-bold text-white text-xs">
+                          {m.value.toLocaleString(undefined, { minimumFractionDigits: m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2 })}
+                        </span>
+                        
+                        <div className="flex items-center gap-1">
+                          <span className={`text-[9px] font-black ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
+                            {isPositive ? "▲" : "▼"}
+                          </span>
+                          <span className={`font-mono text-xs font-bold ${isPositive ? "text-emerald-400" : "text-red-505"}`}>
+                            {isPositive ? "+" : ""}{m.changePercent}%
+                          </span>
+                        </div>
+
+                        {/* Miniature Sparkline directly integrated in the flow of the ticker */}
+                        <div className="opacity-70 scale-90 w-[45px] flex items-center justify-center">
+                          {drawSparkline(m.sparkline, isPositive, 40, 12)}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            ) : (
+              /* GRID DASHBOARD VIEWER (Tabulated visual tile structure for specific index lookups) */
+              <div className="w-full flex items-center justify-between px-4 py-1 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  {(["All", "Indices", "Crypto", "Commodities", "Forex"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition ${
+                        activeTab === tab 
+                          ? "bg-red-700 text-white" 
+                          : "text-neutral-400 hover:text-white hover:bg-neutral-900"
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-3 py-1 overflow-x-auto max-w-full scrollbar-none">
+                  {filteredMarkets.slice(0, 5).map((m) => {
+                    const isPositive = m.changePercent >= 0;
+                    const isTicking = tickingItem?.symbol === m.symbol;
+                    const flashClass = isTicking 
+                      ? tickingItem.direction === "up" 
+                        ? "tick-flash-up" 
+                        : "tick-flash-down"
+                      : "";
+
+                    return (
+                      <div
+                        key={m.symbol}
+                        onClick={() => setSelectedAsset(m)}
+                        className={`bg-black/90 p-1.5 px-3 rounded border border-neutral-900 cursor-pointer flex items-center gap-3 hover:border-neutral-800 transition select-none ${flashClass}`}
+                      >
+                        <span className="font-extrabold text-[10px] text-neutral-300">{m.symbol}</span>
+                        <span className="font-mono text-[10px] text-white">
+                          {m.value.toLocaleString(undefined, { minimumFractionDigits: m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2 })}
+                        </span>
+                        <span className={`text-[10px] font-mono leading-none ${isPositive ? "text-emerald-400" : "text-rose-500"}`}>
+                          {isPositive ? "▲" : "▼"}{isPositive ? "+" : ""}{m.changePercent}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {filteredMarkets.length > 5 && (
+                    <span className="text-[9px] font-mono text-neutral-500 pr-2">
+                      +{filteredMarkets.length - 5} MORE
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Right Controls: Display View Mode Swapper */}
+          <div className="shrink-0 flex items-center bg-black border-t md:border-t-0 md:border-l border-neutral-900 px-4 py-1.5 text-[10px] font-mono text-neutral-400 justify-end gap-3 select-none">
+            <span className="text-neutral-700 hidden lg:inline">|</span>
+            
+            {/* Cable mode toggle button */}
+            <button
+              onClick={() => setTickerView("cnn-cable")}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded transition duration-200 cursor-pointer ${
+                tickerView === "cnn-cable" 
+                  ? "text-red-500 font-extrabold bg-red-950/20" 
+                  : "hover:text-white"
+              }`}
+              title="Cable News Broadcast Crawler Mode"
+            >
+              <Tv size={12} />
+              <span>TV CRAWLER</span>
+            </button>
+
+            {/* Dashboard mode toggle button */}
+            <button
+              onClick={() => setTickerView("dashboard-grid")}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded transition duration-200 cursor-pointer ${
+                tickerView === "dashboard-grid" 
+                  ? "text-red-505 font-extrabold bg-red-955/20" 
+                  : "hover:text-white"
+              }`}
+              title="Interactive Financial Grid Mode"
+            >
+              <LayoutGrid size={12} />
+              <span>GRID TILES</span>
+            </button>
+
+            <span className="text-neutral-750 hidden md:inline">|</span>
+
+            {/* Simulated Live update heartbeat display */}
+            <div className="flex items-center gap-1 text-[9px] text-neutral-500">
+              <RefreshCw size={9} className="animate-spin" style={{ animationDuration: "6s" }} />
+              <span className="hidden sm:inline">TICK DIRECTORY: ACTIVE</span>
+            </div>
+          </div>
+
         </div>
+
       </div>
 
-      {/* Asset Expansion Detail Window Popover Modal */}
+      {/* DETAILED INDEX POPULATION EXPANSION MODAL */}
       {selectedAsset && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="asset_detail_window">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-scaleIn">
-            <div className="bg-slate-950 p-4 border-b border-slate-850 flex justify-between items-center">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="cnn_market_detail_window">
+          <div className="bg-zinc-900 border border-neutral-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-scaleIn">
+            
+            {/* Popover Header */}
+            <div className="bg-black p-4 border-b border-neutral-800 flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <span className="bg-blue-600 text-white font-mono font-black text-xs px-2 py-0.5 rounded">
-                  {selectedAsset.symbol}
+                <span className="bg-zinc-800 text-emerald-400 font-mono font-black text-[11px] px-2.5 py-0.5 rounded tracking-widest flex items-center gap-1">
+                  <Radio size={11} className="animate-pulse text-emerald-400" />
+                  LIVE INDEX DATA
                 </span>
-                <h4 className="font-black text-white text-sm tracking-tight">{selectedAsset.name}</h4>
+                <h4 className="font-extrabold text-white text-sm tracking-tight">{selectedAsset.name} ({selectedAsset.symbol})</h4>
               </div>
               <button
                 onClick={() => setSelectedAsset(null)}
-                className="text-slate-400 hover:text-white transition p-1 rounded-full hover:bg-slate-800 cursor-pointer"
+                className="text-neutral-400 hover:text-white transition p-1.5 rounded-full hover:bg-neutral-800 cursor-pointer"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
             
-            <div className="p-5 space-y-4">
-              {/* Massive live tick price values */}
-              <div className="text-center py-4 bg-slate-950/60 rounded-xl border border-slate-850">
-                <span className="text-3xl font-mono font-black text-white leading-none tracking-tight block">
+            {/* Popover Body Content */}
+            <div className="p-6 space-y-5">
+              
+              {/* Massive active live values feed */}
+              <div className="text-center py-5 bg-black/80 rounded-xl border border-neutral-800 relative overflow-hidden group">
+                <div className="absolute top-2 left-2 text-[8px] font-mono text-neutral-500 flex items-center gap-1 select-none">
+                  <Flame size={10} className="text-amber-500 animate-pulse" />
+                  REAL-TIME INSTANT FEED
+                </div>
+
+                <span className="text-3xl font-mono font-black text-white tracking-tight block">
                   {selectedAsset.value.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.symbol.includes("USD") && !selectedAsset.symbol.includes("BTC") && !selectedAsset.symbol.includes("ETH") ? 4 : 2 })}
                 </span>
+                
                 <div className="flex items-center justify-center gap-2 mt-2">
-                  {selectedAsset.changePercent >= 0 ? (
-                    <TrendingUp size={16} className="text-emerald-400" />
-                  ) : (
-                    <TrendingDown size={16} className="text-rose-400" />
-                  )}
-                  <span className={`font-mono font-black text-sm ${selectedAsset.changePercent >= 0 ? "text-emerald-400" : "text-rose-450"}`}>
+                  <span className={`text-sm font-black ${selectedAsset.changePercent >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                    {selectedAsset.changePercent >= 0 ? "▲" : "▼"}
+                  </span>
+                  <span className={`font-mono font-black text-sm ${selectedAsset.changePercent >= 0 ? "text-emerald-400" : "text-rose-455"}`}>
                     {selectedAsset.changePercent >= 0 ? "+" : ""}{selectedAsset.change.toLocaleString()}({selectedAsset.changePercent}%)
                   </span>
                 </div>
               </div>
 
-              {/* Grid indices stats */}
+              {/* Grid indices statistical profiles */}
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="bg-slate-950/30 border border-slate-850 p-2.5 rounded-lg flex flex-col">
-                  <span className="text-slate-500 font-bold uppercase text-[9px]">24h High</span>
-                  <span className="font-mono font-bold text-slate-300 mt-0.5">{selectedAsset.high.toLocaleString()}</span>
+                <div className="bg-neutral-900 border border-neutral-800/80 p-3 rounded-xl flex flex-col">
+                  <span className="text-neutral-500 font-bold uppercase text-[9px] tracking-wider">Trading Instrument</span>
+                  <span className="font-black text-red-500 mt-1 uppercase text-[10px] tracking-tight">{selectedAsset.category}</span>
                 </div>
-                <div className="bg-slate-950/30 border border-slate-850 p-2.5 rounded-lg flex flex-col">
-                  <span className="text-slate-500 font-bold uppercase text-[9px]">24h Low</span>
-                  <span className="font-mono font-bold text-slate-300 mt-0.5">{selectedAsset.low.toLocaleString()}</span>
+
+                <div className="bg-neutral-900 border border-neutral-800/80 p-3 rounded-xl flex flex-col">
+                  <span className="text-neutral-500 font-bold uppercase text-[9px] tracking-wider">Estimated Volume / 24h</span>
+                  <span className="font-mono font-black text-neutral-200 mt-1">{selectedAsset.volume}</span>
                 </div>
-                <div className="bg-slate-950/30 border border-slate-850 p-2.5 rounded-lg flex flex-col">
-                  <span className="text-slate-500 font-bold uppercase text-[9px]">Volume / 24h</span>
-                  <span className="font-mono font-bold text-slate-300 mt-0.5">{selectedAsset.volume}</span>
+
+                <div className="bg-neutral-900 border border-neutral-800/80 p-3 rounded-xl flex flex-col">
+                  <span className="text-neutral-500 font-bold uppercase text-[9px] tracking-wider">24h Peak Ceiling</span>
+                  <span className="font-mono font-black text-neutral-200 mt-1">{selectedAsset.high.toLocaleString()}</span>
                 </div>
-                <div className="bg-slate-950/30 border border-slate-850 p-2.5 rounded-lg flex flex-col">
-                  <span className="text-slate-500 font-bold uppercase text-[9px]">Trading Instrument</span>
-                  <span className="font-bold text-blue-400 mt-0.5 uppercase text-[10px]">{selectedAsset.category}</span>
+
+                <div className="bg-neutral-900 border border-neutral-800/80 p-3 rounded-xl flex flex-col">
+                  <span className="text-neutral-500 font-bold uppercase text-[9px] tracking-wider">24h Floor Bottom</span>
+                  <span className="font-mono font-black text-neutral-200 mt-1">{selectedAsset.low.toLocaleString()}</span>
                 </div>
               </div>
 
               {/* Graphical big index history placeholder curve path */}
               <div className="space-y-1.5">
-                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Fluctuation Curve Path</span>
-                <div className="bg-slate-950 border border-slate-850 h-28 rounded-xl flex items-center justify-center p-4 relative overflow-hidden">
-                  {/* Custom scaled SVG graph of sparkline */}
+                <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">CONTINUOUS MARKET PATH (24H)</span>
+                <div className="bg-black border border-neutral-800 h-28 rounded-xl flex items-center justify-center p-3 relative overflow-hidden">
                   <svg className="w-full h-full absolute inset-0 p-4" viewBox="0 0 100 50" preserveAspectRatio="none">
                     <defs>
-                      <linearGradient id="gradient-area" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="cnn-gradient-area" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={selectedAsset.changePercent >= 0 ? "#10B981" : "#EF4444"} stopOpacity="0.15" />
                         <stop offset="100%" stopColor={selectedAsset.changePercent >= 0 ? "#10B981" : "#EF4444"} stopOpacity="0" />
                       </linearGradient>
                     </defs>
-                    {/* Fill Area */}
+                    {/* Area path */}
                     <path
                       d={`M 0,50 L ${selectedAsset.sparkline.map((p, i) => {
                         const x = (i / (selectedAsset.sparkline.length - 1)) * 100;
@@ -387,9 +523,9 @@ export default function GlobalMarketTicker() {
                         const y = 50 - ((p - min) / range) * 44 - 3;
                         return `${x},${y}`;
                       }).join(" L ")} L 100,50 Z`}
-                      fill="url(#gradient-area)"
+                      fill="url(#cnn-gradient-area)"
                     />
-                    {/* Stroke Path */}
+                    {/* Line path */}
                     <path
                       d={`M ${selectedAsset.sparkline.map((p, i) => {
                         const x = (i / (selectedAsset.sparkline.length - 1)) * 100;
@@ -401,25 +537,29 @@ export default function GlobalMarketTicker() {
                       }).join(" L ")}`}
                       fill="none"
                       stroke={selectedAsset.changePercent >= 0 ? "#10B981" : "#EF4444"}
-                      strokeWidth="2"
+                      strokeWidth="2.2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
                   </svg>
-                  <div className="absolute top-2 left-3 text-[8px] font-sans text-neutral-500 font-bold uppercase">24h Continuous Feed</div>
+                  <div className="absolute bottom-2 right-3 text-[8px] font-mono text-neutral-500">REAL-TIME TELEMETRY</div>
                 </div>
               </div>
 
-              <div className="bg-blue-950/25 border border-blue-900/60 p-3 rounded-lg flex items-start gap-2 text-[11px] text-blue-300">
-                <Award size={14} className="text-blue-400 shrink-0 mt-0.5" />
-                <p className="leading-relaxed">
-                  Fast Coverage financial feeds are integrated through real-time index streams for continuous coverage.
+              {/* Market Coverage disclaimer card */}
+              <div className="bg-neutral-900/45 border border-neutral-800 p-3 rounded-lg flex items-start gap-2.5 text-[11px] text-zinc-300">
+                <Globe size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                <p className="leading-relaxed font-sans">
+                  Index pricing metrics updated instantaneously via live synthetic streams syncing every 3.0s mimicking major global market hubs.
                 </p>
               </div>
+
             </div>
+
           </div>
         </div>
       )}
+
     </div>
   );
 }
