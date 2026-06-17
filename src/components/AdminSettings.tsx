@@ -1,0 +1,312 @@
+import React, { useState, useEffect } from "react";
+import { WebSettings } from "../types";
+import { Save, Globe, Info, CreditCard, Code, CheckCircle2 } from "lucide-react";
+
+interface AdminSettingsProps {
+  settings: WebSettings;
+  onSaveSettings: (settings: WebSettings) => Promise<void>;
+  onTriggerSeed: () => Promise<void>;
+}
+
+export default function AdminSettings({
+  settings,
+  onSaveSettings,
+  onTriggerSeed,
+}: AdminSettingsProps) {
+  const [logoText, setLogoText] = useState("");
+  const [siteTitle, setSiteTitle] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [aboutText, setAboutText] = useState("");
+  const [socialFacebook, setSocialFacebook] = useState("");
+  const [socialTwitter, setSocialTwitter] = useState("");
+  const [socialInstagram, setSocialInstagram] = useState("");
+  const [socialYoutube, setSocialYoutube] = useState("");
+  const [seoDescription, setSeoDescription] = useState("");
+  const [adSenseCode, setAdSenseCode] = useState("");
+  const [analyticsCode, setAnalyticsCode] = useState("");
+
+  const [saving, setSaving] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+  const [showSeedConfirm, setShowSeedConfirm] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+
+  useEffect(() => {
+    if (settings) {
+      setLogoText(settings.logoText || "");
+      setSiteTitle(settings.siteTitle || "");
+      setContactEmail(settings.contactEmail || "");
+      setAboutText(settings.aboutText || "");
+      setSocialFacebook(settings.socialFacebook || "");
+      setSocialTwitter(settings.socialTwitter || "");
+      setSocialInstagram(settings.socialInstagram || "");
+      setSocialYoutube(settings.socialYoutube || "");
+      setSeoDescription(settings.seoDescription || "");
+      setAdSenseCode(settings.adSenseCode || "");
+      setAnalyticsCode(settings.analyticsCode || "");
+    }
+  }, [settings]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setStatusMsg("");
+
+    try {
+      await onSaveSettings({
+        logoText,
+        siteTitle,
+        contactEmail,
+        aboutText,
+        socialFacebook,
+        socialTwitter,
+        socialInstagram,
+        socialYoutube,
+        seoDescription,
+        adSenseCode,
+        analyticsCode,
+      });
+
+      setStatusMsg("Website global settings successfully updated in Firestore!");
+      setTimeout(() => setStatusMsg(""), 5000);
+    } catch (e) {
+      console.error(e);
+      setStatusMsg("Error modifying configurations database.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSeedAction = async () => {
+    setSeeding(true);
+    setStatusMsg("");
+    try {
+      await onTriggerSeed();
+      setStatusMsg("Success: Firestore database populated with CNN-style global news datasets! Refresh the app.");
+      setShowSeedConfirm(false);
+    } catch (err) {
+      console.error(err);
+      setStatusMsg("Seeding failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 font-sans text-neutral-800" id="admin_settings_panel">
+      {statusMsg && (
+        <div className="bg-green-150 border border-green-300 text-green-800 p-4 rounded-lg flex items-center gap-2 font-sans text-sm select-none">
+          <CheckCircle2 size={16} />
+          <span>{statusMsg}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Brand definitions */}
+          <div className="bg-white border border-neutral-200 p-6 rounded-lg space-y-4 shadow-xs">
+            <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase border-b border-neutral-100 pb-3 select-none flex items-center gap-1.5 font-bold">
+              <Info size={14} className="text-red-700" />
+              General Brand Profiles
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Logo Text Label</label>
+                <input
+                  type="text"
+                  required
+                  value={logoText}
+                  onChange={(e) => setLogoText(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm font-sans focus:outline-none focus:border-red-655"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Contact Desk Email</label>
+                <input
+                  type="email"
+                  required
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm font-sans focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">SEO Site Title</label>
+              <input
+                type="text"
+                required
+                value={siteTitle}
+                onChange={(e) => setSiteTitle(e.target.value)}
+                className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm font-sans focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Editorial Summary / About</label>
+              <textarea
+                rows={3}
+                value={aboutText}
+                onChange={(e) => setAboutText(e.target.value)}
+                className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm font-sans focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Social connections */}
+          <div className="bg-white border border-neutral-200 p-6 rounded-lg space-y-4 shadow-xs">
+            <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase border-b border-neutral-100 pb-3 select-none flex items-center gap-1.5 font-bold">
+              <Globe size={14} className="text-red-700" />
+              Social Network Placements
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Facebook Page</label>
+                <input
+                  type="text"
+                  value={socialFacebook}
+                  onChange={(e) => setSocialFacebook(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Twitter Handle / X</label>
+                <input
+                  type="text"
+                  value={socialTwitter}
+                  onChange={(e) => setSocialTwitter(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Instagram Page</label>
+                <input
+                  type="text"
+                  value={socialInstagram}
+                  onChange={(e) => setSocialInstagram(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">YouTube Broadcast link</label>
+                <input
+                  type="text"
+                  value={socialYoutube}
+                  onChange={(e) => setSocialYoutube(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none"
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Base Metadata Description</label>
+              <input
+                type="text"
+                value={seoDescription}
+                onChange={(e) => setSeoDescription(e.target.value)}
+                className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none font-sans"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Ads and tracking integrations */}
+        <div className="bg-white border border-neutral-200 p-6 rounded-lg space-y-4 shadow-xs">
+          <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase border-b border-neutral-100 pb-3 mb-1 select-none flex items-center gap-1.5 font-bold">
+            <Code size={14} className="text-red-700" />
+            External Code Integrations
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 mb-1 select-none">
+                <CreditCard size={13} className="text-muted-foreground" />
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider font-mono">Google AdSense ID Code</label>
+              </div>
+              <p className="text-[11px] text-neutral-400 mb-2 leading-relaxed">
+                Applies monetization indexes automatically on all news slots.
+              </p>
+              <input
+                type="text"
+                placeholder="e.g. ca-pub-xxxxxxxxxxxxxxxx"
+                value={adSenseCode}
+                onChange={(e) => setAdSenseCode(e.target.value)}
+                className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 mb-1 select-none">
+                <Code size={13} className="text-muted-foreground" />
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider font-mono">Google Analytics Tracking ID</label>
+              </div>
+              <p className="text-[11px] text-neutral-400 mb-2 leading-relaxed">
+                Audits global page view records to compute active news reports.
+              </p>
+              <input
+                type="text"
+                placeholder="e.g. G-xxxxxxxxxx"
+                value={analyticsCode}
+                onChange={(e) => setAnalyticsCode(e.target.value)}
+                className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none font-mono"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Database seed & triggers */}
+        <div className="bg-amber-50 border border-amber-200 p-6 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-amber-900 uppercase font-mono">ADMINISTRATIVE FACTORY RESET TOOL</h4>
+            <p className="text-xs text-amber-700 leading-relaxed max-w-xl">
+              If your database behaves inconsistently or you would like to restore the original beautifully written CNN-style global news templates, click to run the initial seeding logic.
+            </p>
+          </div>
+          {!showSeedConfirm ? (
+            <button
+              type="button"
+              onClick={() => setShowSeedConfirm(true)}
+              className="shrink-0 bg-amber-700 hover:bg-amber-800 text-white font-sans text-xs uppercase tracking-wider font-bold py-2.5 px-4 rounded transition cursor-pointer font-mono"
+            >
+              Re-Seed Datasets
+            </button>
+          ) : (
+            <div className="bg-white border border-amber-300 p-2.5 rounded-lg flex items-center gap-2 text-xs">
+              <span className="font-bold text-amber-900">Confirm Reset?</span>
+              <button
+                type="button"
+                disabled={seeding}
+                onClick={handleSeedAction}
+                className="bg-amber-700 hover:bg-amber-800 text-white px-2.5 py-1.5 rounded uppercase font-extrabold cursor-pointer transition select-none"
+              >
+                {seeding ? "Seeding..." : "Yes, Reset"}
+              </button>
+              <button
+                type="button"
+                disabled={seeding}
+                onClick={() => setShowSeedConfirm(false)}
+                className="bg-neutral-200 hover:bg-neutral-300 text-neutral-700 px-2.5 py-1.5 rounded uppercase font-extrabold cursor-pointer transition select-none"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Save button block */}
+        <div className="text-right select-none">
+          <button
+            type="submit"
+            disabled={saving}
+            className="bg-red-700 hover:bg-red-800 disabled:bg-neutral-300 text-white font-sans text-xs uppercase tracking-widest font-bold px-6 py-3.5 rounded flex items-center justify-center gap-1.5 ml-auto cursor-pointer transition shadow"
+          >
+            <Save size={14} /> {saving ? "PRESERVING SETTINGS..." : "Save Settings Dossier"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

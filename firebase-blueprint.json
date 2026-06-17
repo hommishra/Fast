@@ -1,0 +1,146 @@
+{
+  "entities": {
+    "Article": {
+      "title": "Article",
+      "description": "A news story, editorial, or dispatch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "excerpt": { "type": "string" },
+        "content": { "type": "string" },
+        "slug": { "type": "string" },
+        "featuredImage": { "type": "string" },
+        "status": { "type": "string", "enum": ["Published", "Draft", "Archived"] },
+        "categoryId": { "type": "string" },
+        "subCategoryId": { "type": "string" },
+        "publishDate": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "views": { "type": "number" },
+        "seoTitle": { "type": "string" },
+        "seoDescription": { "type": "string" },
+        "seoKeywords": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "slug", "categoryId", "publishDate", "authorName", "views"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Discipline category for articles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "parentId": { "type": "string" }
+      },
+      "required": ["id", "name", "slug"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Public feedback and discussion items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "articleId": { "type": "string" },
+        "articleTitle": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorEmail": { "type": "string" },
+        "content": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Spam"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "articleId", "articleTitle", "authorName", "authorEmail", "content", "status", "createdAt"]
+    },
+    "BreakingNews": {
+      "title": "BreakingNews",
+      "description": "Short immediate breaking news bulletins",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "text", "active", "createdAt"]
+    },
+    "UserDB": {
+      "title": "UserDB",
+      "description": "Admin and staff directory entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Editor", "Author"] },
+        "status": { "type": "string", "enum": ["Active", "Suspended"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "status", "createdAt"]
+    },
+    "WebSettings": {
+      "title": "WebSettings",
+      "description": "Dynamic web site configuration and parameters",
+      "type": "object",
+      "properties": {
+        "logoText": { "type": "string" },
+        "siteTitle": { "type": "string" },
+        "contactEmail": { "type": "string" },
+        "aboutText": { "type": "string" },
+        "socialFacebook": { "type": "string" },
+        "socialTwitter": { "type": "string" },
+        "socialInstagram": { "type": "string" },
+        "socialYoutube": { "type": "string" },
+        "seoDescription": { "type": "string" },
+        "adSenseCode": { "type": "string" },
+        "analyticsCode": { "type": "string" }
+      },
+      "required": ["logoText", "siteTitle", "contactEmail", "aboutText"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit security activity logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "ip": { "type": "string" },
+        "userAgent": { "type": "string" }
+      },
+      "required": ["id", "userEmail", "action", "timestamp", "ip", "userAgent"]
+    }
+  },
+  "firestore": {
+    "/articles/{articleId}": {
+      "schema": "Article",
+      "description": "Store all news articles"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Catalog of category structures"
+    },
+    "/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "All article user comments"
+    },
+    "/breaking_news/{breakingId}": {
+      "schema": "BreakingNews",
+      "description": "Active breaking news items"
+    },
+    "/users/{userId}": {
+      "schema": "UserDB",
+      "description": "Staff privileges details"
+    },
+    "/settings/{settingsId}": {
+      "schema": "WebSettings",
+      "description": "Global custom configs"
+    },
+    "/activity_logs/{logId}": {
+      "schema": "ActivityLog",
+      "description": "Audit events feed"
+    }
+  }
+}
