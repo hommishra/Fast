@@ -43,15 +43,13 @@ export default function Footer({ logoText, aboutText, contactEmail, socials }: F
             <ul className="space-y-2 text-xs">
               <li>
                 <span className="text-slate-500 block text-[9px] uppercase font-mono">General Inquiries</span>
-                <a href={`mailto:${contactEmail || "fastcoveragenews@gmail.com"}`} className="text-slate-300 hover:text-blue-500 transition-colors">
-                  {contactEmail || "fastcoveragenews@gmail.com"}
+                <a href={`mailto:${contactEmail}`} className="text-slate-300 hover:text-blue-500 transition-colors">
+                  {contactEmail || "press@fastcoverage.news"}
                 </a>
               </li>
               <li>
                 <span className="text-slate-500 block text-[9px] uppercase font-mono">Security Ops</span>
-                <a href="mailto:fastcoveragenews@gmail.com" className="text-slate-300 hover:text-blue-500 transition-colors">
-                  fastcoveragenews@gmail.com
-                </a>
+                <span className="text-slate-300">security@fastcoverage.news</span>
               </li>
             </ul>
           </div>

@@ -204,7 +204,7 @@ const INITIAL_BREAKING: BreakingNews[] = [
 const INITIAL_SETTINGS: WebSettings = {
   logoText: "FAST COVERAGE",
   siteTitle: "Fast Coverage | Rapid, Accurate Global News Headlines",
-  contactEmail: "fastcoveragenews@gmail.com",
+  contactEmail: "press@fastcoverage.news",
   aboutText: "Fast Coverage delivers objective, breaking news reports, insightful political coverage, tech analyses, and styling trends directly to readers with speed and integrity.",
   socialFacebook: "https://facebook.com/fastcoverage",
   socialTwitter: "https://twitter.com/fastcoverage",

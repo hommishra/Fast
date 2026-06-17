@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, limit, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, limit, doc } from "firebase/firestore";
 import { db } from "./firebase";
 import { Article, Category, WebSettings } from "./types";
 import { seedDatabaseIfEmpty } from "./seedData";
@@ -20,7 +20,7 @@ export default function App() {
   const [globalSettings, setGlobalSettings] = useState<WebSettings>({
     logoText: "FAST COVERAGE",
     siteTitle: "Fast Coverage | Rapid Global Headlines",
-    contactEmail: "fastcoveragenews@gmail.com",
+    contactEmail: "press@fastcoverage.news",
     aboutText: "Fast Coverage delivers rapid global bulletins, in-depth political dossiers, financial markers, and lifestyle reviews from the frontlines.",
     socialFacebook: "https://facebook.com/fastcoverage",
     socialTwitter: "https://twitter.com/fastcoverage",
@@ -102,11 +102,7 @@ export default function App() {
     // Listen to Custom Site Settings
     const unsubscribeSettings = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
       if (docSnap.exists()) {
-        const data = docSnap.data() as WebSettings;
-        if (data && data.contactEmail === "press@fastcoverage.news") {
-          updateDoc(doc(db, "settings", "global"), { contactEmail: "fastcoveragenews@gmail.com" }).catch(console.error);
-        }
-        setGlobalSettings(data);
+        setGlobalSettings(docSnap.data() as WebSettings);
       }
     });
 
