@@ -108,8 +108,15 @@ export interface VideoItem {
   id: string;
   title: string;
   description: string;
-  url: string;
+  url: string; // fallback or streaming url
+  videoUrl?: string; // permanent storage streaming video URL
+  thumbnailUrl?: string; // permanent generated thumbnail image URL
+  category?: string; // category classification
+  duration?: string; // parsed or custom duration
   createdAt: string; // ISO format
+  publishedAt?: string; // published timestamp
+  author?: string; // publisher author email or name
+  status?: "Draft" | "Published"; // published/draft status
   views: number;
   isLive?: boolean; // Live video badge
   isScheduled?: boolean; // Scheduled video option

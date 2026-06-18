@@ -207,14 +207,60 @@ export default function App() {
       }
     });
 
-    // Listen to Videos database feed
-    const unsubscribeVideos = onSnapshot(collection(db, "videos"), (snapshot) => {
+    // Listen to Videos database feed (using premium cnn style video bulletins)
+    const unsubscribeVideos = onSnapshot(collection(db, "videoBulletins"), (snapshot) => {
       const items: VideoItem[] = [];
       snapshot.forEach((doc) => {
-        items.push({ id: doc.id, ...doc.data() } as VideoItem);
+        const data = doc.data();
+        items.push({
+          id: doc.id,
+          title: data.title || "",
+          description: data.description || "",
+          url: data.videoUrl || data.url || "",
+          videoUrl: data.videoUrl || "",
+          thumbnailUrl: data.thumbnailUrl || "",
+          category: data.category || "general",
+          duration: data.duration || "",
+          createdAt: data.createdAt || new Date().toISOString(),
+          publishedAt: data.publishedAt || data.createdAt || new Date().toISOString(),
+          author: data.author || "admin@fastcoverage.news",
+          status: data.status || "Published",
+          views: data.views || 0,
+          isLive: data.isLive || false,
+          isScheduled: data.isScheduled || false,
+          scheduledTime: data.scheduledTime || ""
+        } as VideoItem);
       });
-      items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setVideos(items);
+
+      // Filter: display published items only, and handle scheduled release thresholds
+      const now = new Date();
+      const visibleItems = items.filter(v => {
+        if (v.status === "Draft") return false;
+        if (v.isScheduled && v.scheduledTime) {
+          return now >= new Date(v.scheduledTime);
+        }
+        return true;
+      });
+
+      // Sort with precision: publishedAt descending
+      visibleItems.sort((a, b) => {
+        const tA = a.publishedAt ? new Date(a.publishedAt).getTime() : new Date(a.createdAt).getTime();
+        const tB = b.publishedAt ? new Date(b.publishedAt).getTime() : new Date(b.createdAt).getTime();
+        return tB - tA;
+      });
+
+      setVideos(visibleItems);
+    }, (error) => {
+      console.warn("videoBulletins listener failed, subscribing to legacy videos:", error);
+      // Clean fallback if collection didn't bootstrap
+      onSnapshot(collection(db, "videos"), (legacySnap) => {
+        const items: VideoItem[] = [];
+        legacySnap.forEach((doc) => {
+          items.push({ id: doc.id, ...doc.data() } as VideoItem);
+        });
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setVideos(items);
+      });
     });
 
     // Listen to Coverage Zones collection

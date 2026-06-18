@@ -972,7 +972,7 @@ export default function AdminPanel({
 
           {/* TAB 9: Videos & Description upload */}
           {activeTab === "videos" && (
-            <AdminVideos adminToken={adminSession.token} />
+            <AdminVideos adminToken={adminSession.token} adminSession={adminSession} />
           )}
         </main>
       </div>

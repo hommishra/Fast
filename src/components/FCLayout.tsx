@@ -2,6 +2,29 @@ import React from "react";
 import { Article, Category, VideoItem, CoverageZone } from "../types";
 import { Clock, Eye, TrendingUp, Tv } from "lucide-react";
 import ActiveSectionsMap from "./ActiveSectionsMap";
+import SmartVideoPlayer from "./SmartVideoPlayer";
+
+const safeFormatDateFull = (isoStr?: string) => {
+  if (!isoStr) return "Just now";
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return "Recently";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "Recently";
+  }
+};
+
+const safeFormatDateTime = (isoStr?: string) => {
+  if (!isoStr) return "Coming soon";
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return "Coming soon";
+    return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "Coming soon";
+  }
+};
 
 interface FCLayoutProps {
   articles: Article[];
@@ -292,23 +315,12 @@ export default function FCLayout({
                         </span>
                       )}
                       
-                      {matchesYoutube ? (
-                        <iframe
-                          src={vid.url}
-                          title={vid.title}
-                          className="w-full h-full rounded-lg"
-                          allowFullScreen
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <video
-                          src={vid.url}
-                          controls
-                          className="w-full h-full object-cover bg-black rounded-lg"
-                          preload="metadata"
-                          referrerPolicy="no-referrer"
-                        />
-                      )}
+                      <SmartVideoPlayer
+                        src={vid.url}
+                        title={vid.title}
+                        className="rounded-lg"
+                        status={vid.status}
+                      />
                     </div>
 
                     <div className="space-y-1.5">
@@ -318,7 +330,7 @@ export default function FCLayout({
                       {vid.isScheduled && vid.scheduledTime && (
                         <p className="text-[10px] text-blue-400 font-mono font-bold flex items-center gap-1 select-none pb-1">
                           <Clock size={10} className="text-blue-400 animate-spin-slow" />
-                          Streaming on: {new Date(vid.scheduledTime).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          Streaming on: {safeFormatDateTime(vid.scheduledTime)}
                         </p>
                       )}
                       <p className="text-neutral-400 text-xs leading-relaxed line-clamp-3 font-sans">
@@ -330,7 +342,7 @@ export default function FCLayout({
                   {/* Date Badge */}
                   <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 font-mono mt-4 pt-3 border-t border-neutral-800 pb-0.5 select-none hover:text-neutral-450">
                     <Clock size={11} className="text-neutral-400" />
-                    <span>PUBLISHED: {new Date(vid.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                    <span>PUBLISHED: {safeFormatDateFull(vid.createdAt)}</span>
                   </div>
                 </div>
               );
