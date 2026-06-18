@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { 
   Link, Sparkles, Upload, Crop, Shield, Laptop, Tablet, Smartphone, 
-  Facebook, Twitter, MessageSquare, Image as ImageIcon, RefreshCw, 
+  Facebook, Twitter, MessageSquare, ImageIcon, RefreshCw, 
   Sliders, History, Check, AlertTriangle, Layers, Trash, Download, Eye, Globe
 } from "lucide-react";
 import { Article } from "../types";
 
-interface CnnMediaSuiteProps {
+interface FcMediaSuiteProps {
   article: Partial<Article>;
   adminToken: string;
   onChangeArticle: (updatedFields: Partial<Article>) => void;
@@ -20,11 +20,11 @@ interface ImageHistoryItem {
   size?: string;
 }
 
-export default function CnnMediaSuite({
+export default function FcMediaSuite({
   article,
   adminToken,
   onChangeArticle
-}: CnnMediaSuiteProps) {
+}: FcMediaSuiteProps) {
   // Current active suite tab
   const [activeTab, setActiveTab] = useState<"url" | "ai" | "upload" | "workflow" | "preview">("ai");
 
@@ -228,7 +228,7 @@ export default function CnnMediaSuite({
       onChangeArticle({ imageAlt: generatedAlt });
     }
     if (article.title && !article.photographerCredit) {
-      const generatedCredit = "Pool / Reuters / CNN Images Bureau";
+      const generatedCredit = "Pool / Reuters / FC Images Bureau";
       setCustomCredit(generatedCredit);
       onChangeArticle({ photographerCredit: generatedCredit });
     }
@@ -238,12 +238,12 @@ export default function CnnMediaSuite({
       onChangeArticle({ imageCaption: generatedCaption });
     }
     if (article.slug && !customSeoFilename) {
-      const cleanFile = `cnn-${article.slug}-editorial-headshot-${Date.now().toString().slice(-4)}.webp`;
+      const cleanFile = `fc-${article.slug}-editorial-headshot-${Date.now().toString().slice(-4)}.webp`;
       setCustomSeoFilename(cleanFile);
     }
   }, [article.title, article.slug]);
 
-  // Automated Featured Image from headline extraction (Step 4)
+  // Automated Featured Image from headline extraction
   const handleAutoRecommend = () => {
     if (!article.title) return;
     setAiLoading(true);
@@ -298,7 +298,7 @@ export default function CnnMediaSuite({
     handleAutoRecommend();
   }, [article.categoryId]);
 
-  // Canvas-based cropping, fit zoom, resizing & compressing tool (Step 3)
+  // Canvas-based cropping, fit zoom, resizing & compressing tool
   useEffect(() => {
     if (!uploadedSource) return;
     renderCanvasCrop();
@@ -429,13 +429,13 @@ export default function CnnMediaSuite({
   };
 
   return (
-    <div className="bg-[#111] text-neutral-100 rounded-lg border border-neutral-800 overflow-hidden shadow-2xl space-y-4 p-5" id="cnn_enterprise_media_manager">
+    <div className="bg-[#111] text-neutral-100 rounded-lg border border-neutral-800 overflow-hidden shadow-2xl space-y-4 p-5" id="fc_enterprise_media_manager">
       {/* Editorial Corporate Header Section */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-neutral-800 pb-3 gap-3">
         <div className="flex items-center gap-2">
           <div className="bg-red-700 text-white font-mono font-semibold tracking-tighter text-xs px-2 py-1 uppercase rounded-sm flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-white animate-pulse"></span>
-            <span>CNN MEDIA SUITE v4.2</span>
+            <span>FC MEDIA SUITE v4.2</span>
           </div>
           <span className="text-xs text-neutral-400 font-mono">Enterprise Newsroom</span>
         </div>
@@ -467,7 +467,7 @@ export default function CnnMediaSuite({
               onClick={() => setActiveTab(tab.id as any)}
               className={`flex-1 min-w-[110px] text-center py-2 px-3 rounded text-[11px] font-bold uppercase font-mono tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 isActive 
-                  ? "bg-red-656 bg-red-700 text-white shadow-lg shadow-red-700/10" 
+                  ? "bg-red-700 text-white shadow-lg shadow-red-700/10" 
                   : "text-neutral-400 hover:text-white hover:bg-neutral-800"
               }`}
             >
@@ -619,7 +619,7 @@ export default function CnnMediaSuite({
                     type="button"
                     onClick={() => validateAndProbeImage(urlInput)}
                     disabled={urlValidating}
-                    className="bg-red-750 bg-red-700 hover:bg-red-800 text-white text-xs px-4 rounded font-mono font-bold uppercase"
+                    className="bg-red-700 hover:bg-red-800 text-white text-xs px-4 rounded font-mono font-bold uppercase"
                   >
                     {urlValidating ? "PROBING..." : "ACTIVATE"}
                   </button>
@@ -664,7 +664,7 @@ export default function CnnMediaSuite({
             <div className="space-y-4 bg-[#151515] p-4 rounded border border-neutral-800">
               <div className="flex justify-between items-center select-none">
                 <span className="text-[11px] font-bold uppercase font-mono text-neutral-300 tracking-widest">
-                  CNN Newsroom Desktop Image Loader:
+                  FC Newsroom Desktop Image Loader:
                 </span>
                 <span className="text-[9px] text-emerald-400 font-mono">
                   Native WebP Converter Enrolled
@@ -784,7 +784,7 @@ export default function CnnMediaSuite({
                     </div>
                   </div>
 
-                  {/* Optimization Parameters (Compression, WebP Converting) (Step 5 & 6) */}
+                  {/* Optimization Parameters (Compression, WebP Converting) */}
                   <div className="p-3 bg-[#202020] rounded border border-neutral-800 grid grid-cols-1 md:grid-cols-3 gap-3 font-mono text-[10px]">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-neutral-400 uppercase font-extrabold text-[9px]">WebP Compression</label>
@@ -811,7 +811,7 @@ export default function CnnMediaSuite({
                         onChange={(e) => setTargetWidth(e.target.value as any)}
                         className="bg-[#1a1a1a] border border-neutral-800 rounded p-1.5 text-[10px] text-neutral-200 focus:outline-none"
                       >
-                        <option value="1200">1200 px (CNN Full-Width Crop)</option>
+                        <option value="1200">1200 px (FC Full-Width Crop)</option>
                         <option value="800">800 px (Inline Standard Fit)</option>
                         <option value="400">400 px (Mobile Preview Card)</option>
                       </select>
@@ -866,7 +866,7 @@ export default function CnnMediaSuite({
                 </span>
               </div>
 
-              {/* Newsroom workflow fields (Step 8) */}
+              {/* Newsroom workflow fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-[10px]">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-neutral-400 font-bold uppercase">Featured Image Approval Status</label>
@@ -879,7 +879,7 @@ export default function CnnMediaSuite({
                     className="bg-[#222] border border-neutral-800 rounded p-2 text-xs font-mono text-neutral-200 focus:outline-none"
                   >
                     <option value="Pending">⚠️ Pending Editorial Review</option>
-                    <option value="Approved">🛡️ Approved by Photo Desk (CNN Live)</option>
+                    <option value="Approved">🛡️ Approved by Photo Desk (FC Live)</option>
                     <option value="Rejected">❌ Rejected (Legal/Copyright Bounded)</option>
                   </select>
                 </div>
@@ -912,11 +912,11 @@ export default function CnnMediaSuite({
                 />
               </div>
 
-              {/* Image version history list (Step 8) */}
+              {/* Image version history list */}
               <div className="space-y-2 pt-3 border-t border-neutral-900">
                 <span className="text-[10px] font-bold uppercase font-mono text-neutral-400 flex items-center gap-1">
                   <History size={12} className="text-red-400" />
-                  <span>CNN Media Version Storage Archive (Last 10 selections)</span>
+                  <span>FC Media Version Storage Archive (Last 10 selections)</span>
                 </span>
 
                 <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
@@ -1006,7 +1006,7 @@ export default function CnnMediaSuite({
                 {previewDevice === "desktop" && (
                   <div className="w-full max-w-xl bg-white text-neutral-900 rounded shadow-2xl p-4 space-y-3 font-sans">
                     <div className="border-b border-neutral-200 pb-2 flex justify-between text-xs font-mono text-red-700 font-extrabold uppercase select-none">
-                      <span>CNN BUSINESS LIVE COVERAGE</span>
+                      <span>FC BUSINESS LIVE COVERAGE</span>
                       <span className="text-neutral-400">1920 X 1080 RENDER</span>
                     </div>
                     <div className="relative aspect-[16/9] w-full overflow-hidden rounded bg-neutral-100 border border-neutral-200">
@@ -1034,7 +1034,7 @@ export default function CnnMediaSuite({
                 {previewDevice === "tablet" && (
                   <div className="w-80 bg-white text-neutral-900 rounded-xl shadow-2xl border-4 border-neutral-800 p-3.5 space-y-2.5 font-sans">
                     <div className="border-b border-neutral-100 pb-1.5 flex justify-between text-[10px] font-mono text-neutral-400 uppercase select-none">
-                      <span>CNN TABLET FEED</span>
+                      <span>FC TABLET FEED</span>
                       <span className="text-xs">●</span>
                     </div>
                     <div className="relative aspect-[4/3] w-full overflow-hidden rounded bg-neutral-100 border border-neutral-200">
@@ -1055,7 +1055,7 @@ export default function CnnMediaSuite({
                 {previewDevice === "mobile" && (
                   <div className="w-56 bg-white text-neutral-900 rounded-3xl shadow-2xl border-[6px] border-neutral-900 overflow-hidden font-sans flex flex-col h-80">
                     <div className="bg-[#cc0000] p-2 text-center text-white font-mono font-black tracking-tighter text-[10px] uppercase select-none">
-                      ★ CNN NEWS LIVE
+                      ★ FC NEWS LIVE
                     </div>
                     <div className="flex-1 p-2 space-y-2 overflow-y-auto scrollbar-none">
                       <div className="relative aspect-[16/9] w-full overflow-hidden rounded bg-neutral-50">
@@ -1110,11 +1110,11 @@ export default function CnnMediaSuite({
                       <div className="bg-white rounded-lg border border-neutral-200 text-neutral-900 font-sans shadow-lg overflow-hidden">
                         <div className="p-3 border-b border-neutral-100 flex items-center gap-2 select-none">
                           <div className="w-8 h-8 rounded-full bg-red-700 text-white font-mono font-black flex items-center justify-center text-xs shadow-sm">
-                            CNN
+                            FC
                           </div>
                           <div>
-                            <p className="text-xs font-bold text-neutral-900">CNN International</p>
-                            <span className="text-[9px] text-neutral-400 leading-none">Sponsored ● global.com</span>
+                            <p className="text-xs font-bold text-neutral-900">FC International</p>
+                            <span className="text-[9px] text-neutral-400 leading-none">Sponsored ● global.fc.com</span>
                           </div>
                         </div>
                         <div className="p-2.5 text-xs text-neutral-800">
@@ -1129,7 +1129,7 @@ export default function CnnMediaSuite({
                           />
                         </div>
                         <div className="bg-[#f0f2f5] p-2.5 select-none text-left">
-                          <span className="text-[9px] text-neutral-500 uppercase tracking-wider font-mono">GLOBAL.CNN.COM</span>
+                          <span className="text-[9px] text-neutral-500 uppercase tracking-wider font-mono">GLOBAL.FC.COM</span>
                           <h1 className="text-xs font-bold text-neutral-900 line-clamp-1 pr-2 truncate" title={article.title}>{article.title || "Headline Update"}</h1>
                           <p className="text-[10px] text-neutral-500 truncate mt-0.5" title={article.excerpt}>{article.excerpt || "Detailed reporting from state desk."}</p>
                         </div>
@@ -1140,15 +1140,15 @@ export default function CnnMediaSuite({
                       <div className="bg-[#15202b] text-neutral-100 rounded-2xl border border-neutral-800 p-3 space-y-2.5 font-sans">
                         <div className="flex items-center gap-2 select-none">
                           <div className="w-8 h-8 rounded-full bg-red-700 text-white font-mono font-black flex items-center justify-center text-xs">
-                            C
+                            F
                           </div>
                           <div className="text-left">
-                            <span className="text-xs font-bold text-neutral-200 block">CNN Breaking Wire</span>
-                            <span className="text-[9px] text-neutral-500 leading-none">@CNNNow ● Live Feed</span>
+                            <span className="text-xs font-bold text-neutral-200 block">FC Breaking Wire</span>
+                            <span className="text-[9px] text-neutral-500 leading-none">@FCNow ● Live Feed</span>
                           </div>
                         </div>
                         <p className="text-xs text-neutral-100">
-                          CNN Exclusive dossier filed on live desk. Major implications detected. Sourced metrics attached below. #GlobalSummit
+                          FC Exclusive dossier filed on live desk. Major implications detected. Sourced metrics attached below. #GlobalSummit
                         </p>
                         <div className="aspect-[16/9] w-full overflow-hidden rounded-2xl border border-neutral-850 relative">
                           <img
@@ -1157,8 +1157,8 @@ export default function CnnMediaSuite({
                             className="w-full h-full object-cover"
                             referrerPolicy="no-referrer"
                           />
-                          <div className="absolute inset-x-0 bottom-0 bg-neutral-950/80 p-2 border-t border-neutral-850 text-left select-none">
-                            <p className="text-[10px] text-neutral-400 font-mono">global.cnn.com</p>
+                          <div className="absolute inset-x-0 bottom-0 bg-neutral-950/80 p-2 border-t border-[#1e1e1e] text-left select-none">
+                            <p className="text-[10px] text-neutral-400 font-mono">global.fc.com</p>
                             <h2 className="text-[11px] font-bold text-white truncate max-w-[270px]" title={article.title}>{article.title || "Headline Update"}</h2>
                           </div>
                         </div>
@@ -1177,7 +1177,7 @@ export default function CnnMediaSuite({
                           <div className="min-w-0 flex flex-col justify-center text-left">
                             <h4 className="text-[10px] font-bold text-white truncate" title={article.title}>{article.title || "Headline Update"}</h4>
                             <p className="text-[9px] text-[#8696a0] line-clamp-2 leading-tight" title={article.excerpt}>{article.excerpt || "Detailed reporting from state desk."}</p>
-                            <span className="text-[8px] text-[#8696a0] font-mono mt-0.5">https://global.cnn.com/...</span>
+                            <span className="text-[8px] text-[#8696a0] font-mono mt-0.5">https://global.fc.com/...</span>
                           </div>
                         </div>
                       </div>
@@ -1192,12 +1192,12 @@ export default function CnnMediaSuite({
 
         </div>
 
-        {/* Right Col: CNN Style metadata inspector & SEO optimizing dashboard */}
+        {/* Right Col: FC Style metadata inspector & SEO optimizing dashboard */}
         <div className="xl:col-span-5 space-y-4 bg-[#141414] p-4 rounded-lg border border-neutral-800 self-start">
           <div className="flex items-center gap-1 border-b border-neutral-850 pb-2 mb-1 select-none">
             <Sliders size={13} className="text-red-500" />
             <span className="text-[10px] font-bold uppercase font-mono tracking-widest text-[#ffc72c]">
-              CNN META & SEO ENGINE
+              FC META & SEO ENGINE
             </span>
           </div>
 
@@ -1212,12 +1212,12 @@ export default function CnnMediaSuite({
                   setCustomAltText(e.target.value);
                   onChangeArticle({ imageAlt: e.target.value });
                 }}
-                className="w-full bg-[#1e1e1e] border border-neutral-800 rounded p-2 text-[10px] text-neutral-300 focus:outline-none focus:border-red-750 focus:border-red-700"
+                className="w-full bg-[#1e1e1e] border border-neutral-800 rounded p-2 text-[10px] text-neutral-300 focus:outline-none focus:border-red-700"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-neutral-400 font-bold uppercase block text-[9px]">Image Caption (CNN Frontpage Layout)</label>
+              <label className="text-neutral-400 font-bold uppercase block text-[9px]">Image Caption (FC Frontpage Layout)</label>
               <input
                 type="text"
                 value={customCaption}

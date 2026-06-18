@@ -9,7 +9,7 @@ import Header from "./components/Header";
 import Footer from "./components/Footer";
 import BreakingNewsTicker from "./components/BreakingNewsTicker";
 import GlobalMarketTicker from "./components/GlobalMarketTicker";
-import CNNLayout from "./components/CNNLayout";
+import FCLayout from "./components/FCLayout";
 import ArticleView from "./components/ArticleView";
 import AdminLogin from "./components/AdminLogin";
 import AdminPanel from "./components/AdminPanel";
@@ -383,7 +383,7 @@ export default function App() {
         ) : selectedCategoryId === "markets" ? (
           <MarketDashboard />
         ) : (
-          <CNNLayout
+          <FCLayout
             articles={articles}
             categories={categories}
             videos={videos}

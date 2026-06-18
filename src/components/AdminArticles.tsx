@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Article, Category } from "../types";
 import { PlusCircle, Search, Edit2, Trash2, Save, FileText, Globe, Eye, Sparkles, AlertCircle } from "lucide-react";
-import CnnMediaSuite from "./CnnMediaSuite";
+import FcMediaSuite from "./FcMediaSuite";
 
 const CATEGORY_IMAGE_PRESETS: Record<string, string[]> = {
   politics: [
@@ -513,9 +513,9 @@ export default function AdminArticles({
                 </div>
               </div>
 
-              {/* CNN style corporate Media Library Management core */}
+              {/* FC style corporate Media Library Management core */}
               <div className="pt-2">
-                <CnnMediaSuite 
+                <FcMediaSuite 
                   article={editingArticle || {}} 
                   adminToken={adminToken}
                   onChangeArticle={(updatedFields) => {

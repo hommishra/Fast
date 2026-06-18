@@ -3,7 +3,7 @@ import { Article, Category, VideoItem, CoverageZone } from "../types";
 import { Clock, Eye, TrendingUp, Tv } from "lucide-react";
 import ActiveSectionsMap from "./ActiveSectionsMap";
 
-interface CNNLayoutProps {
+interface FCLayoutProps {
   articles: Article[];
   categories: Category[];
   videos?: VideoItem[];
@@ -13,7 +13,7 @@ interface CNNLayoutProps {
   searchTerm: string;
 }
 
-export default function CNNLayout({
+export default function FCLayout({
   articles,
   categories,
   videos = [],
@@ -21,7 +21,7 @@ export default function CNNLayout({
   onSelectArticle,
   selectedCategory,
   searchTerm,
-}: CNNLayoutProps) {
+}: FCLayoutProps) {
   // Filter active and published records
   const publishedArticles = articles.filter(
     (art) => art.status === "Published" && new Date(art.publishDate).getTime() <= Date.now()
@@ -118,13 +118,13 @@ export default function CNNLayout({
     );
   }
 
-  // Classic CNN Homepage Blueprint: Big spotlight, side list, bottom subgrids
+  // Classic FC Homepage Blueprint: Big spotlight, side list, bottom subgrids
   const featuredHero = filteredArticles[0];
   const sidebarStories = filteredArticles.slice(1, 4);
   const coreFlow = filteredArticles.slice(4);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6 space-y-10" id="cnn_blueprint_view">
+    <div className="max-w-7xl mx-auto px-6 py-6 space-y-10" id="fc_blueprint_view">
       {/* SECTION 1: Dynamic Spotlight Block */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-8 border-b border-slate-200">
         {/* Spotlight Hero Article */}
