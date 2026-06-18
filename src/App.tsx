@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, limit, doc } from "firebase/firestore";
-import { db } from "./firebase";
-import { Article, Category, WebSettings } from "./types";
+import { collection, onSnapshot, query, limit, doc, getDoc, updateDoc, where, setDoc, deleteDoc } from "firebase/firestore";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { db, auth } from "./firebase";
+import { Article, Category, WebSettings, VideoItem, CoverageZone, Bookmark } from "./types";
 import { seedDatabaseIfEmpty } from "./seedData";
 
 import Header from "./components/Header";
@@ -12,15 +13,22 @@ import CNNLayout from "./components/CNNLayout";
 import ArticleView from "./components/ArticleView";
 import AdminLogin from "./components/AdminLogin";
 import AdminPanel from "./components/AdminPanel";
+import MarketDashboard from "./components/MarketDashboard";
+import AuthModal from "./components/AuthModal";
+import SavedArticlesModal from "./components/SavedArticlesModal";
+
 
 export default function App() {
   // Global Database state
   const [articles, setArticles] = useState<Article[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [coverageZones, setCoverageZones] = useState<CoverageZone[]>([]);
   const [globalSettings, setGlobalSettings] = useState<WebSettings>({
     logoText: "FAST COVERAGE",
     siteTitle: "Fast Coverage | Rapid Global Headlines",
     contactEmail: "press@fastcoverage.news",
+    securityEmail: "fastcoveragenews@gmail.com",
     aboutText: "Fast Coverage delivers rapid global bulletins, in-depth political dossiers, financial markers, and lifestyle reviews from the frontlines.",
     socialFacebook: "https://facebook.com/fastcoverage",
     socialTwitter: "https://twitter.com/fastcoverage",
@@ -28,7 +36,9 @@ export default function App() {
     socialYoutube: "https://youtube.com/fastcoverage",
     seoDescription: "Your leading dynamic global news bulletin dashboard.",
     adSenseCode: "ca-pub-681675716008",
-    analyticsCode: "G-9203115333"
+    analyticsCode: "G-9203115333",
+    mobileNumbers: [],
+    gmailIds: []
   });
 
   // Gating & Routing states
@@ -45,6 +55,12 @@ export default function App() {
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+
+  // Reader authentication & saved blogs states
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isBookmarksOpen, setIsBookmarksOpen] = useState(false);
 
   // Parse hash change listeners for secure routing
   useEffect(() => {
@@ -71,11 +87,96 @@ export default function App() {
     }
   }, []);
 
+  // Listen to Firebase Auth state with database-only reader fallback
+  useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          isFirebaseUser: true
+        });
+      } else {
+        const storedReader = localStorage.getItem("fc_custom_reader_session");
+        if (storedReader) {
+          try {
+            setCurrentUser(JSON.parse(storedReader));
+          } catch {
+            setCurrentUser(null);
+          }
+        } else {
+          setCurrentUser(null);
+        }
+      }
+    });
+
+    const handleStorageChange = () => {
+      const storedReader = localStorage.getItem("fc_custom_reader_session");
+      if (storedReader && !auth.currentUser) {
+        try {
+          setCurrentUser(JSON.parse(storedReader));
+        } catch {
+          setCurrentUser(null);
+        }
+      } else if (!storedReader && !auth.currentUser) {
+        setCurrentUser(null);
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      unsubAuth();
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, []);
+
+  // Listen to current user's bookmarks
+  useEffect(() => {
+    if (!currentUser) {
+      setBookmarks([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "bookmarks"),
+      where("userId", "==", currentUser.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: Bookmark[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as Bookmark);
+      });
+      list.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+      setBookmarks(list);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
   // Seed database if empty and run core listeners
   useEffect(() => {
     const initApp = async () => {
       // Trigger automatic starting seeding to guarantee beautiful layouts right away
       await seedDatabaseIfEmpty();
+
+      // Ensure the Security Ops email is updated to fastcoveragenews@gmail.com
+      try {
+        const settingsRef = doc(db, "settings", "global");
+        const settingsSnap = await getDoc(settingsRef);
+        if (settingsSnap.exists()) {
+          const data = settingsSnap.data() as WebSettings;
+          if (!data.securityEmail || data.securityEmail === "security@fastcoverage.news") {
+            await updateDoc(settingsRef, {
+              securityEmail: "fastcoveragenews@gmail.com"
+            });
+            console.log("Automatically patched securityEmail to fastcoveragenews@gmail.com");
+          }
+        }
+      } catch (err) {
+        console.error("Auto patch of security Email failed: ", err);
+      }
     };
     initApp();
 
@@ -106,10 +207,32 @@ export default function App() {
       }
     });
 
+    // Listen to Videos database feed
+    const unsubscribeVideos = onSnapshot(collection(db, "videos"), (snapshot) => {
+      const items: VideoItem[] = [];
+      snapshot.forEach((doc) => {
+        items.push({ id: doc.id, ...doc.data() } as VideoItem);
+      });
+      items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setVideos(items);
+    });
+
+    // Listen to Coverage Zones collection
+    const unsubscribeZones = onSnapshot(collection(db, "coverage_zones"), (snapshot) => {
+      const items: CoverageZone[] = [];
+      snapshot.forEach((doc) => {
+        items.push({ id: doc.id, ...doc.data() } as CoverageZone);
+      });
+      items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setCoverageZones(items);
+    });
+
     return () => {
       unsubscribeArticles();
       unsubscribeCategories();
       unsubscribeSettings();
+      unsubscribeVideos();
+      unsubscribeZones();
     };
   }, []);
 
@@ -124,6 +247,51 @@ export default function App() {
     sessionStorage.removeItem("fc_admin_session");
     setAdminSession(null);
     window.location.hash = ""; // Route away from control room
+  };
+
+  // Reader bookmarks management helpers
+  const handleRemoveBookmark = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "bookmarks", id));
+    } catch (err) {
+      console.error("Failed to delete bookmark:", err);
+    }
+  };
+
+  const handleToggleBookmark = async (art: Article) => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    const bId = `${currentUser.uid}_${art.id}`;
+    const alreadySaved = bookmarks.some((b) => b.id === bId);
+
+    try {
+      if (alreadySaved) {
+        await deleteDoc(doc(db, "bookmarks", bId));
+      } else {
+        await setDoc(doc(db, "bookmarks", bId), {
+          id: bId,
+          userId: currentUser.uid,
+          articleId: art.id,
+          articleTitle: art.title,
+          articleSlug: art.slug,
+          featuredImage: art.featuredImage || "",
+          categoryId: art.categoryId,
+          savedAt: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error("Failed to save/bookmark article:", err);
+    }
+  };
+
+  const handleSelectArticleById = (articleId: string) => {
+    const art = articles.find((a) => a.id === articleId);
+    if (art) {
+      setSelectedArticle(art);
+    }
   };
 
   // Find Related Articles helper
@@ -162,6 +330,7 @@ export default function App() {
         onLogout={handleAdminLogout}
         categories={categories}
         articles={articles}
+        coverageZones={coverageZones}
       />
     );
   }
@@ -180,6 +349,14 @@ export default function App() {
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         logoText={globalSettings.logoText}
+        currentUser={currentUser}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+        onOpenBookmarks={() => setIsBookmarksOpen(true)}
+        onSignOut={async () => {
+          localStorage.removeItem("fc_custom_reader_session");
+          await signOut(auth);
+          setCurrentUser(null);
+        }}
       />
 
       {/* Real-time Global Stock and Asset Index Ticker */}
@@ -191,6 +368,9 @@ export default function App() {
           <ArticleView
             article={selectedArticle}
             relatedArticles={getRelatedArticles(selectedArticle)}
+            currentUser={currentUser}
+            onToggleBookmark={handleToggleBookmark}
+            bookmarks={bookmarks}
             onBack={() => {
               setSelectedArticle(null);
               window.scrollTo({ top: 0 });
@@ -200,10 +380,14 @@ export default function App() {
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           />
+        ) : selectedCategoryId === "markets" ? (
+          <MarketDashboard />
         ) : (
           <CNNLayout
             articles={articles}
             categories={categories}
+            videos={videos}
+            coverageZones={coverageZones}
             onSelectArticle={(art) => {
               setSelectedArticle(art);
               window.scrollTo({ top: 0 });
@@ -219,12 +403,30 @@ export default function App() {
         logoText={globalSettings.logoText}
         aboutText={globalSettings.aboutText}
         contactEmail={globalSettings.contactEmail}
+        securityEmail={globalSettings.securityEmail}
+        mobileNumbers={globalSettings.mobileNumbers}
+        gmailIds={globalSettings.gmailIds}
         socials={{
           facebook: globalSettings.socialFacebook,
           twitter: globalSettings.socialTwitter,
           instagram: globalSettings.socialInstagram,
           youtube: globalSettings.socialYoutube,
         }}
+      />
+
+      {/* Reader Access Verification Gate modal */}
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)} 
+      />
+
+      {/* Curated Personal Bookmark Dashboard modal */}
+      <SavedArticlesModal
+        isOpen={isBookmarksOpen}
+        onClose={() => setIsBookmarksOpen(false)}
+        bookmarks={bookmarks}
+        onRemoveBookmark={handleRemoveBookmark}
+        onSelectArticleById={handleSelectArticleById}
       />
     </div>
   );

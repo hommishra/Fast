@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { WebSettings } from "../types";
-import { Save, Globe, Info, CreditCard, Code, CheckCircle2 } from "lucide-react";
+import { Save, Globe, Info, CreditCard, Code, CheckCircle2, Phone, Mail, PlusCircle, Trash2 } from "lucide-react";
 
 interface AdminSettingsProps {
   settings: WebSettings;
@@ -16,6 +16,7 @@ export default function AdminSettings({
   const [logoText, setLogoText] = useState("");
   const [siteTitle, setSiteTitle] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [securityEmail, setSecurityEmail] = useState("");
   const [aboutText, setAboutText] = useState("");
   const [socialFacebook, setSocialFacebook] = useState("");
   const [socialTwitter, setSocialTwitter] = useState("");
@@ -24,6 +25,12 @@ export default function AdminSettings({
   const [seoDescription, setSeoDescription] = useState("");
   const [adSenseCode, setAdSenseCode] = useState("");
   const [analyticsCode, setAnalyticsCode] = useState("");
+
+  // Lists of mobile numbers and gmail IDs
+  const [mobileNumbers, setMobileNumbers] = useState<string[]>([]);
+  const [gmailIds, setGmailIds] = useState<string[]>([]);
+  const [newMobile, setNewMobile] = useState("");
+  const [newGmail, setNewGmail] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
@@ -35,6 +42,7 @@ export default function AdminSettings({
       setLogoText(settings.logoText || "");
       setSiteTitle(settings.siteTitle || "");
       setContactEmail(settings.contactEmail || "");
+      setSecurityEmail(settings.securityEmail || "");
       setAboutText(settings.aboutText || "");
       setSocialFacebook(settings.socialFacebook || "");
       setSocialTwitter(settings.socialTwitter || "");
@@ -43,6 +51,8 @@ export default function AdminSettings({
       setSeoDescription(settings.seoDescription || "");
       setAdSenseCode(settings.adSenseCode || "");
       setAnalyticsCode(settings.analyticsCode || "");
+      setMobileNumbers(settings.mobileNumbers || []);
+      setGmailIds(settings.gmailIds || []);
     }
   }, [settings]);
 
@@ -56,6 +66,7 @@ export default function AdminSettings({
         logoText,
         siteTitle,
         contactEmail,
+        securityEmail,
         aboutText,
         socialFacebook,
         socialTwitter,
@@ -64,6 +75,8 @@ export default function AdminSettings({
         seoDescription,
         adSenseCode,
         analyticsCode,
+        mobileNumbers,
+        gmailIds,
       });
 
       setStatusMsg("Website global settings successfully updated in Firestore!");
@@ -74,6 +87,38 @@ export default function AdminSettings({
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleAddMobile = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = newMobile.trim();
+    if (!val) return;
+    if (mobileNumbers.includes(val)) {
+      alert("This mobile number already exists!");
+      return;
+    }
+    setMobileNumbers(prev => [...prev, val]);
+    setNewMobile("");
+  };
+
+  const handleDeleteMobile = (num: string) => {
+    setMobileNumbers(prev => prev.filter(n => n !== num));
+  };
+
+  const handleAddGmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = newGmail.trim();
+    if (!val) return;
+    if (gmailIds.includes(val)) {
+      alert("This Gmail ID already exists!");
+      return;
+    }
+    setGmailIds(prev => [...prev, val]);
+    setNewGmail("");
+  };
+
+  const handleDeleteGmail = (id: string) => {
+    setGmailIds(prev => prev.filter(g => g !== id));
   };
 
   const handleSeedAction = async () => {
@@ -109,7 +154,7 @@ export default function AdminSettings({
               General Brand Profiles
             </h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Logo Text Label</label>
                 <input
@@ -129,6 +174,17 @@ export default function AdminSettings({
                   value={contactEmail}
                   onChange={(e) => setContactEmail(e.target.value)}
                   className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm font-sans focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Security Ops Email</label>
+                <input
+                  type="email"
+                  required
+                  value={securityEmail}
+                  onChange={(e) => setSecurityEmail(e.target.value)}
+                  className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm font-sans focus:outline-none focus:border-red-655"
                 />
               </div>
             </div>
@@ -209,6 +265,121 @@ export default function AdminSettings({
                 onChange={(e) => setSeoDescription(e.target.value)}
                 className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs text-neutral-600 focus:outline-none font-sans"
               />
+            </div>
+          </div>
+        </div>
+
+        {/* Contact Registries (Mobile & Gmail) - NEW FEATURE REQUEST */}
+        <div className="bg-white border border-neutral-200 p-6 rounded-lg space-y-6 shadow-xs" id="admin_settings_contacts_section">
+          <div>
+            <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase border-b border-neutral-100 pb-3 select-none flex items-center gap-1.5 font-bold">
+              <Phone size={14} className="text-red-700" />
+              Custom Contact Registries (Mobile Numbers & Gmail Addresses)
+            </h3>
+            <p className="text-xs text-neutral-400 mt-1 select-none">
+              Easily append, catalog, or delete live contact parameters shown on the website footer and contact channels.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* MOBILE NUMBERS PANEL */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-neutral-100 pb-2">
+                <Phone size={15} className="text-neutral-500 shrink-0" />
+                <h4 className="text-xs font-bold text-neutral-700 uppercase font-mono tracking-wider">Mobile Contact Directory</h4>
+              </div>
+
+              {/* Add form */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. +1 (555) 123-4567"
+                  value={newMobile}
+                  onChange={(e) => setNewMobile(e.target.value)}
+                  className="flex-1 bg-white border border-neutral-300 rounded px-3 py-2 text-xs focus:outline-none focus:border-red-700"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddMobile}
+                  className="bg-neutral-900 hover:bg-neutral-800 text-white rounded p-2 px-3.5 text-xs font-bold cursor-pointer transition flex items-center justify-center shrink-0"
+                  title="Add Mobile Number"
+                >
+                  <PlusCircle size={14} className="mr-1" /> Add
+                </button>
+              </div>
+
+              {/* Display list */}
+              {mobileNumbers.length === 0 ? (
+                <div className="text-xs text-neutral-400 font-mono py-4 text-center border border-dashed border-neutral-200 rounded-lg select-none">
+                  No mobile numbers registered. Click to add.
+                </div>
+              ) : (
+                <div className="border border-neutral-200 rounded-lg overflow-hidden divide-y divide-neutral-100 max-h-48 overflow-y-auto">
+                  {mobileNumbers.map((num, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-neutral-50 hover:bg-white transition-colors">
+                      <span className="text-xs font-mono font-medium text-neutral-800">{num}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMobile(num)}
+                        className="text-red-600 hover:text-red-800 hover:bg-red-50 p-1.5 rounded transition cursor-pointer"
+                        title="Delete Mobile Number"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* GMAIL IDS PANEL */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-neutral-100 pb-2">
+                <Mail size={15} className="text-neutral-500 shrink-0" />
+                <h4 className="text-xs font-bold text-neutral-700 uppercase font-mono tracking-wider">Gmail / Mail Directory</h4>
+              </div>
+
+              {/* Add form */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  placeholder="e.g. support@gmail.com"
+                  value={newGmail}
+                  onChange={(e) => setNewGmail(e.target.value)}
+                  className="flex-1 bg-white border border-neutral-300 rounded px-3 py-2 text-xs focus:outline-none focus:border-red-700"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddGmail}
+                  className="bg-neutral-900 hover:bg-neutral-800 text-white rounded p-2 px-3.5 text-xs font-bold cursor-pointer transition flex items-center justify-center shrink-0"
+                  title="Add Gmail ID"
+                >
+                  <PlusCircle size={14} className="mr-1" /> Add
+                </button>
+              </div>
+
+              {/* Display list */}
+              {gmailIds.length === 0 ? (
+                <div className="text-xs text-neutral-400 font-mono py-4 text-center border border-dashed border-neutral-200 rounded-lg select-none">
+                  No Gmail IDs registered. Click to add.
+                </div>
+              ) : (
+                <div className="border border-neutral-200 rounded-lg overflow-hidden divide-y divide-neutral-100 max-h-48 overflow-y-auto">
+                  {gmailIds.map((gmail, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-neutral-50 hover:bg-white transition-colors">
+                      <span className="text-xs font-mono font-medium text-neutral-800">{gmail}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteGmail(gmail)}
+                        className="text-red-600 hover:text-red-800 hover:bg-red-50 p-1.5 rounded transition cursor-pointer"
+                        title="Delete Gmail ID"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

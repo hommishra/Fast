@@ -111,6 +111,39 @@
         "userAgent": { "type": "string" }
       },
       "required": ["id", "userEmail", "action", "timestamp", "ip", "userAgent"]
+    },
+    "VideoItem": {
+      "title": "VideoItem",
+      "description": "Uploaded video bulletins with descriptions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "url": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "views": { "type": "number" },
+        "isLive": { "type": "boolean" },
+        "isScheduled": { "type": "boolean" },
+        "scheduledTime": { "type": "string" }
+      },
+      "required": ["id", "title", "description", "url", "createdAt"]
+    },
+    "CoverageZone": {
+      "title": "CoverageZone",
+      "description": "Active sections map geographic live reports coverage zone",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "status": { "type": "string" },
+        "reporterName": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "x", "y", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -141,6 +174,14 @@
     "/activity_logs/{logId}": {
       "schema": "ActivityLog",
       "description": "Audit events feed"
+    },
+    "/videos/{videoId}": {
+      "schema": "VideoItem",
+      "description": "Uploaded video repository"
+    },
+    "/coverage_zones/{zoneId}": {
+      "schema": "CoverageZone",
+      "description": "Active sections reports live map locations"
     }
   }
 }

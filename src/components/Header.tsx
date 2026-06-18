@@ -9,6 +9,10 @@ interface HeaderProps {
   searchTerm: string;
   onSearchChange: (val: string) => void;
   logoText: string;
+  currentUser?: any | null;
+  onOpenAuth?: () => void;
+  onOpenBookmarks?: () => void;
+  onSignOut?: () => void;
 }
 
 export default function Header({
@@ -18,6 +22,10 @@ export default function Header({
   searchTerm,
   onSearchChange,
   logoText,
+  currentUser,
+  onOpenAuth,
+  onOpenBookmarks,
+  onSignOut,
 }: HeaderProps) {
   const [currentUtc, setCurrentUtc] = useState("");
 
@@ -36,21 +44,56 @@ export default function Header({
   return (
     <header className="bg-white border-b border-slate-200" id="main_website_header">
       {/* Top Utility Bar */}
-      <div className="bg-slate-900 text-slate-450 border-b border-slate-950 text-[10px] font-sans font-bold tracking-wider py-2 px-6 flex justify-between items-center select-none uppercase">
-        <div className="flex items-center gap-3">
+      <div className="bg-slate-900 text-slate-400 border-b border-slate-950 text-[10px] font-sans font-bold tracking-wider py-2 px-6 flex flex-col sm:flex-row justify-between items-center gap-2 select-none uppercase">
+        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
           <span className="flex items-center gap-1.5 text-slate-300">
             <Globe className="text-blue-500 animate-spin" size={12} style={{ animationDuration: "12s" }} />
             Fast Coverage Network Log
           </span>
-          <span className="text-slate-700">|</span>
+          <span className="text-slate-700 hidden sm:inline">|</span>
           <span className="hover:text-white text-slate-400 transition-colors cursor-pointer flex items-center gap-1" onClick={() => {
             window.location.hash = "admin-portal";
           }}>
             🔐 Secure Control Room
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 font-semibold font-mono tracking-tight">{currentUtc}</span>
+        
+        {/* User Session Profile controls of the network */}
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3.5">
+          {currentUser ? (
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={onOpenBookmarks}
+                className="hover:text-white text-blue-400 transition-colors cursor-pointer flex items-center gap-1"
+                title="Saved Bookmarks Board"
+              >
+                🔖 Bookmarks
+              </button>
+              <span className="text-slate-700 font-normal">|</span>
+              <span className="text-slate-300 font-semibold normal-case">
+                {currentUser.displayName || "Subscriber"}
+              </span>
+              <span className="text-slate-700 font-normal">|</span>
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="hover:text-red-400 text-slate-400 transition-colors cursor-pointer font-bold"
+              >
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenAuth}
+              className="hover:text-white text-red-405 transition-colors cursor-pointer flex items-center gap-1 font-extrabold"
+            >
+              👤 Reader Sign In
+            </button>
+          )}
+          <span className="text-slate-705 hidden sm:inline">|</span>
+          <span className="text-slate-400 font-semibold font-mono tracking-tight hidden sm:inline">{currentUtc}</span>
         </div>
       </div>
 
@@ -97,6 +140,16 @@ export default function Header({
               }`}
             >
               Top Stories
+            </button>
+            <button
+              onClick={() => onSelectCategory("markets")}
+              className={`px-3 py-1.5 text-[10px] font-extrabold font-sans uppercase tracking-widest transition-all shrink-0 rounded-md flex items-center gap-1 border ${
+                selectedCategoryId === "markets"
+                  ? "bg-red-700 text-white border-red-700 shadow-xs"
+                  : "text-red-700 bg-red-50/50 hover:bg-red-100/50 border-red-200/50"
+              }`}
+            >
+              📈 Live Markets
             </button>
             {parentCategories.map((cat) => {
               const isActive = selectedCategoryId === cat.id;

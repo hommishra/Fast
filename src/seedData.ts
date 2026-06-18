@@ -205,6 +205,7 @@ const INITIAL_SETTINGS: WebSettings = {
   logoText: "FAST COVERAGE",
   siteTitle: "Fast Coverage | Rapid, Accurate Global News Headlines",
   contactEmail: "press@fastcoverage.news",
+  securityEmail: "fastcoveragenews@gmail.com",
   aboutText: "Fast Coverage delivers objective, breaking news reports, insightful political coverage, tech analyses, and styling trends directly to readers with speed and integrity.",
   socialFacebook: "https://facebook.com/fastcoverage",
   socialTwitter: "https://twitter.com/fastcoverage",
@@ -212,7 +213,9 @@ const INITIAL_SETTINGS: WebSettings = {
   socialYoutube: "https://youtube.com/fastcoverage",
   seoDescription: "Your leading source for global news summaries, breaking bulletins, financial updates, in-depth politics, and tech innovations.",
   adSenseCode: "ca-pub-681675716008",
-  analyticsCode: "G-92031153339"
+  analyticsCode: "G-92031153339",
+  mobileNumbers: ["+1 (555) 123-4567", "+44 20 7946 0958"],
+  gmailIds: ["fastcoveragenews@gmail.com", "editors.fastcoverage@gmail.com"]
 };
 
 export async function seedDatabaseIfEmpty() {
@@ -254,6 +257,55 @@ export async function seedDatabaseIfEmpty() {
     // Seeding web settings
     const settingsRef = doc(db, "settings", "global");
     batch.set(settingsRef, INITIAL_SETTINGS);
+
+    // Seeding dynamic coverage zone pins
+    const INITIAL_ZONES = [
+      {
+        id: "zone-washington",
+        name: "Washington Focal Hub",
+        x: 18.5,
+        y: 28.5,
+        status: "active",
+        reporterName: "Sarah Jenkins",
+        details: "Manning secure federal logs, policy alignments, and economic telemetry feeds.",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "zone-london",
+        name: "London Bureau",
+        x: 44.5,
+        y: 21.2,
+        status: "active",
+        reporterName: "Jameson Miller",
+        details: "Monitoring European currencies fluctuations, local trade sequels, and defense coordination.",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "zone-tokyo",
+        name: "Tokyo Sector Desk",
+        x: 82.5,
+        y: 31.5,
+        status: "offline",
+        reporterName: "Kenji Sato",
+        details: "Liaising with East Asian tech giants and compiling trade corridor index patterns.",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "zone-switzerland",
+        name: "Geneva Alert Zone",
+        x: 46.5,
+        y: 24.5,
+        status: "alert",
+        reporterName: "Elena Rostova",
+        details: "PRIORITY RED ALERT: Diplomatic summits underway. Telemetry checks and media lockouts in progress.",
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    for (const zone of INITIAL_ZONES) {
+      const zoneRef = doc(db, "coverage_zones", zone.id);
+      batch.set(zoneRef, zone);
+    }
 
     // Seeding default users (Admin role for hommishra65@gmail.com)
     const adminUserRef = doc(db, "users", "admin-hommishra");

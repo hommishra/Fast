@@ -18,6 +18,19 @@ export interface Article {
   seoTitle?: string;
   seoDescription?: string;
   seoKeywords?: string;
+  imageAlt?: string;
+  imageCaption?: string;
+  photographerCredit?: string;
+  imageDimensions?: string;
+  imageFileSize?: string;
+  imageMime?: string;
+  approvalStatus?: "Pending" | "Approved" | "Rejected";
+  approvalNotes?: string;
+  approvingEditor?: string;
+  imageHistory?: Array<{ url: string; timestamp: string }>;
+  isLazyLoaded?: boolean;
+  compressionQuality?: "Low" | "Medium" | "High";
+  cdnOptimized?: boolean;
 }
 
 export interface Category {
@@ -68,6 +81,7 @@ export interface WebSettings {
   logoText: string;
   siteTitle: string;
   contactEmail: string;
+  securityEmail?: string; // Customizable security ops email
   aboutText: string;
   socialFacebook: string;
   socialTwitter: string;
@@ -76,6 +90,8 @@ export interface WebSettings {
   seoDescription: string;
   adSenseCode: string; // Simulation
   analyticsCode: string; // Simulation
+  mobileNumbers?: string[]; // Admin managed mobile contacts
+  gmailIds?: string[]; // Admin managed gmail contacts
 }
 
 export interface MediaFile {
@@ -87,3 +103,40 @@ export interface MediaFile {
   folder: string;
   createdAt: string;
 }
+
+export interface VideoItem {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  createdAt: string; // ISO format
+  views: number;
+  isLive?: boolean; // Live video badge
+  isScheduled?: boolean; // Scheduled video option
+  scheduledTime?: string; // Scheduled date/time string
+}
+
+export interface CoverageZone {
+  id: string;
+  name: string;
+  x: number; // Percent width (0 to 100) on SVG world map
+  y: number; // Percent height (0 to 100) on SVG world map
+  status: "active" | "alert" | "offline";
+  reporterName?: string;
+  details?: string;
+  createdAt: string;
+}
+
+export interface Bookmark {
+  id: string; // userId_articleId
+  userId: string;
+  articleId: string;
+  articleTitle: string;
+  articleSlug: string;
+  featuredImage: string;
+  categoryId: string;
+  savedAt: string;
+}
+
+
+

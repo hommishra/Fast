@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Article, Comment } from "../types";
+import { Article, Comment, Bookmark } from "../types";
 import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment } from "firebase/firestore";
 import { db } from "../firebase";
-import { Clock, User, ArrowLeft, Send, MessageSquare, Flame } from "lucide-react";
+import { Clock, User, ArrowLeft, Send, MessageSquare, Flame, Bookmark as BookmarkIcon } from "lucide-react";
 
 interface ArticleViewProps {
   article: Article;
   relatedArticles: Article[];
+  currentUser?: any | null;
+  onToggleBookmark?: (art: Article) => void;
+  bookmarks?: Bookmark[];
   onBack: () => void;
   onSelectArticle: (art: Article) => void;
 }
@@ -14,6 +17,9 @@ interface ArticleViewProps {
 export default function ArticleView({
   article,
   relatedArticles,
+  currentUser,
+  onToggleBookmark,
+  bookmarks,
   onBack,
   onSelectArticle,
 }: ArticleViewProps) {
@@ -22,6 +28,19 @@ export default function ArticleView({
   const [commentEmail, setCommentEmail] = useState("");
   const [commentContent, setCommentContent] = useState("");
   const [submitStatus, setSubmitStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+
+  const isBookmarked = bookmarks?.some((b) => b.articleId === article.id) || false;
+
+  // Sync user details to comment fields on change
+  useEffect(() => {
+    if (currentUser) {
+      setCommentName(currentUser.displayName || "Anonymous Reader");
+      setCommentEmail(currentUser.email || "");
+    } else {
+      setCommentName("");
+      setCommentEmail("");
+    }
+  }, [currentUser]);
 
   // Track Article Views / Incrementation
   useEffect(() => {
@@ -126,21 +145,37 @@ export default function ArticleView({
             )}
 
             {/* Author info and Date details */}
-            <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono text-slate-400 pt-2 border-y border-slate-100 py-2.5">
-              <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                <User size={12} className="text-blue-600" />
-                <span>By {article.authorName}</span>
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-y border-slate-100 py-2.5">
+              <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono text-slate-400">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                  <User size={12} className="text-blue-600" />
+                  <span>By {article.authorName}</span>
+                </div>
+                <span className="text-slate-200">|</span>
+                <div className="flex items-center gap-1.5">
+                  <Clock size={12} />
+                  <span>Published {formatDate(article.publishDate)}</span>
+                </div>
+                <span className="text-slate-200">|</span>
+                <div className="flex items-center gap-1.5 text-red-655">
+                  <Flame size={12} />
+                  <span>{article.views + 1} Reads</span>
+                </div>
               </div>
-              <span className="text-slate-200">|</span>
-              <div className="flex items-center gap-1.5">
-                <Clock size={12} />
-                <span>Published {formatDate(article.publishDate)}</span>
-              </div>
-              <span className="text-slate-200">|</span>
-              <div className="flex items-center gap-1.5 text-red-655">
-                <Flame size={12} />
-                <span>{article.views + 1} Reads</span>
-              </div>
+
+              {/* Save Alert Brief Action trigger */}
+              <button
+                type="button"
+                onClick={() => onToggleBookmark?.(article)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-sans font-bold uppercase tracking-wider select-none transition-all cursor-pointer ${
+                  isBookmarked
+                    ? "bg-red-700 text-white border-red-700 shadow-xs hover:bg-red-800"
+                    : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900 hover:border-slate-350"
+                }`}
+              >
+                <BookmarkIcon size={12} className={isBookmarked ? "fill-white" : ""} />
+                <span>{isBookmarked ? "Saved to Briefs" : "Save Briefing"}</span>
+              </button>
             </div>
           </div>
 
@@ -240,35 +275,55 @@ export default function ArticleView({
             <h4 className="text-xs font-bold text-slate-900 mb-2 tracking-tight uppercase">
               Join the Conversation
             </h4>
-            <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-100 p-2 rounded mb-4">
+            <p className="text-[10px] text-amber-805 bg-amber-50 border border-amber-100 p-2 rounded mb-4">
               <strong>Standards Policy:</strong> Comments pass editorial moderation before loading publicly to prevent spam.
             </p>
 
-            <form onSubmit={handlePostComment} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Your display name"
-                    value={commentName}
-                    onChange={(e) => setCommentName(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-sans focus:outline-none focus:border-blue-650"
-                  />
+            {currentUser ? (
+              <div className="bg-blue-50/60 border border-blue-200/60 p-3 rounded-lg mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs font-sans select-none animate-fade-in">
+                <div className="text-blue-800">
+                  Commenting as <strong className="font-bold text-blue-900">{currentUser.displayName || "Anonymous Reader"}</strong> <span className="text-blue-600/85 font-mono text-[10px]">({currentUser.email})</span>
+                  <span className="ml-2 bg-blue-100 text-blue-700 font-mono text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wider uppercase">
+                    VERIFIED ID
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Email</label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="name@example.com (Hidden)"
-                    value={commentEmail}
-                    onChange={(e) => setCommentEmail(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-sans focus:outline-none focus:border-blue-650"
-                  />
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Synced verified user profile
                 </div>
               </div>
+            ) : (
+              <div className="bg-slate-100 text-slate-650 p-2.5 rounded-lg mb-4 text-[10px] leading-relaxed font-sans select-none">
+                💡 <strong>Subscribers:</strong> Complete your <strong>Reader Sign In</strong> (located in the header top log bar) to register comments under your unique account handle and verify your reading streak.
+              </div>
+            )}
+
+            <form onSubmit={handlePostComment} className="space-y-4">
+              {!currentUser && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Your display name"
+                      value={commentName}
+                      onChange={(e) => setCommentName(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-sans focus:outline-none focus:border-blue-650"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Email</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="name@example.com (Hidden)"
+                      value={commentEmail}
+                      onChange={(e) => setCommentEmail(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-sans focus:outline-none focus:border-blue-650"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Your Comment</label>

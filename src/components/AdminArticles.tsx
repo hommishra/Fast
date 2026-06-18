@@ -1,6 +1,106 @@
 import React, { useState } from "react";
 import { Article, Category } from "../types";
 import { PlusCircle, Search, Edit2, Trash2, Save, FileText, Globe, Eye, Sparkles, AlertCircle } from "lucide-react";
+import CnnMediaSuite from "./CnnMediaSuite";
+
+const CATEGORY_IMAGE_PRESETS: Record<string, string[]> = {
+  politics: [
+    "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&q=80&w=800", // Capitol building
+    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&q=80&w=800", // Gavel courtroom
+    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&q=80&w=800"  // Press room mic
+  ],
+  "us-politics": [
+    "https://images.unsplash.com/photo-1502086223501-7ea6ecd79368?auto=format&fit=crop&q=80&w=800", // Flag white house
+    "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&q=80&w=800"
+  ],
+  "world-politics": [
+    "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&fit=crop&q=80&w=800", // World globes administration
+    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&q=80&w=800"
+  ],
+  technology: [
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=800", // Technology server motherboard
+    "https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?auto=format&fit=crop&q=80&w=800"  // Coding screen
+  ],
+  "ai-robots": [
+    "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800", // Cyber abstract visualization
+    "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&q=80&w=800"  // Robotic fingers
+  ],
+  gadgets: [
+    "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&q=80&w=800", // Smart gadget devices
+    "https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&q=80&w=800"  // Premium smart watch
+  ],
+  business: [
+    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=800", // Downtown Skyscrapers
+    "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&q=80&w=800"  // Financial workspace
+  ],
+  markets: [
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&q=80&w=800", // Exchange stock tracking board
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&q=80&w=800"  // Financial metrics
+  ],
+  opinion: [
+    "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&q=80&w=800", // Vintage typewriter
+    "https://images.unsplash.com/photo-1488190211105-8b0e65b80b4e?auto=format&fit=crop&q=80&w=800"  // Writing tablet desk
+  ],
+  style: [
+    "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&q=80&w=800", // Garments boutique
+    "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&q=80&w=800"  // High street luxury
+  ]
+};
+
+const KEYWORD_IMAGE_PRESETS: Array<{ keywords: string[]; url: string }> = [
+  {
+    keywords: ["climate", "carbon", "green", "emission", "environment", "global warming", "earth", "summit", "biodiversity", "renewable", "solar", "wind", "weather", "warming"],
+    url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&q=80&w=800"
+  },
+  {
+    keywords: ["space", "nasa", "mars", "moon", "galaxy", "rocket", "orbit", "astronomy", "satellite", "spacex", "telescope"],
+    url: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=800"
+  },
+  {
+    keywords: ["tesla", "electric vehicle", "car", "ev", "automotive", "self-driving", "autonomous"],
+    url: "https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&q=80&w=800"
+  },
+  {
+    keywords: ["crypto", "bitcoin", "ethereum", "blockchain", "token", "coinbase", "solana"],
+    url: "https://images.unsplash.com/photo-1518546305927-5a555bb7020d?auto=format&fit=crop&q=80&w=800"
+  },
+  {
+    keywords: ["cybersecurity", "hack", "leak", "security", "encryption", "databreach", "virus", "phishing", "ransomware", "firewall"],
+    url: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=800"
+  },
+  {
+    keywords: ["health", "covid", "virus", "medical", "hospital", "doctor", "cure", "fda", "syringes", "vaccines", "mental", "brain"],
+    url: "https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&q=80&w=800"
+  },
+  {
+    keywords: ["sports", "olympics", "cup", "trophy", "championship", "stadium", "athlete", "f1", "racing", "basketball", "soccer"],
+    url: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&q=80&w=800"
+  }
+];
+
+const hashString = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash);
+};
+
+export const getAutoCaughtImage = (title: string, categoryId: string): string => {
+  const normTitle = title.toLowerCase();
+  
+  // 1. Keyword search in title
+  for (const item of KEYWORD_IMAGE_PRESETS) {
+    if (item.keywords.some(k => normTitle.includes(k))) {
+      return item.url;
+    }
+  }
+
+  // 2. Category level fallback
+  const presets = CATEGORY_IMAGE_PRESETS[categoryId] || CATEGORY_IMAGE_PRESETS["politics"];
+  const index = hashString(title || "news") % presets.length;
+  return presets[index] || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&q=80&w=800";
+};
 
 interface AdminArticlesProps {
   articles: Article[];
@@ -31,18 +131,26 @@ export default function AdminArticles({
   const [saveLoading, setSaveLoading] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Auto Image catching state
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [imageGenerating, setImageGenerating] = useState(false);
+  const [suggestedKeywords, setSuggestedKeywords] = useState("");
+  const [imageMode, setImageMode] = useState<"ai" | "url">("ai");
+
   // Filter categories
   const parentCategories = categories.filter(c => !c.parentId);
   const subCategories = categories.filter(c => c.parentId);
 
   const startCreateNew = () => {
+    setImagePrompt("");
+    setSuggestedKeywords("");
     setEditingArticle({
       title: "",
       subtitle: "",
       excerpt: "",
       content: "",
       slug: "",
-      featuredImage: "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&q=80&w=800", // Default Unsplash journalism image
+      featuredImage: "", // Left blank to activate intelligent automatic image catching
       status: "Draft",
       categoryId: categories[0]?.id || "politics",
       publishDate: new Date().toISOString(),
@@ -58,6 +166,8 @@ export default function AdminArticles({
 
   const handleEdit = (art: Article) => {
     // Authors can only edit their own articles, or we permit depending on role
+    setImagePrompt("");
+    setSuggestedKeywords("");
     setEditingArticle({ ...art });
     setIsEditing(true);
   };
@@ -120,13 +230,66 @@ export default function AdminArticles({
     }
   };
 
+  const triggerGeminiImage = async (customPrompt?: string) => {
+    const promptToSend = (customPrompt || imagePrompt || editingArticle?.title || "").trim();
+    if (!promptToSend) {
+      alert("Please provide an image prompt or write an article title first so Gemini can analyze!");
+      return;
+    }
+    setImageGenerating(true);
+    try {
+      const response = await fetch("/api/gemini/suggest-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          prompt: promptToSend,
+          title: editingArticle?.title || "",
+          categoryId: editingArticle?.categoryId || ""
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setEditingArticle(prev => ({
+          ...prev,
+          featuredImage: data.url
+        }));
+        if (data.keywords) {
+          setSuggestedKeywords(data.keywords);
+        }
+        // If they provided a custom search prompt, update that field's model too
+        if (customPrompt) {
+          setImagePrompt(customPrompt);
+        }
+      } else {
+        alert("Intelligent Image Catch failed: " + data.error);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("AI communication timed out while matching image accents.");
+    } finally {
+      setImageGenerating(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingArticle?.title || !editingArticle.content || !editingArticle.categoryId) return;
     
     setSaveLoading(true);
     try {
-      await onSaveArticle(editingArticle);
+      const finalFeaturedImage = editingArticle.featuredImage?.trim() || 
+        getAutoCaughtImage(editingArticle.title || "", editingArticle.categoryId || "");
+      
+      const payload: Partial<Article> = {
+        ...editingArticle,
+        featuredImage: finalFeaturedImage
+      };
+
+      await onSaveArticle(payload);
       setIsEditing(false);
       setEditingArticle(null);
       setAiMessage("");
@@ -338,16 +501,33 @@ export default function AdminArticles({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Image URL Accent</label>
+                  <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Author Name</label>
                   <input
                     type="text"
                     required
-                    placeholder="https://images.unsplash.com/..."
-                    value={editingArticle?.featuredImage || ""}
-                    onChange={(e) => setEditingArticle(prev => ({ ...prev, featuredImage: e.target.value }))}
-                    className="w-full bg-white border border-neutral-300 rounded p-2.5 text-xs font-mono focus:outline-none focus:border-red-655"
+                    placeholder="e.g. Jane Doe"
+                    value={editingArticle?.authorName || ""}
+                    onChange={(e) => setEditingArticle(prev => ({ ...prev, authorName: e.target.value }))}
+                    className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm font-sans focus:outline-none focus:border-red-655"
                   />
                 </div>
+              </div>
+
+              {/* CNN style corporate Media Library Management core */}
+              <div className="pt-2">
+                <CnnMediaSuite 
+                  article={editingArticle || {}} 
+                  adminToken={adminToken}
+                  onChangeArticle={(updatedFields) => {
+                    setEditingArticle(prev => {
+                      if (!prev) return null;
+                      return {
+                        ...prev,
+                        ...updatedFields
+                      };
+                    });
+                  }}
+                />
               </div>
 
               <div className="space-y-1">

@@ -1,10 +1,13 @@
 import React from "react";
-import { Article, Category } from "../types";
-import { Clock, Eye, TrendingUp } from "lucide-react";
+import { Article, Category, VideoItem, CoverageZone } from "../types";
+import { Clock, Eye, TrendingUp, Tv } from "lucide-react";
+import ActiveSectionsMap from "./ActiveSectionsMap";
 
 interface CNNLayoutProps {
   articles: Article[];
   categories: Category[];
+  videos?: VideoItem[];
+  coverageZones?: CoverageZone[];
   onSelectArticle: (art: Article) => void;
   selectedCategory: string;
   searchTerm: string;
@@ -13,6 +16,8 @@ interface CNNLayoutProps {
 export default function CNNLayout({
   articles,
   categories,
+  videos = [],
+  coverageZones = [],
   onSelectArticle,
   selectedCategory,
   searchTerm,
@@ -240,6 +245,123 @@ export default function CNNLayout({
           </div>
         </div>
       )}
+
+      {/* Real-time Video Bulletins & Broadcasts section */}
+      {videos.length > 0 && (
+        <div className="mt-12 bg-neutral-900 text-white rounded-2xl p-6 md:p-8 shadow-xl border border-neutral-800 animate-fadeIn" id="news_broadcast_videos_section">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-800 pb-4 mb-6 gap-3">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 bg-red-800 text-white rounded-lg flex items-center justify-center shrink-0">
+                <Tv size={18} className="text-white" />
+              </span>
+              <div>
+                <h2 className="text-lg md:text-xl font-extrabold tracking-tight text-white font-sans">
+                  FAST COVERAGE VIDEO BULLETINS
+                </h2>
+                <span className="text-[10px] font-mono uppercase text-neutral-400 mt-0.5 tracking-wider block">
+                  Media Releases, Editorial Descripts & Video Ground Reports
+                </span>
+              </div>
+            </div>
+            <span className="text-xs bg-neutral-800 border border-neutral-700 px-3 py-1 rounded-full text-neutral-300 font-mono self-start sm:self-center select-none font-bold">
+              ● {videos.length} BRIEFINGS LIVE
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {videos.slice(0, 6).map((vid) => {
+              const matchesYoutube = vid.url.includes("youtube.com") || vid.url.includes("youtu.be") || vid.url.includes("embed");
+              return (
+                <div 
+                  key={vid.id}
+                  className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 rounded-xl overflow-hidden p-4 flex flex-col justify-between transition-all duration-300 hover:shadow-lg group shadow-sm"
+                >
+                  <div className="space-y-3.5">
+                    {/* Embedded preview engine */}
+                    <div className="aspect-video w-full bg-black rounded-lg overflow-hidden relative shadow-inner">
+                      {vid.isLive && (
+                        <span className="absolute top-2 left-2 bg-red-650 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow z-15 animate-pulse flex items-center gap-1 select-none">
+                          <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                          LIVE NOW
+                        </span>
+                      )}
+                      {vid.isScheduled && (
+                        <span className="absolute top-2 left-2 bg-blue-600 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow z-15 flex items-center gap-1 select-none">
+                          <Clock size={10} />
+                          SCHEDULED
+                        </span>
+                      )}
+                      
+                      {matchesYoutube ? (
+                        <iframe
+                          src={vid.url}
+                          title={vid.title}
+                          className="w-full h-full rounded-lg"
+                          allowFullScreen
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <video
+                          src={vid.url}
+                          controls
+                          className="w-full h-full object-cover bg-black rounded-lg"
+                          preload="metadata"
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <h4 className="font-extrabold text-sm text-white group-hover:text-red-500 transition-colors duration-200 leading-snug line-clamp-2">
+                        {vid.title}
+                      </h4>
+                      {vid.isScheduled && vid.scheduledTime && (
+                        <p className="text-[10px] text-blue-400 font-mono font-bold flex items-center gap-1 select-none pb-1">
+                          <Clock size={10} className="text-blue-400 animate-spin-slow" />
+                          Streaming on: {new Date(vid.scheduledTime).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      )}
+                      <p className="text-neutral-400 text-xs leading-relaxed line-clamp-3 font-sans">
+                        {vid.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Date Badge */}
+                  <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 font-mono mt-4 pt-3 border-t border-neutral-800 pb-0.5 select-none hover:text-neutral-450">
+                    <Clock size={11} className="text-neutral-400" />
+                    <span>PUBLISHED: {new Date(vid.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 4: Interactive Coverage Zone Map */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col gap-4 animate-fadeIn" id="news_coverage_geomap_section">
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-light pb-4 mb-2">
+          <div>
+            <h3 className="font-extrabold text-sm md:text-base text-slate-900 flex items-center gap-2 tracking-tight uppercase">
+              <span className="w-2.5 h-2.5 bg-blue-600 rounded-full animate-bounce" />
+              Active Coverage Sections Maps
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 select-none">
+              Live correspondent tracking, global telemetry sectors, and incident reports from our regional bureau desks.
+            </p>
+          </div>
+          <span className="font-mono text-[9px] font-bold text-neutral-500 mt-2 md:mt-0 uppercase tracking-wider bg-neutral-100 border border-neutral-200 px-2.5 py-1 rounded">
+            ● {coverageZones.length} BUREAU STATIONS LIVE
+          </span>
+        </div>
+
+        <ActiveSectionsMap
+          zones={coverageZones}
+          isAdmin={false}
+        />
+      </div>
+
     </div>
   );
 }

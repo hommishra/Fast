@@ -5,6 +5,9 @@ interface FooterProps {
   logoText: string;
   aboutText: string;
   contactEmail: string;
+  securityEmail?: string;
+  mobileNumbers?: string[];
+  gmailIds?: string[];
   socials: {
     facebook: string;
     twitter: string;
@@ -13,7 +16,7 @@ interface FooterProps {
   };
 }
 
-export default function Footer({ logoText, aboutText, contactEmail, socials }: FooterProps) {
+export default function Footer({ logoText, aboutText, contactEmail, securityEmail, mobileNumbers = [], gmailIds = [], socials }: FooterProps) {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -40,7 +43,7 @@ export default function Footer({ logoText, aboutText, contactEmail, socials }: F
           {/* Quick links & Contact */}
           <div>
             <h4 className="text-slate-200 text-[10px] font-bold tracking-widest uppercase mb-3.5 font-sans select-none border-l-2 border-blue-500 pl-2">Contact Desk</h4>
-            <ul className="space-y-2 text-xs">
+            <ul className="space-y-3.5 text-xs">
               <li>
                 <span className="text-slate-500 block text-[9px] uppercase font-mono">General Inquiries</span>
                 <a href={`mailto:${contactEmail}`} className="text-slate-300 hover:text-blue-500 transition-colors">
@@ -49,8 +52,42 @@ export default function Footer({ logoText, aboutText, contactEmail, socials }: F
               </li>
               <li>
                 <span className="text-slate-500 block text-[9px] uppercase font-mono">Security Ops</span>
-                <span className="text-slate-300">security@fastcoverage.news</span>
+                {securityEmail ? (
+                  <a href={`mailto:${securityEmail}`} className="text-slate-300 hover:text-blue-500 transition-colors">
+                    {securityEmail}
+                  </a>
+                ) : (
+                  <span className="text-slate-300">fastcoveragenews@gmail.com</span>
+                )}
               </li>
+
+              {/* Dynamic Mobile Registries managed via settings */}
+              {mobileNumbers && mobileNumbers.length > 0 && (
+                <li>
+                  <span className="text-slate-500 block text-[9px] uppercase font-mono">Mobile Hotlines</span>
+                  <div className="flex flex-col space-y-1 mt-1 font-mono text-[11px]">
+                    {mobileNumbers.map((num, idx) => (
+                      <a key={idx} href={`tel:${num}`} className="text-slate-300 hover:text-blue-500 transition-colors">
+                        {num}
+                      </a>
+                    ))}
+                  </div>
+                </li>
+              )}
+
+              {/* Dynamic Gmail Registries managed via settings */}
+              {gmailIds && gmailIds.length > 0 && (
+                <li>
+                  <span className="text-slate-500 block text-[9px] uppercase font-mono">Gmail Helpdesk</span>
+                  <div className="flex flex-col space-y-1 mt-1 font-mono text-[11px]">
+                    {gmailIds.map((gmail, idx) => (
+                      <a key={idx} href={`mailto:${gmail}`} className="text-slate-300 hover:text-blue-500 transition-colors">
+                        {gmail}
+                      </a>
+                    ))}
+                  </div>
+                </li>
+              )}
             </ul>
           </div>
 

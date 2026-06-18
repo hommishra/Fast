@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Article, Category, Comment, UserDB, ActivityLog, BreakingNews, WebSettings } from "../types";
+import { Article, Category, Comment, UserDB, ActivityLog, BreakingNews, WebSettings, CoverageZone } from "../types";
 import {
   collection,
   onSnapshot,
@@ -26,6 +26,7 @@ import {
   Power,
   RotateCcw,
   Zap,
+  Video,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -41,6 +42,7 @@ import AdminArticles from "./AdminArticles";
 import AdminCategories from "./AdminCategories";
 import AdminComments from "./AdminComments";
 import AdminSettings from "./AdminSettings";
+import AdminVideos from "./AdminVideos";
 
 const cleanUndefined = <T extends Record<string, any>>(obj: T): T => {
   const newObj = { ...obj };
@@ -57,6 +59,7 @@ interface AdminPanelProps {
   onLogout: () => void;
   categories: Category[];
   articles: Article[];
+  coverageZones: CoverageZone[];
 }
 
 export default function AdminPanel({
@@ -64,9 +67,10 @@ export default function AdminPanel({
   onLogout,
   categories,
   articles,
+  coverageZones,
 }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings"
+    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings" | "videos"
   >("dashboard");
 
   // Real-time Database Collections State
@@ -274,6 +278,29 @@ export default function AdminPanel({
     }
   };
 
+  const handleAddZone = async (zone: Omit<CoverageZone, "id" | "createdAt">) => {
+    const zoneId = "zone_" + Math.random().toString(36).substr(2, 9);
+    try {
+      await setDoc(doc(db, "coverage_zones", zoneId), cleanUndefined({
+        id: zoneId,
+        createdAt: new Date().toISOString(),
+        ...zone
+      }));
+      await logAuditActivity(`Pinned Global Coverage Zone: ${zone.name}`);
+    } catch (err) {
+      handleFirestoreErrorLocal(err, "create", `coverage_zones/${zoneId}`);
+    }
+  };
+
+  const handleDeleteZone = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "coverage_zones", id));
+      await logAuditActivity(`Deleted Global Coverage Zone ID: ${id}`);
+    } catch (err) {
+      handleFirestoreErrorLocal(err, "delete", `coverage_zones/${id}`);
+    }
+  };
+
   // Comments Moderation triggers
   const handleUpdateCommentStatus = async (id: string, status: Comment["status"]) => {
     try {
@@ -463,7 +490,7 @@ export default function AdminPanel({
               activeTab === "categories" ? "bg-red-800 text-white" : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
             }`}
           >
-            <FolderTree size={15} /> Section Categories ({totalCategories})
+            <FolderTree size={15} /> Active Parent Sections ({totalCategories})
           </button>
 
           <button
@@ -500,6 +527,15 @@ export default function AdminPanel({
             }`}
           >
             <Settings size={15} /> Site Configurations
+          </button>
+
+          <button
+            onClick={() => setActiveTab("videos")}
+            className={`w-full flex items-center gap-3 px-3.5 py-3 rounded text-xs font-bold uppercase tracking-wider transition ${
+              activeTab === "videos" ? "bg-red-800 text-white" : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
+            }`}
+          >
+            <Video size={15} /> Videos Manager
           </button>
 
           <div className="pt-8 text-center select-none">
@@ -736,6 +772,9 @@ export default function AdminPanel({
               categories={categories}
               onAddCategory={handleAddCategory}
               onDeleteCategory={handleDeleteCategory}
+              coverageZones={coverageZones}
+              onAddZone={handleAddZone}
+              onDeleteZone={handleDeleteZone}
             />
           )}
 
@@ -929,6 +968,11 @@ export default function AdminPanel({
               onSaveSettings={handleSaveSettings}
               onTriggerSeed={handleTriggerSeed}
             />
+          )}
+
+          {/* TAB 9: Videos & Description upload */}
+          {activeTab === "videos" && (
+            <AdminVideos adminToken={adminSession.token} />
           )}
         </main>
       </div>
