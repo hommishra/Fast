@@ -27,6 +27,7 @@ import {
   RotateCcw,
   Zap,
   Video,
+  Upload,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -535,7 +536,7 @@ export default function AdminPanel({
               activeTab === "videos" ? "bg-red-800 text-white" : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
             }`}
           >
-            <Video size={15} /> Videos Manager
+            <Video size={15} /> Video Upload & Manager
           </button>
 
           <div className="pt-8 text-center select-none">
@@ -569,7 +570,36 @@ export default function AdminPanel({
           
           {/* TAB 1: Admin Dashboard Hub Overview */}
           {activeTab === "dashboard" && (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-fadeIn">
+              {/* Core Quick Admin Actions */}
+              <div className="bg-neutral-950 border border-neutral-800/80 p-5 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-extrabold tracking-wider text-white uppercase font-mono flex items-center gap-2">
+                    <Zap size={14} className="text-red-500 animate-pulse" />
+                    Quick Administrative Action Desk
+                  </h3>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    Direct shortcuts to distribute real-time video coverage, publish multimedia, and draft standard text articles.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2.5">
+                  <button
+                    onClick={() => setActiveTab("videos")}
+                    className="bg-red-700 hover:bg-red-800 text-white text-xs tracking-wider uppercase font-extrabold py-2.5 px-4 rounded transition cursor-pointer flex items-center gap-2 shrink-0 shadow-md"
+                  >
+                    <Upload size={13} />
+                    Upload Video Report
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("articles")}
+                    className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs tracking-wider uppercase font-extrabold py-2.5 px-4 rounded transition cursor-pointer flex items-center gap-2 border border-neutral-800 shrink-0"
+                  >
+                    <FileText size={13} />
+                    Write News Article
+                  </button>
+                </div>
+              </div>
+
               {/* Dashboard Bento Gauge Cards Grid */}
               <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 select-none">
                 <div className="bg-neutral-950 border border-neutral-800/80 p-4 rounded-lg text-center space-y-1">

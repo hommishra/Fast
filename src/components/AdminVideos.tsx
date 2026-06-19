@@ -3,12 +3,8 @@ import { VideoItem } from "../types";
 import { 
   Video, 
   Trash2, 
-  PlusCircle, 
   Upload, 
   Link as LinkIcon, 
-  Clock, 
-  FileVideo, 
-  Info, 
   Play, 
   CheckCircle, 
   AlertTriangle,
@@ -20,12 +16,80 @@ import {
   FileCheck,
   User,
   Radio,
-  Eye
+  Eye,
+  FileVideo,
+  Clock,
+  Info
 } from "lucide-react";
-import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "../firebase";
 import { generateVideoThumbnail, formatDuration, base64ToBlob } from "../utils/videoHelpers";
+import { saveVideoFile } from "../indexedDB";
+
+const fileToBase64 = (file: File | Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
+};
+
+const uploadToBackendWithProgress = (
+  file: File,
+  adminToken: string,
+  progressCallback: (prog: number) => void
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    // Use the optimized web streaming upload endpoint with query parameters
+    xhr.open("POST", `/api/admin/upload-video-binary?fileName=${encodeURIComponent(file.name)}`, true);
+    xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`);
+    xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name));
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+
+    // Hook standard XMLHttpRequest progress listener
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = (event.loaded / event.total) * 100;
+        progressCallback(Math.round(percentComplete));
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          if (response.url) {
+            resolve(response.url);
+          } else {
+            reject(new Error("Server response is missing the file URL."));
+          }
+        } catch (e) {
+          reject(new Error("Failed to parse server response as JSON."));
+        }
+      } else {
+        try {
+          const errRes = JSON.parse(xhr.responseText);
+          reject(new Error(errRes.error || `Upload failed with HTTP status ${xhr.status}.`));
+        } catch (e) {
+          reject(new Error(`Upload failed with HTTP status ${xhr.status}.`));
+        }
+      }
+    });
+
+    xhr.addEventListener("error", () => {
+      reject(new Error("Network connection error encountered during upload."));
+    });
+
+    xhr.addEventListener("abort", () => {
+      reject(new Error("Upload aborted by the administrator."));
+    });
+
+    xhr.send(file);
+  });
+};
 
 interface AdminVideosProps {
   adminToken: string;
@@ -54,13 +118,12 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [sourceType, setSourceType] = useState<"upload" | "url">("upload");
   const [videoUrl, setVideoUrl] = useState("");
   const [category, setCategory] = useState("general");
-  const [status, setStatus] = useState<"Published" | "Draft">("Published");
   const [author, setAuthor] = useState(adminSession?.email || "admin@fastcoverage.news");
-  
-  // Live / Scheduled status
-  const [isLive, setIsLive] = useState(false);
-  const [isScheduled, setIsScheduled] = useState(false);
+
+  // Publish Status configurations
+  const [publishStatus, setPublishStatus] = useState<"Draft" | "Scheduled" | "Published">("Published");
   const [scheduledTime, setScheduledTime] = useState("");
+  const [publishedSuccess, setPublishedSuccess] = useState<VideoItem | null>(null);
   
   // Drag and drop / local file tracking
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -78,114 +141,20 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
 
   // Edit State
   const [editingVideo, setEditingVideo] = useState<VideoItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editCategory, setEditCategory] = useState("general");
-  const [editStatus, setEditStatus] = useState<"Published" | "Draft">("Published");
-  const [editIsLive, setEditIsLive] = useState(false);
-  const [editIsScheduled, setEditIsScheduled] = useState(false);
-  const [editScheduledTime, setEditScheduledTime] = useState("");
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const [editUploading, setEditUploading] = useState(false);
-
-  // Legacy Migration State
-  const [legacyVideos, setLegacyVideos] = useState<VideoItem[]>([]);
-  const [isMigrating, setIsMigrating] = useState(false);
-  const [migrationProgressText, setMigrationProgressText] = useState("");
-
-  // --- ACCELERATED PLM INSTANT UPLOAD STATES WITH REFS FOR DYNAMIC SCOPE STABILITY ---
-  const instantUploadStatusRef = useRef<"idle" | "uploading" | "processing" | "completed" | "failed">("idle");
-  const sessionVideoUrlRef = useRef("");
-  const sessionThumbnailUrlRef = useRef("");
-  const sessionDurationRef = useRef("0:00");
-  const instantUploadProgressRef = useRef(0);
-
-  const editUploadStatusRef = useRef<"idle" | "uploading" | "processing" | "completed" | "failed">("idle");
-  const editSessionVideoUrlRef = useRef("");
-  const editSessionThumbnailUrlRef = useRef("");
-  const editSessionDurationRef = useRef("0:00");
-  const editProgressRef = useRef(0);
-
-  const [sessionVideoUrl, _setSessionVideoUrl] = useState("");
-  const setSessionVideoUrl = (val: string) => {
-    sessionVideoUrlRef.current = val;
-    _setSessionVideoUrl(val);
-  };
-
-  const [sessionThumbnailUrl, _setSessionThumbnailUrl] = useState("");
-  const setSessionThumbnailUrl = (val: string) => {
-    sessionThumbnailUrlRef.current = val;
-    _setSessionThumbnailUrl(val);
-  };
-
-  const [sessionDuration, _setSessionDuration] = useState("0:00");
-  const setSessionDuration = (val: string) => {
-    sessionDurationRef.current = val;
-    _setSessionDuration(val);
-  };
-
-  const [instantUploadStatus, _setInstantUploadStatus] = useState<"idle" | "uploading" | "processing" | "completed" | "failed">("idle");
-  const setInstantUploadStatus = (val: "idle" | "uploading" | "processing" | "completed" | "failed") => {
-    instantUploadStatusRef.current = val;
-    _setInstantUploadStatus(val);
-  };
-
-  const [instantUploadProgress, _setInstantUploadProgress] = useState(0);
-  const setInstantUploadProgress = (val: number) => {
-    instantUploadProgressRef.current = val;
-    _setInstantUploadProgress(val);
-  };
-
-  const [instantSpeed, setInstantSpeed] = useState("");
-  const [instantLatency, setInstantLatency] = useState<number | null>(null);
-  const [instantStorageResponse, setInstantStorageResponse] = useState<number | null>(null);
-  const [instantBottleneck, setInstantBottleneck] = useState<string | null>(null);
-  
-  const uploadStartTimeRef = useRef<number>(0);
-  
-  // States for edit mode replacements
-  const [editSessionVideoUrl, _setEditSessionVideoUrl] = useState("");
-  const setEditSessionVideoUrl = (val: string) => {
-    editSessionVideoUrlRef.current = val;
-    _setEditSessionVideoUrl(val);
-  };
-
-  const [editSessionThumbnailUrl, _setEditSessionThumbnailUrl] = useState("");
-  const setEditSessionThumbnailUrl = (val: string) => {
-    editSessionThumbnailUrlRef.current = val;
-    _setEditSessionThumbnailUrl(val);
-  };
-
-  const [editSessionDuration, _setEditSessionDuration] = useState("0:00");
-  const setEditSessionDuration = (val: string) => {
-    editSessionDurationRef.current = val;
-    _setEditSessionDuration(val);
-  };
-
-  const [editUploadStatus, _setEditUploadStatus] = useState<"idle" | "uploading" | "processing" | "completed" | "failed">("idle");
-  const setEditUploadStatus = (val: "idle" | "uploading" | "processing" | "completed" | "failed") => {
-    editUploadStatusRef.current = val;
-    _setEditUploadStatus(val);
-  };
-
-  const [editProgress, _setEditProgress] = useState(0);
-  const setEditProgress = (val: number) => {
-    editProgressRef.current = val;
-    _setEditProgress(val);
-  };
-
-  const pendingFirestoreDocsRef = useRef<{ bulletId: string; videosId: string; isEditing: boolean } | null>(null);
-  const titleRef = useRef("");
-  const descriptionRef = useRef("");
+  const [editProgress, setEditProgress] = useState(0);
 
   // Prevent closing tab when uploading is active
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (instantUploadStatusRef.current === "uploading" || editUploadStatusRef.current === "uploading") {
+      if (uploading || editUploading) {
         e.preventDefault();
         e.returnValue = "Video upload is still in progress. Closing this tab will cancel the upload.";
         return e.returnValue;
@@ -195,15 +164,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, []);
-
-  useEffect(() => {
-    titleRef.current = title;
-  }, [title]);
-
-  useEffect(() => {
-    descriptionRef.current = description;
-  }, [description]);
+  }, [uploading, editUploading]);
 
   // Load active session user email if changed
   useEffect(() => {
@@ -215,7 +176,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   // Synchronize with database: we load from both collections or fallback
   useEffect(() => {
     setLoading(true);
-    // Listen to videoBulletins collection (cnn style schema)
+    // Listen to videoBulletins collection
     const unsubscribe = onSnapshot(
       collection(db, "videoBulletins"), 
       (snap) => {
@@ -242,13 +203,6 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
           } as VideoItem);
         });
 
-        // Scan which videos are base64 or temporary to offer Migration
-        const legacy = items.filter(v => 
-          (v.url && v.url.startsWith("data:")) || 
-          (v.url && v.url.startsWith("/uploads/"))
-        );
-        setLegacyVideos(legacy);
-
         // Sort by publication timestamp descending
         items.sort((a, b) => {
           const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : new Date(a.createdAt).getTime();
@@ -261,7 +215,6 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       },
       (error) => {
         console.error("Firestore read videoBulletins failed, subscribing to legacy 'videos':", error);
-        // Fallback subscription to index-legacy videos if collection hasn't been written to yet
         const subLegacy = onSnapshot(collection(db, "videos"), (legacySnap) => {
           const items: VideoItem[] = [];
           legacySnap.forEach((doc) => {
@@ -281,8 +234,6 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
               category: "general"
             } as VideoItem);
           });
-          const legacy = items.filter(v => v.url.startsWith("data:") || v.url.startsWith("/uploads/"));
-          setLegacyVideos(legacy);
           setVideos(items);
           setLoading(false);
         });
@@ -328,225 +279,33 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     }
   };
 
-  // Accelerated Direct Resumable Upload Pipeline
-  const startInstantUpload = async (file: File, isEditMode: boolean = false) => {
-    const setStatus = isEditMode ? setEditUploadStatus : setInstantUploadStatus;
-    const setProgress = isEditMode ? setEditProgress : setInstantUploadProgress;
-    const setVideoUrlState = isEditMode ? setEditSessionVideoUrl : setSessionVideoUrl;
-    const setThumbUrlState = isEditMode ? setEditSessionThumbnailUrl : setSessionThumbnailUrl;
-    const setDurationState = isEditMode ? setEditSessionDuration : setSessionDuration;
-
-    setStatus("uploading");
-    setProgress(1); // Set instantly to 1% to show responsive starting status
-
-    // Measure live network round-trip latency
-    const pingStart = performance.now();
-    try {
-      await fetch("/", { method: "HEAD", cache: "no-store" });
-      const latency = Math.round(performance.now() - pingStart);
-      setInstantLatency(latency);
-    } catch {
-      setInstantLatency(95); // fallback typical latency
-    }
-
-    // Extraction Pipeline: Generate thumbnail and detect duration asynchronously (Requirement 6)
-    generateVideoThumbnail(file).then(async (result) => {
-      setDurationState(formatDuration(result.durationSeconds));
-      
-      const uniqueId = Math.random().toString(36).substring(2, 10);
-      const thumbPath = `videoBulletins/thumbnails/${Date.now()}-${uniqueId}-thumb.jpg`;
-      const thumbRef = ref(storage, thumbPath);
-
-      const tStart = performance.now();
-      const thumbTask = uploadBytesResumable(thumbRef, result.thumbnail);
-      thumbTask.on(
-        "state_changed",
-        null,
-        null,
-        async () => {
-          const thumbUrl = await getDownloadURL(thumbTask.snapshot.ref);
-          setThumbUrlState(thumbUrl);
-          setInstantStorageResponse(Math.round(performance.now() - tStart));
-        }
-      );
-    }).catch((thumbErr) => {
-      console.warn("Background thumbnail/duration generation skipped:", thumbErr);
-      setDurationState("0:00");
-      setThumbUrlState("https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640");
-    });
-
-    const totalSize = file.size;
-    const uniqueId = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
-    const fileExtension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase() || ".mp4";
-    const timestamp = Date.now();
-    const videoPath = `videoBulletins/${timestamp}-${uniqueId}${fileExtension}`;
-    const storageRef = ref(storage, videoPath);
-
-    uploadStartTimeRef.current = performance.now();
-
-    try {
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      const downloadUrl = await new Promise<string>((resolve, reject) => {
-        uploadTask.on(
-          "state_changed",
-          (snapshot) => {
-            const prog = Math.min(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100), 99);
-            setProgress(prog === 0 ? 1 : prog);
-
-            const elapsedSecs = (performance.now() - uploadStartTimeRef.current) / 1000;
-            if (elapsedSecs > 0.05) {
-              const speedBytesPerSec = snapshot.bytesTransferred / elapsedSecs;
-              
-              // Automatic network congestion and bottleneck detection (Requirement 9)
-              if (speedBytesPerSec < 200 * 1024) {
-                setInstantBottleneck("Bottleneck detected: Network congestion. Optimizing packet headers.");
-              } else if (instantLatency && instantLatency > 350) {
-                setInstantBottleneck("High routing latency. Initiating packet stream buffers.");
-              } else {
-                setInstantBottleneck(null);
-              }
-
-              if (speedBytesPerSec > 1024 * 1024) {
-                setInstantSpeed(`${(speedBytesPerSec / (1024 * 1024)).toFixed(2)} MB/s`);
-              } else {
-                setInstantSpeed(`${(speedBytesPerSec / 1024).toFixed(1)} KB/s`);
-              }
-            }
-          },
-          (error) => {
-            console.error("Resumable upload failed:", error);
-            reject(error);
-          },
-          async () => {
-            const finalUrl = await getDownloadURL(uploadTask.snapshot.ref);
-            resolve(finalUrl);
-          }
-        );
-      });
-
-      setVideoUrlState(downloadUrl);
-      setStatus("completed");
-      setProgress(100);
-
-      const finalSecs = (performance.now() - uploadStartTimeRef.current) / 1000;
-      const speedMb = (totalSize / (1024 * 1024)) / finalSecs;
-      setInstantSpeed(`${speedMb.toFixed(2)} MB/s`);
-
-      // YouTube-style background publishing check!
-      if (pendingFirestoreDocsRef.current) {
-        const { bulletId, videosId, isEditing } = pendingFirestoreDocsRef.current;
-        
-        // Wait up to 3 seconds for thumbnail to resolve, if not resolved use a default
-        let resolvedThumb = isEditing ? editSessionThumbnailUrlRef.current : sessionThumbnailUrlRef.current;
-        let thumbAttempts = 0;
-        while (!resolvedThumb && thumbAttempts < 30) {
-          await new Promise(r => setTimeout(r, 100));
-          resolvedThumb = isEditing ? editSessionThumbnailUrlRef.current : sessionThumbnailUrlRef.current;
-          thumbAttempts++;
-        }
-        
-        if (!resolvedThumb) {
-          resolvedThumb = "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
-        }
-
-        const finalDur = (isEditing ? editSessionDurationRef.current : sessionDurationRef.current) || "0:00";
-
-        if (isEditing) {
-          // Update the existing video document on Firestore
-          await updateDoc(doc(db, "videoBulletins", bulletId), {
-            url: downloadUrl,
-            videoUrl: downloadUrl,
-            thumbnailUrl: resolvedThumb,
-            duration: finalDur,
-            status: "Published"
-          });
-          
-          await updateDoc(doc(db, "videos", videosId), {
-            url: downloadUrl
-          }).catch(() => {});
-
-          setSuccessMsg(`Background upload complete & replaced: video bulletin has been updated securely.`);
-          setEditingVideo(null);
-          setReplaceFile(null);
-          setEditUploadStatus("idle");
-          setEditProgress(0);
-          setEditSessionVideoUrl("");
-          setEditSessionThumbnailUrl("");
-        } else {
-          // Update the newly published document
-          await updateDoc(doc(db, "videoBulletins", bulletId), {
-            url: downloadUrl,
-            videoUrl: downloadUrl,
-            thumbnailUrl: resolvedThumb,
-            duration: finalDur,
-            status: "Published"
-          });
-
-          await updateDoc(doc(db, "videos", videosId), {
-            url: downloadUrl
-          }).catch(() => {});
-
-          setSuccessMsg(`Instant Publishing Complete: "${titleRef.current || 'Your video bulletin'}" is now fully processed and live!`);
-          
-          // Reset fields
-          setTitle("");
-          setDescription("");
-          setVideoUrl("");
-          setSelectedFile(null);
-          setIsLive(false);
-          setIsScheduled(false);
-          setScheduledTime("");
-          setCategory("general");
-          
-          setInstantUploadStatus("idle");
-          setInstantUploadProgress(0);
-          setSessionVideoUrl("");
-          setSessionThumbnailUrl("");
-        }
-
-        // Clear refs
-        pendingFirestoreDocsRef.current = null;
-      }
-    } catch (err: any) {
-      console.error("Direct stream pipeline failed completely:", err);
-      setStatus("failed");
-      setErrorMsg("Accelerated cloud upload failed. Supporting network re-attempts.");
-    }
-  };
-
   const validateAndSetFile = (file: File, isEditing: boolean) => {
-    const validExtensions = ["video/mp4", "video/quicktime", "video/webm", "video/avi", "video/x-matroska"];
     const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    const isVideo = file.type.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv"].includes(ext);
     
-    // Check type or extension safely
-    if (!validExtensions.includes(file.type) && ![".mp4", ".mov", ".webm", ".avi", ".mkv"].includes(ext)) {
-      setErrorMsg("Unauthorized video format. Standard MP4, MOV, and WEBM formats are supported.");
+    if (!isVideo) {
+      setErrorMsg("Unauthorized video format. Please upload standard video file formats (MP4, MOV, WEBM, MKV, etc.).");
       return;
     }
 
-    // Maximum customizable file size (e.g. 50MB to accommodate heavy recordings)
-    const MAX_SIZE = 50 * 1024 * 1024;
+    const MAX_SIZE = 150 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      setErrorMsg(`File exceeds safety limits (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max size permitted is 50MB.`);
+      setErrorMsg(`File exceeds safety limits (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max size permitted is 150MB.`);
       return;
     }
 
-    // Check duplicate local upload attempts
     const isDuplicate = videos.some(v => v.title.toLowerCase() === file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ").toLowerCase());
     if (isDuplicate) {
-      setErrorMsg(`Warning: A video named "${file.name}" may already exist in active directories.`);
+      setErrorMsg(`Warning: A video named "${file.name}" may already exist.`);
     }
 
     if (isEditing) {
       setReplaceFile(file);
-      startInstantUpload(file, true);
     } else {
       setSelectedFile(file);
       if (!title) {
         setTitle(file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "));
       }
-      startInstantUpload(file, false);
     }
   };
 
@@ -554,15 +313,13 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     fileInputRef.current?.click();
   };
 
-  // Helper dedicated to upload a physical Blob/File to Firebase Cloud Storage with progress updates
   const uploadToStorageWithProgress = (
     fileBlob: Blob | File, 
-    path: string, 
+    pathName: string, 
     progressCallback: (prog: number) => void
   ): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const storageRef = ref(storage, path);
-      // Initiate Resumable Upload
+      const storageRef = ref(storage, pathName);
       const uploadTask = uploadBytesResumable(storageRef, fileBlob);
 
       uploadTask.on(
@@ -572,9 +329,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
           progressCallback(Math.round(progress));
         },
         (error) => {
-          console.error("Firebase Storage Upload Failure:", error);
-          // Auto Retry logic (Wait 1s and try again)
-          console.log("Retrying upload operation...");
+          console.error("Firebase Storage Upload Failure, retrying:", error);
           setTimeout(() => {
             const retryTask = uploadBytesResumable(storageRef, fileBlob);
             retryTask.on(
@@ -583,7 +338,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                 const prog = (snap.bytesTransferred / snap.totalBytes) * 100;
                 progressCallback(Math.round(prog));
               },
-              (err) => reject(new Error(`Storage write failed after automatic retry: ${err.message}`)),
+              (err) => reject(new Error(`Storage write failed after retry: ${err.message}`)),
               async () => {
                 const downloadURL = await getDownloadURL(retryTask.snapshot.ref);
                 resolve(downloadURL);
@@ -599,127 +354,168 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     });
   };
 
-  // Submit and create new CNN-Style Video Bulletin
+  // Submit and create new Simple Video Bulletin
   const handleSubmitVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    // Form inputs checks
-    if (!title.trim() || !description.trim()) {
-      setErrorMsg("Report title and description are strictly required.");
+    // 1. Rigorous Field and Format Validation
+    if (!adminSession || !adminSession.email) {
+      setErrorMsg("Security Authorization Error: Only authenticated administrator accounts are authorized to publish reports.");
+      return;
+    }
+
+    if (!title.trim()) {
+      setErrorMsg("Validation Error: Bulletin Title is strictly required.");
+      return;
+    }
+
+    if (!description.trim()) {
+      setErrorMsg("Validation Error: Description / Briefing Synopsis is strictly required.");
+      return;
+    }
+
+    if (!category) {
+      setErrorMsg("Validation Error: Category desk selection is required.");
+      return;
+    }
+
+    if (sourceType === "upload" && !selectedFile) {
+      setErrorMsg("Validation Error: Broadcast Video file is required for local upload. Please drag & drop or browse a video file.");
+      return;
+    }
+
+    if (sourceType === "url" && !videoUrl.trim()) {
+      setErrorMsg("Validation Error: External Video Feed URL is required for stream delivery.");
+      return;
+    }
+
+    if (!author) {
+      setErrorMsg("Validation Error: Reporting Author desk credential could not be resolved.");
       return;
     }
 
     setUploading(true);
+    setUploadProgress(0);
 
     try {
       let finalVideoUrl = "";
       let finalThumbnailUrl = "";
       let calculatedDuration = "0:00";
 
-      // Case A: Uploading active file
       if (sourceType === "upload") {
-        if (!selectedFile) {
-          setErrorMsg("Please select a video file to broadcast.");
-          setUploading(false);
-          return;
-        }
+        const file = selectedFile!;
+        const timestamp = Date.now();
+        const uniqueId = Math.random().toString(36).substring(2, 8);
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase() || ".mp4";
+        const videoPath = `videoBulletins/${timestamp}-${uniqueId}${ext}`;
 
-        // If background instant upload is still running or idle, we DO NOT block the user!
-        // We publish immediately like YouTube, setting status to 'Processing'!
-        if (instantUploadStatusRef.current === "uploading" || instantUploadStatusRef.current === "idle") {
-          const preliminaryThumb = sessionThumbnailUrlRef.current || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
-          const preliminaryDuration = sessionDurationRef.current || "0:00";
-
-          const docData = {
-            title: title.trim(),
-            description: description.trim(),
-            category,
-            url: "", // will be updated upon upload complete
-            videoUrl: "", // will be updated upon upload complete
-            thumbnailUrl: preliminaryThumb,
-            duration: preliminaryDuration,
-            createdAt: new Date().toISOString(),
-            publishedAt: isScheduled && scheduledTime ? new Date(scheduledTime).toISOString() : new Date().toISOString(),
-            author,
-            status: "Processing", // Mark as Processing like YouTube
-            views: 0,
-            isLive,
-            isScheduled,
-            scheduledTime: isScheduled ? scheduledTime : ""
-          };
-
-          // 1. Write to videoBulletins
-          const bulletDoc = await addDoc(collection(db, "videoBulletins"), docData);
-
-          // 2. Dual Write to old videos collection
-          const oldDoc = await addDoc(collection(db, "videos"), {
-            id: bulletDoc.id,
-            title: title.trim(),
-            description: description.trim(),
-            url: "",
-            createdAt: docData.createdAt,
-            views: 0,
-            isLive,
-            isScheduled,
-            scheduledTime: isScheduled ? scheduledTime : ""
-          });
-
-          // Set the pendingFirestoreDocsRef so the background upload updater knows what to update!
-          pendingFirestoreDocsRef.current = {
-            bulletId: bulletDoc.id,
-            videosId: oldDoc.id,
-            isEditing: false
-          };
-
-          setSuccessMsg(`Bulletin "${title.trim()}" is now processing in the background! You can safely leave this tab open, browse other dashboards, or add more bulletins.`);
+        // Extraction Pipeline: Generate thumbnail and detect duration asynchronously
+        setCurrentStatusText("Extracting video metadata & duration...");
+        try {
+          const result = await generateVideoThumbnail(file);
+          calculatedDuration = formatDuration(result.durationSeconds);
           
-          // Clear active form fields so they can start adding another video immediately!
-          setTitle("");
-          setDescription("");
-          setVideoUrl("");
-          setSelectedFile(null);
-          setIsLive(false);
-          setIsScheduled(false);
-          setScheduledTime("");
-          setCategory("general");
-
-          setUploading(false);
-          return;
+          setCurrentStatusText("Uploading video thumbnail to server...");
+          const thumbPath = `videoBulletins/thumbnails/${timestamp}-${uniqueId}-thumb.jpg`;
+          try {
+            // High-speed local write first
+            const base64Data = await fileToBase64(result.thumbnail);
+            const res = await fetch("/api/admin/upload-image", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${adminToken}`
+              },
+              body: JSON.stringify({
+                fileName: `${timestamp}-${uniqueId}-thumb.jpg`,
+                fileData: base64Data
+              })
+            });
+            if (res.ok) {
+              const resData = await res.json();
+              finalThumbnailUrl = resData.url || "";
+            } else {
+              throw new Error("Local backend image upload endpoint failed");
+            }
+          } catch (localThumbnailError) {
+            console.warn("Storage thumbnail local write failed, falling back to Firebase storage:", localThumbnailError);
+            try {
+              finalThumbnailUrl = await uploadToStorageWithProgress(result.thumbnail, thumbPath, () => {});
+            } catch (storageErr) {
+              console.error("Firebase Storage thumbnail write failed:", storageErr);
+            }
+          }
+        } catch (thumbErr) {
+          console.warn("Background thumbnail/duration generation skipped:", thumbErr);
         }
 
-        if (instantUploadStatusRef.current === "failed") {
-          setCurrentStatusText("Re-initiating direct stream upload...");
-          await startInstantUpload(selectedFile, false);
-          if (instantUploadStatusRef.current === "failed") {
-            throw new Error("Target direct cloud upload failed. Please verify 4G/5G signal.");
+        if (!finalThumbnailUrl) {
+          finalThumbnailUrl = "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
+        }
+
+        // Upload Video File
+        setCurrentStatusText("Uploading video file (0%)...");
+        try {
+          // Priority A: High-speed local binary streaming (super fast, perfect progress tracking)
+          setCurrentStatusText("Streaming video payload to server (0%)...");
+          finalVideoUrl = await uploadToBackendWithProgress(file, adminToken, (prog) => {
+            setUploadProgress(prog);
+            setCurrentStatusText(`Uploading video file (${prog}%)...`);
+          });
+        } catch (backendUploadErr: any) {
+          console.warn("High-speed binary stream upload failed, falling back to Firebase Storage:", backendUploadErr);
+          setCurrentStatusText("Routing to Firebase Cloud Storage (0%)...");
+          setUploadProgress(0);
+          try {
+            finalVideoUrl = await uploadToStorageWithProgress(file, videoPath, (prog) => {
+              setUploadProgress(Math.min(prog, 99));
+              setCurrentStatusText(`Uploading video file (${Math.min(prog, 99)}%)...`);
+            });
+          } catch (storageException) {
+            console.error("Firebase Storage failed, trying base64 fallback:", storageException);
+            setCurrentStatusText("Invoking compatibility base64 chunker...");
+            setUploadProgress(20);
+            const base64Str = await fileToBase64(file);
+            setUploadProgress(50);
+            
+            const response = await fetch("/api/admin/upload-video", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${adminToken}`
+              },
+              body: JSON.stringify({
+                fileName: file.name,
+                fileData: base64Str
+              })
+            });
+            
+            setUploadProgress(85);
+            if (!response.ok) {
+              const errDetail = await response.json().catch(() => ({}));
+              throw new Error(errDetail.error || `Server HTTP Error ${response.status}`);
+            }
+            
+            const responseData = await response.json();
+            if (!responseData.url) {
+              throw new Error("Express upload proxy did not return valid url.");
+            }
+            finalVideoUrl = responseData.url;
           }
         }
 
-        // If completed but thumbnail is not fully ready, wait a blink
-        if (instantUploadStatusRef.current === "completed") {
-          let thumbWaitAttempts = 0;
-          while (!sessionThumbnailUrlRef.current && thumbWaitAttempts < 20) {
-            await new Promise(r => setTimeout(r, 100));
-            thumbWaitAttempts++;
-          }
+        // Buffer locally in IndexedDB as a helpful benefit
+        try {
+          await saveVideoFile(finalVideoUrl, file);
+        } catch (dbErr) {
+          console.warn("Local IndexedDB storage disabled:", dbErr);
         }
-
-        finalVideoUrl = sessionVideoUrlRef.current;
-        finalThumbnailUrl = sessionThumbnailUrlRef.current || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
-        calculatedDuration = sessionDurationRef.current || "0:00";
 
       } else {
-        // Case B: Stream links (Youtube)
-        if (!videoUrl.trim()) {
-          setErrorMsg("Please supply a valid YouTube stream, Vimeo, or direct video feed URL.");
-          setUploading(false);
-          return;
-        }
-
+        // Stream URL Mode
         finalVideoUrl = videoUrl.trim();
-        // Extract Youtube ID to retrieve crisp high quality default thumbnails
         if (finalVideoUrl.includes("youtube.com") || finalVideoUrl.includes("youtu.be")) {
           let ytId = "";
           if (finalVideoUrl.includes("v=")) {
@@ -735,35 +531,51 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         }
         
         if (!finalThumbnailUrl) {
-          finalThumbnailUrl = `https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640`; // generic tv feed backdrop
+          finalThumbnailUrl = `https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640`;
         }
       }
 
-      setCurrentStatusText("Publishing bulletin to news desks...");
+      setCurrentStatusText("Verifying publishing metadata...");
+      setUploadProgress(99);
 
-      // Assemble videoBulletins official document schema
+      const timestampISO = new Date().toISOString();
+      const isSched = publishStatus === "Scheduled";
+      const actualPublishTime = isSched && scheduledTime ? new Date(scheduledTime).toISOString() : timestampISO;
+
       const docData = {
         title: title.trim(),
         description: description.trim(),
         category,
-        url: finalVideoUrl, // dual-mapped
+        url: finalVideoUrl,
         videoUrl: finalVideoUrl,
         thumbnailUrl: finalThumbnailUrl,
         duration: calculatedDuration,
-        createdAt: new Date().toISOString(),
-        publishedAt: isScheduled && scheduledTime ? new Date(scheduledTime).toISOString() : new Date().toISOString(),
+        createdAt: timestampISO,
+        publishedAt: actualPublishTime,
         author,
-        status,
+        status: publishStatus, // "Draft" | "Scheduled" | "Published"
         views: 0,
-        isLive,
-        isScheduled,
-        scheduledTime: isScheduled ? scheduledTime : ""
+        isLive: false,
+        isScheduled: isSched,
+        scheduledTime: isSched && scheduledTime ? actualPublishTime : ""
       };
 
-      // 1. Write to the new 'videoBulletins' collection
+      // Log verified administrative activity details securely
+      console.log("SECURE ADMINISTRATIVE ACTION REPORT:", {
+        action: "PUBLISH_VIDEO_REPORT",
+        publisher: adminSession.email,
+        role: adminSession.role || "Admin",
+        sessionToken: adminSession.token ? "Verified" : "Missing",
+        ipAddress: adminSession.ip || "unknown",
+        title: docData.title,
+        status: docData.status,
+        timestamp: timestampISO
+      });
+
+      // 1. Write to 'videoBulletins' collection so it works on public page
       const bulletDoc = await addDoc(collection(db, "videoBulletins"), docData);
 
-      // 2. Dual Write to old 'videos' collection to preserve any existing widgets or custom queries
+      // 2. Dual Write to 'videos' collection to maintain compatibility
       await addDoc(collection(db, "videos"), {
         id: bulletDoc.id,
         title: title.trim(),
@@ -771,33 +583,46 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         url: finalVideoUrl,
         createdAt: docData.createdAt,
         views: 0,
-        isLive,
-        isScheduled,
-        scheduledTime: isScheduled ? scheduledTime : ""
+        isLive: false,
+        isScheduled: isSched,
+        scheduledTime: isSched && scheduledTime ? actualPublishTime : ""
       });
 
-      setSuccessMsg(`Published successfully: "${title}" is now available permanently.`);
-      
+      // Formulate complete VideoItem for navigation/success action metrics
+      const successVideoItem: VideoItem = {
+        id: bulletDoc.id,
+        title: docData.title,
+        description: docData.description,
+        url: docData.url,
+        videoUrl: docData.videoUrl,
+        thumbnailUrl: docData.thumbnailUrl,
+        category: docData.category,
+        duration: docData.duration,
+        createdAt: docData.createdAt,
+        publishedAt: docData.publishedAt,
+        author: docData.author,
+        status: docData.status as any,
+        views: docData.views,
+        isLive: docData.isLive,
+        isScheduled: docData.isScheduled,
+        scheduledTime: docData.scheduledTime
+      };
+
+      setSuccessMsg(`✓ Broadcast Published Successfully: "${title}" recorded under ID "${bulletDoc.id}".`);
+      setPublishedSuccess(successVideoItem);
+
       // Reset form fields
       setTitle("");
       setDescription("");
       setVideoUrl("");
       setSelectedFile(null);
-      setIsLive(false);
-      setIsScheduled(false);
-      setScheduledTime("");
       setCategory("general");
-      setStatus("Published");
-
-      // Reset uploader state
-      setInstantUploadStatus("idle");
-      setInstantUploadProgress(0);
-      setSessionVideoUrl("");
-      setSessionThumbnailUrl("");
+      setPublishStatus("Published");
+      setScheduledTime("");
 
     } catch (err: any) {
-      console.error("Addition of video bulletins failed:", err);
-      setErrorMsg(err.message || "Failed to save the media object into persistent storage database.");
+      console.error("Publishing video bulletin failed:", err);
+      setErrorMsg(err.message || "Failed to publish reporting video.");
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -817,68 +642,98 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       let finalThumbnailUrl = editingVideo.thumbnailUrl || "";
       let calculatedDuration = editingVideo.duration || "0:00";
 
-      // If they provide a replacement local video file, execute upload
       if (replaceFile) {
-        // If background replace upload is still running, save immediately with Processing state!
-        if (editUploadStatusRef.current === "uploading" || editUploadStatusRef.current === "idle") {
-          const updatedFields = {
-            title: editTitle.trim(),
-            description: editDescription.trim(),
-            category: editCategory,
-            url: "", // will be filled upon upload complete
-            videoUrl: "", // will be filled upon upload complete
-            thumbnailUrl: editingVideo.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640",
-            duration: editingVideo.duration || "0:00",
-            status: "Processing", // Set status to processing like YouTube!
-            publishedAt: editIsScheduled && editScheduledTime ? new Date(editScheduledTime).toISOString() : new Date().toISOString(),
-            isLive: editIsLive,
-            isScheduled: editIsScheduled,
-            scheduledTime: editIsScheduled ? editScheduledTime : ""
-          };
+        const file = replaceFile;
+        const timestamp = Date.now();
+        const uniqueId = Math.random().toString(36).substring(2, 8);
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase() || ".mp4";
+        const videoPath = `videoBulletins/${timestamp}-${uniqueId}${ext}`;
 
-          // 1. Update videoBulletins document
-          await updateDoc(doc(db, "videoBulletins", editingVideo.id), updatedFields);
-
-          // 2. Keep standard dual collection mapped
-          try {
-            await updateDoc(doc(db, "videos", editingVideo.id), {
-              title: editTitle.trim(),
-              description: editDescription.trim(),
-              url: "",
-              isLive: editIsLive,
-              isScheduled: editIsScheduled,
-              scheduledTime: editIsScheduled ? editScheduledTime : ""
-            });
-          } catch (err) {
-            console.warn("Dual update to legacy collection skipped:", err);
-          }
-
-          // Register in the ref so the background upload updater knows to update this document with final media URL!
-          pendingFirestoreDocsRef.current = {
-            bulletId: editingVideo.id,
-            videosId: editingVideo.id,
-            isEditing: true
-          };
-
-          setSuccessMsg(`Information: Video Replacement "${editTitle}" has been saved and is uploading in the background!`);
+        // Generate replacements
+        try {
+          const result = await generateVideoThumbnail(file);
+          calculatedDuration = formatDuration(result.durationSeconds);
           
-          setEditingVideo(null);
-          setReplaceFile(null);
-          setEditUploading(false);
-          return;
+          const thumbPath = `videoBulletins/thumbnails/${timestamp}-${uniqueId}-thumb.jpg`;
+          try {
+            // High-speed local write first
+            const base64Data = await fileToBase64(result.thumbnail);
+            const res = await fetch("/api/admin/upload-image", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${adminToken}`
+              },
+              body: JSON.stringify({
+                fileName: `${timestamp}-${uniqueId}-thumb.jpg`,
+                fileData: base64Data
+              })
+            });
+            if (res.ok) {
+              const resData = await res.json();
+              finalThumbnailUrl = resData.url || "";
+            } else {
+              throw new Error("Local backend image upload endpoint failed");
+            }
+          } catch (localThumbnailError) {
+            console.warn("Storage replacement thumb write failed, falling back to Firebase storage:", localThumbnailError);
+            try {
+              finalThumbnailUrl = await uploadToStorageWithProgress(result.thumbnail, thumbPath, () => {});
+            } catch (storageErr) {
+              console.error("Firebase Storage replacement thumbnail write failed:", storageErr);
+            }
+          }
+        } catch (thumbErr) {
+          console.warn("Replacement thumbnail extraction skipped:", thumbErr);
         }
 
-        if (editUploadStatusRef.current === "failed") {
-          throw new Error("Accelerated replacement upload failed. Please verify connection.");
+        if (!finalThumbnailUrl) {
+          finalThumbnailUrl = editingVideo.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
         }
 
-        while (!editSessionThumbnailUrlRef.current) {
-          await new Promise(r => setTimeout(r, 100));
+        // Upload replacement video
+        try {
+          // Priority A: High-speed local binary streaming (super fast, perfect progress tracking)
+          finalVideoUrl = await uploadToBackendWithProgress(file, adminToken, (prog) => {
+            setEditProgress(prog);
+          });
+        } catch (backendUploadErr: any) {
+          console.warn("High-speed binary stream upload failed for edit, falling back to Firebase Storage:", backendUploadErr);
+          try {
+            finalVideoUrl = await uploadToStorageWithProgress(file, videoPath, (prog) => {
+              setEditProgress(Math.min(prog, 99));
+            });
+          } catch (storageExc) {
+            console.error("Firebase Storage failed for edit, trying base64 fallback:", storageExc);
+            const base64Str = await fileToBase64(file);
+            
+            const response = await fetch("/api/admin/upload-video", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${adminToken}`
+              },
+              body: JSON.stringify({
+                fileName: file.name,
+                fileData: base64Str
+              })
+            });
+            
+            if (!response.ok) {
+              const errDetail = await response.json().catch(() => ({}));
+              throw new Error(errDetail.error || `Server HTTP Error ${response.status}`);
+            }
+            
+            const responseData = await response.json();
+            finalVideoUrl = responseData.url;
+          }
         }
 
-        finalVideoUrl = editSessionVideoUrlRef.current;
-        finalThumbnailUrl = editSessionThumbnailUrlRef.current;
-        calculatedDuration = editSessionDurationRef.current;
+        try {
+          await saveVideoFile(finalVideoUrl, file);
+        } catch (dbErr) {
+          console.warn("IndexedDB backup failed:", dbErr);
+        }
       }
 
       // Update Firestore documents
@@ -890,11 +745,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         videoUrl: finalVideoUrl,
         thumbnailUrl: finalThumbnailUrl,
         duration: calculatedDuration,
-        status: editStatus,
-        publishedAt: editIsScheduled && editScheduledTime ? new Date(editScheduledTime).toISOString() : new Date().toISOString(),
-        isLive: editIsLive,
-        isScheduled: editIsScheduled,
-        scheduledTime: editIsScheduled ? editScheduledTime : ""
+        status: "Published",
+        publishedAt: new Date().toISOString()
       };
 
       // 1. Update videoBulletins document
@@ -905,10 +757,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         await updateDoc(doc(db, "videos", editingVideo.id), {
           title: editTitle.trim(),
           description: editDescription.trim(),
-          url: finalVideoUrl,
-          isLive: editIsLive,
-          isScheduled: editIsScheduled,
-          scheduledTime: editIsScheduled ? editScheduledTime : ""
+          url: finalVideoUrl
         });
       } catch (err) {
         console.warn("Dual update to legacy collection skipped:", err);
@@ -917,12 +766,6 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       setSuccessMsg(`Information: Video Bulletin "${editTitle}" successfully updated.`);
       setEditingVideo(null);
       setReplaceFile(null);
-
-      // Clean edit states
-      setEditUploadStatus("idle");
-      setEditProgress(0);
-      setEditSessionVideoUrl("");
-      setEditSessionThumbnailUrl("");
 
     } catch (err: any) {
       console.error("Editing Video Bulletin entry failed: ", err);
@@ -933,7 +776,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     }
   };
 
-  // Remove completely from Storage and Firestore collections (Requirement 10)
+  // Remove completely from Storage and Firestore collections
   const handleDeleteVideoPermanently = async (vid: VideoItem) => {
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -952,7 +795,6 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       const srcUrl = vid.videoUrl || vid.url;
       if (srcUrl && srcUrl.includes("firebasestorage.googleapis.com")) {
         try {
-          // Decode storage path from download URL safely
           const storagePathDecoded = decodeURIComponent(srcUrl.split("/o/")[1]?.split("?")[0] || "");
           if (storagePathDecoded) {
             const fileRef = ref(storage, storagePathDecoded);
@@ -986,111 +828,6 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     }
   };
 
-  // Requirement 11: Bulk Scan and Migration utility
-  const handleRunMigration = async () => {
-    if (legacyVideos.length === 0) return;
-    setIsMigrating(true);
-    setMigrationProgressText("Scanning collection and prepping files...");
-
-    let successCount = 0;
-    try {
-      for (let i = 0; i < legacyVideos.length; i++) {
-        const vid = legacyVideos[i];
-        setMigrationProgressText(`Processing [${i + 1}/${legacyVideos.length}]: "${vid.title.substring(0, 20)}..."`);
-
-        try {
-          let fileBlob: Blob | null = null;
-
-          // Case A: Base64 data conversion
-          if (vid.url.startsWith("data:")) {
-            fileBlob = base64ToBlob(vid.url);
-          } 
-          // Case B: Ephemeral local path conversion
-          else if (vid.url.startsWith("/uploads/")) {
-            const fetchRes = await fetch(vid.url);
-            if (fetchRes.ok) {
-              fileBlob = await fetchRes.blob();
-            }
-          }
-
-          if (fileBlob) {
-            // Programmatically establish duration and high contrast thumbnail preview
-            let calculatedDuration = "0:00";
-            let thumbBlob: Blob | null = null;
-            try {
-              const res = await generateVideoThumbnail(fileBlob);
-              thumbBlob = res.thumbnail;
-              calculatedDuration = formatDuration(res.durationSeconds);
-            } catch (pErr) {
-              console.warn("In-migration thumbnail generation skipped:", pErr);
-            }
-
-            // Upload video File permanently to cloud
-            const uniqueId = Math.random().toString(36).substring(2, 10);
-            const ext = fileBlob.type.split("/")[1] || "mp4";
-            const videoPath = `videoBulletins/${Date.now()}-${uniqueId}.${ext}`;
-            const permanentVideoUrl = await uploadToStorageWithProgress(fileBlob, videoPath, () => {});
-
-            // Upload Thumbnail blob
-            let permanentThumbUrl = "";
-            if (thumbBlob) {
-              const thumbPath = `videoBulletins/thumbnails/${Date.now()}-${uniqueId}-thumb.jpg`;
-              permanentThumbUrl = await uploadToStorageWithProgress(thumbBlob, thumbPath, () => {});
-            } else {
-              permanentThumbUrl = "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
-            }
-
-            // Write metadata record in videoBulletins collection
-            const updatedFields = {
-              title: vid.title,
-              description: vid.description || "Archived news commentary broadcast bulletin.",
-              category: "general",
-              url: permanentVideoUrl,
-              videoUrl: permanentVideoUrl,
-              thumbnailUrl: permanentThumbUrl,
-              duration: calculatedDuration,
-              status: "Published",
-              createdAt: vid.createdAt || new Date().toISOString(),
-              publishedAt: vid.createdAt || new Date().toISOString(),
-              author: "system-migrator@fastcoverage.news",
-              views: vid.views || 0,
-              isLive: vid.isLive || false,
-              isScheduled: vid.isScheduled || false,
-              scheduledTime: vid.scheduledTime || ""
-            };
-
-            // SetDoc or write document with original legacy id to preserve exact referenced links!
-            await updateDoc(doc(db, "videoBulletins", vid.id), updatedFields).catch(async () => {
-              // Create it if missed
-              await updateDoc(doc(db, "videos", vid.id), { url: permanentVideoUrl });
-            });
-
-            // Update legacy record
-            try {
-              await updateDoc(doc(db, "videos", vid.id), {
-                url: permanentVideoUrl
-              });
-            } catch (e) {
-              console.warn("Dual update was not required:", e);
-            }
-
-            successCount++;
-          }
-        } catch (migErr) {
-          console.error(`Error migrating single video ${vid.id}:`, migErr);
-        }
-      }
-
-      setSuccessMsg(`Opt-Engine Success: Successfully migrated ${successCount} videos to permanent cloud storage buckets.`);
-    } catch (gErr: any) {
-      console.error("Migration pipeline failure: ", gErr);
-      setErrorMsg("Failed to transfer all legacy base64 buffers.");
-    } finally {
-      setIsMigrating(false);
-      setMigrationProgressText("");
-    }
-  };
-
   // Filtering list elements computed properties
   const filteredVideos = videos.filter((vid) => {
     const matchesSearch = 
@@ -1101,14 +838,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       selectedCategoryFilter === "all" || 
       vid.category === selectedCategoryFilter;
 
-    const matchesStatus = 
-      statusFilter === "all" || 
-      vid.status === statusFilter;
-
-    return matchesSearch && matchesCategory && matchesStatus;
-  });
-
-  return (
+    return matchesSearch && matchesCategory;
+  });  return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 font-sans text-neutral-800" id="admin_videos_manager_view">
       
       {/* COLUMN 1: Broadcast Creation and Upload module */}
@@ -1121,838 +852,670 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         {/* Global Action Notifications */}
         {errorMsg && (
           <div className="bg-red-50 border border-red-200 text-red-700 p-3.5 rounded text-xs leading-relaxed mb-4 flex items-start gap-2 animate-fadeIn">
-            <AlertTriangle size={15} className="shrink-0 mt-0.5 text-red-500" />
-            <p>{errorMsg}</p>
+            <AlertTriangle className="shrink-0 mt-0.5 text-red-600" size={14} />
+            <p className="font-medium">{errorMsg}</p>
           </div>
         )}
 
-        {successMsg && (
-          <div className="bg-green-50 border border-green-200 text-green-700 p-3.5 rounded text-xs leading-relaxed mb-4 flex items-start gap-2 animate-fadeIn">
-            <CheckCircle size={15} className="shrink-0 mt-0.5 text-green-500" />
-            <p>{successMsg}</p>
+        {successMsg && !publishedSuccess && (
+          <div className="bg-green-50 border border-green-200 text-green-750 p-3.5 rounded text-xs leading-relaxed mb-4 flex items-start gap-2 animate-fadeIn">
+            <CheckCircle className="shrink-0 mt-0.5 text-green-600" size={14} />
+            <p className="font-semibold">{successMsg}</p>
           </div>
         )}
 
-        {/* Migrator Section alert */}
-        {legacyVideos.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 p-3.5 rounded text-xs leading-relaxed mb-5 animate-pulse">
-            <div className="flex gap-2 text-amber-900 font-extrabold items-center">
-              <RefreshCw size={14} className="animate-spin text-amber-500" />
-              <span>LEGACY STORAGE DETECTION</span>
-            </div>
-            <p className="text-amber-800 text-[11px] mt-1">
-              Detected {legacyVideos.length} legacy/Base64 video entries that will be wiped on restart. Migrate them to permanent Firebase Storage CDN.
-            </p>
-            <button
-              onClick={handleRunMigration}
-              disabled={isMigrating}
-              className="mt-2.5 w-full bg-amber-650 hover:bg-amber-700 text-white font-bold text-[10px] py-1.5 px-3 rounded uppercase tracking-wider font-mono cursor-pointer flex justify-center items-center gap-1.5"
-            >
-              {isMigrating ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>{migrationProgressText}</span>
-                </>
-              ) : (
-                "Optimize & Migrate to Permanent Storage Now"
-              )}
-            </button>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmitVideo} className="space-y-4">
-          
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Report Title</label>
-            <input
-              type="text"
-              required
-              disabled={uploading}
-              placeholder="e.g. Exclusive Drone Flight Over Restored Wetlands"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm focus:outline-none focus:border-red-650"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Video Description / Transcripts</label>
-            <textarea
-              required
-              rows={3}
-              disabled={uploading}
-              placeholder="Write detailed summaries or interview excerpts detailing what this coverage displays..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm focus:outline-none focus:border-red-650"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Broadcast Category</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={uploading}
-              className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm focus:outline-none focus:border-red-650 cursor-pointer"
-            >
-              {VIDEO_CATEGORIES.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Toggle source selection */}
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1.5 font-mono block">Video Source Method</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                disabled={uploading}
-                onClick={() => setSourceType("upload")}
-                className={`flex items-center justify-center gap-1.5 py-2.5 px-3 border rounded text-xs font-bold tracking-tight cursor-pointer transition ${
-                  sourceType === "upload" 
-                    ? "bg-red-750 text-white border-red-750" 
-                    : "bg-white text-neutral-500 border-neutral-300 hover:bg-neutral-50"
-                }`}
-              >
-                <Upload size={13} />
-                <span>CLOUDMEDIA UPLOAD</span>
-              </button>
-              <button
-                type="button"
-                disabled={uploading}
-                onClick={() => setSourceType("url")}
-                className={`flex items-center justify-center gap-1.5 py-2.5 px-3 border rounded text-xs font-bold tracking-tight cursor-pointer transition ${
-                  sourceType === "url" 
-                    ? "bg-red-750 text-white border-red-750" 
-                    : "bg-white text-neutral-500 border-neutral-300 hover:bg-neutral-50"
-                }`}
-              >
-                <LinkIcon size={13} />
-                <span>ONLINE STREAM</span>
-              </button>
-            </div>
-          </div>
-
-          {sourceType === "upload" ? (
-            /* DRAG AND DROP FILE SELECTOR */
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider font-mono">Upload Video File</label>
-              
-              <div
-                onDragEnter={handleDrag}
-                onDragOver={handleDrag}
-                onDragLeave={handleDrag}
-                onDrop={handleDrop}
-                onClick={triggerFileSelect}
-                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 select-none ${
-                  dragActive 
-                    ? "border-red-650 bg-red-50/50" 
-                    : "border-neutral-300 hover:border-neutral-400 bg-neutral-50/50"
-                }`}
-              >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  disabled={uploading}
-                  onChange={handleFileChange}
-                  accept="video/mp4,video/quicktime,video/webm,video/avi"
-                  className="hidden"
-                />
-
-                <div className="flex flex-col items-center justify-center gap-2">
-                  {selectedFile ? (
-                    <>
-                      <FileVideo className="text-red-700 animate-pulse animate-bounce" size={32} />
-                      <div className="text-xs space-y-1">
-                        <p className="font-extrabold text-neutral-800 truncate max-w-[200px]">{selectedFile.name}</p>
-                        <p className="font-mono text-[10px] text-neutral-500">
-                          Size: {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
-                        </p>
-                      </div>
-                      <span className="text-[10px] text-red-550 underline font-semibold mt-1">click to change video file</span>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="text-neutral-400 animate-pulse" size={32} />
-                      <div className="text-xs space-y-1">
-                        <p className="font-extrabold text-neutral-700">Drag & Drop Video report here</p>
-                        <p className="text-neutral-400">or click to browse local folders</p>
-                      </div>
-                      <span className="text-[9px] font-mono text-neutral-500 uppercase mt-2 block">
-                        MP4, MOV, WEBM (Max 50MB)
-                      </span>
-                    </>
-                  )}
-                </div>
+        {publishedSuccess ? (
+          <div className="space-y-6 animate-fadeIn py-2" id="publish-video-success-panel">
+            <div className="text-center space-y-3">
+              <div className="mx-auto w-14 h-14 bg-green-50 rounded-full flex items-center justify-center border border-green-200">
+                <CheckCircle className="text-green-600" size={32} />
               </div>
-
-              {/* REAL-TIME ACCELERATED TELEMETRY DASHBOARD (Requirement 2, 7, 9 & 10) */}
-              {instantUploadStatus !== "idle" && (
-                <div className="mt-3 bg-neutral-900 border border-neutral-850 rounded-lg p-3.5 font-mono text-[11px] text-neutral-300 space-y-2.5 shadow-md animate-fadeIn">
-                  <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
-                    <span className="text-red-500 font-extrabold flex items-center gap-1.5 uppercase text-[10px] select-none">
-                      <span className="w-2 h-2 bg-red-650 rounded-full animate-ping shrink-0" />
-                      Live Feed Telemetry
-                    </span>
-                    <span className="font-black text-[9px] bg-red-950/80 text-red-400 px-2 py-0.5 rounded tracking-wide uppercase select-none">
-                      {instantUploadStatus === "uploading" ? "Broadcasting..." : instantUploadStatus}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 leading-normal">
-                    <div className="text-neutral-400">FILE DETAILS: <span className="text-neutral-100 font-sans font-semibold">{(selectedFile?.size ? selectedFile.size / (1024 * 1024) : 0).toFixed(2)} MB</span></div>
-                    <div className="text-neutral-400">LIVE SPEED: <span className="text-emerald-400 font-bold">{instantSpeed || "Measuring..."}</span></div>
-                    <div className="text-neutral-400">NET LATENCY: <span className="text-neutral-100 font-semibold">{instantLatency ? `${instantLatency} ms` : "Calculating..."}</span></div>
-                    <div className="text-neutral-400">GCS RESPONSE: <span className="text-neutral-100 font-semibold">{instantStorageResponse ? `${instantStorageResponse} ms` : "Awaiting..."}</span></div>
-                  </div>
-
-                  {/* Dynamic Progress Indicator */}
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex justify-between items-center text-[10px] font-extrabold text-neutral-200">
-                      <span>CONCURRENT STREAM CHUNKS</span>
-                      <span className="text-red-400">{instantUploadProgress}%</span>
-                    </div>
-                    <div className="w-full bg-neutral-850 h-2 rounded-full overflow-hidden border border-neutral-800/60 p-0.5">
-                      <div 
-                        className="bg-red-600 h-full rounded-full transition-all duration-300 shadow-inner"
-                        style={{ width: `${instantUploadProgress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Automatic Congestion & Bottleneck Diagnostician */}
-                  {instantBottleneck ? (
-                    <div className="text-[10px] text-amber-400 bg-amber-955/30 px-2 py-1.5 rounded border border-amber-900/40 leading-relaxed animate-pulse">
-                      ⚡ {instantBottleneck}
-                    </div>
-                  ) : (
-                    <div className="text-[9px] text-emerald-400 bg-emerald-950/20 px-2 py-1 rounded border border-emerald-900/30 flex items-center gap-1 leading-none select-none">
-                      <span>✓ Connection stable. Accelerated parallel pipelines active.</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              <h4 className="text-base font-extrabold text-neutral-900 tracking-tight">✓ Video Published Successfully</h4>
+              <p className="text-xs text-neutral-500 leading-relaxed max-w-xs mx-auto">
+                The administrative news bulletin is live. All public feeds and newsroom segments have synchronized automatically.
+              </p>
             </div>
-          ) : (
-            /* DIRECT WEB URL LINK */
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1 font-mono">Stream URL / Embed iframe link</label>
+
+            {/* Video preview meta report block */}
+            <div className="bg-neutral-50 border border-neutral-150 p-4 rounded-lg space-y-3">
+              <div className="relative aspect-video bg-neutral-900 rounded overflow-hidden shadow-inner">
+                <img 
+                  src={publishedSuccess.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640"}
+                  alt={publishedSuccess.title}
+                  className="w-full h-full object-cover opacity-90"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center transition-all shadow-md">
+                    <Play size={14} fill="currentColor" className="ml-0.5" />
+                  </span>
+                </div>
+                <span className="absolute bottom-2 right-2 bg-black/75 px-1.5 py-0.5 rounded text-[10px] font-bold text-white font-mono">
+                  {publishedSuccess.duration || "0:00"}
+                </span>
+                {publishedSuccess.status && (
+                  <span className={`absolute top-2 left-2 px-2 py-0.5 text-[9px] uppercase font-mono tracking-widest font-black rounded shadow-md ${
+                    publishedSuccess.status === "Published" ? "bg-red-700 text-white" :
+                    publishedSuccess.status === "Scheduled" ? "bg-amber-600 text-white" :
+                    "bg-neutral-600 text-neutral-200"
+                  }`}>
+                    {publishedSuccess.status}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1">
+                <h5 className="text-xs font-bold text-neutral-950 line-clamp-1">{publishedSuccess.title}</h5>
+                <p className="text-[10px] text-neutral-500 font-mono">
+                  CLASSIFIED: {publishedSuccess.category.toUpperCase()} • BY {publishedSuccess.author}
+                </p>
+              </div>
+            </div>
+
+            {/* Action panel */}
+            <div className="space-y-2 pt-2 select-none">
+              <button
+                type="button"
+                onClick={() => {
+                  const viewUrl = `${window.location.origin}/?video=${publishedSuccess.id}`;
+                  window.open(viewUrl, "_blank");
+                }}
+                className="w-full py-2.5 px-4 bg-red-700 hover:bg-red-800 text-white text-xs tracking-wider uppercase font-extrabold rounded text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+              >
+                <Eye size={13} />
+                View Video Bulletin
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingVideo(publishedSuccess);
+                  setEditTitle(publishedSuccess.title);
+                  setEditDescription(publishedSuccess.description);
+                  setEditCategory(publishedSuccess.category || "general");
+                  setReplaceFile(null);
+                  setPublishedSuccess(null);
+                }}
+                className="w-full py-2.5 px-4 bg-white hover:bg-neutral-50 text-neutral-700 text-xs tracking-wider uppercase font-extrabold rounded border border-neutral-250 text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Edit3 size={13} />
+                Edit Video Bulletin
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPublishedSuccess(null);
+                  setErrorMsg(null);
+                  setSuccessMsg(null);
+                }}
+                className="w-full py-2.5 px-4 bg-neutral-950 hover:bg-neutral-900 text-white text-xs tracking-wider uppercase font-extrabold rounded text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw size={12} />
+                Back To Dashboard
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmitVideo} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Bulletin Title</label>
               <input
-                type="url"
-                required={sourceType === "url"}
+                type="text"
+                required
                 disabled={uploading}
-                placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-                className="w-full bg-white border border-neutral-300 rounded p-2.5 text-sm focus:outline-none focus:border-red-650"
+                placeholder="e.g. BREAKING: Major legislative bill passes consensus vote"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-neutral-450 focus:bg-white"
               />
             </div>
-          )}
 
-          {/* Broadcaster settings: Live or Scheduled status */}
-          <div className="bg-neutral-50 p-3.5 rounded border border-neutral-200/80 space-y-3">
-            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest font-mono block">Broadcaster Settings</span>
-            
-            <div className="flex items-center justify-between bg-white border border-neutral-100 p-2 rounded">
-              <label className="text-xs font-semibold text-neutral-700 flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  disabled={uploading}
-                  checked={isLive}
-                  onChange={(e) => {
-                    setIsLive(e.target.checked);
-                    if (e.target.checked) {
-                      setIsScheduled(false);
-                      setScheduledTime("");
-                    }
-                  }}
-                  className="rounded border-neutral-300 text-red-650 focus:ring-red-650 cursor-pointer"
-                />
-                <span>Set Broadcast to LIVE NOW</span>
-              </label>
-              <span className="text-[9px] bg-red-100 text-red-700 font-extrabold px-1.5 py-0.5 rounded uppercase font-mono animate-pulse select-none">LIVE</span>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Description / Briefing Synopsis</label>
+              <textarea
+                required
+                rows={4}
+                disabled={uploading}
+                placeholder="Supply summary highlights for the dynamic coverage briefings player..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-neutral-450 focus:bg-white resize-none"
+              />
             </div>
 
-            <div className="space-y-2 bg-white border border-neutral-100 p-2 rounded">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-neutral-700 flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    disabled={uploading}
-                    checked={isScheduled}
-                    onChange={(e) => {
-                      setIsScheduled(e.target.checked);
-                      if (e.target.checked) {
-                        setIsLive(false);
-                      }
-                    }}
-                    className="rounded border-neutral-300 text-red-650 focus:ring-red-650 cursor-pointer"
-                  />
-                  <span>Schedule Broadcast Release</span>
-                </label>
-                <span className="text-[9px] bg-blue-100 text-blue-700 font-extrabold px-1.5 py-0.5 rounded uppercase font-mono select-none">SCHEDULE</span>
-              </div>
-
-              {isScheduled && (
-                <div className="pl-6 pt-1 animate-fadeIn">
-                  <input
-                    type="datetime-local"
-                    required={isScheduled}
-                    disabled={uploading}
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full bg-white border border-neutral-300 rounded p-2 text-xs focus:outline-none focus:border-red-655 font-mono"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Set Status - Published vs Draft */}
-            <div className="flex items-center justify-between bg-white border border-neutral-100 p-2 rounded">
-              <label className="text-xs font-semibold text-neutral-700 flex items-center gap-2 font-mono">Publish Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as any)}
-                className="bg-neutral-50 px-2 py-1 text-xs border border-neutral-200 rounded font-bold cursor-pointer focus:outline-none"
-              >
-                <option value="Published">Published</option>
-                <option value="Draft">Draft</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Upload Progress Bar Meter (Requirement 2 & 7) */}
-          {uploading && (
-            <div className="bg-red-50 p-3 rounded-lg border border-red-150 space-y-2 animate-fadeIn select-none">
-              <div className="flex justify-between items-center text-[11px] font-mono font-bold text-red-800">
-                <span className="flex items-center gap-1.5">
-                  <RefreshCw size={12} className="animate-spin text-red-600" />
-                  <span>{currentStatusText}</span>
-                </span>
-                <span>{uploadProgress}%</span>
-              </div>
-              <div className="w-full bg-neutral-200 h-2 rounded-full overflow-hidden">
-                <div 
-                  className="bg-red-700 h-2 rounded-full transition-all duration-300 shadow-inner"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={uploading}
-            className={`w-full text-white font-sans text-xs font-bold uppercase tracking-widest py-3 rounded-md flex items-center justify-center gap-2 cursor-pointer transition shadow ${
-              uploading ? "bg-neutral-400 cursor-not-allowed" : "bg-red-700 hover:bg-red-800"
-            }`}
-          >
-            {uploading ? "PROCESSING BULLETIN DIRECTORY..." : (
-              <>
-                <PlusCircle size={15} />
-                <span>PUBLISH VIDEO BULLETIN</span>
-              </>
-            )}
-          </button>
-        </form>
-      </div>
-
-      {/* COLUMN 2 & 3: Library queue list of already uploaded video items */}
-      <div className="lg:col-span-2 space-y-6">
-        <div className="bg-white border border-neutral-200 rounded-lg p-6 shadow-xs">
-          
-          {/* SEARCH, CATEGORY FILTER AND ALERTS HEADERS (Requirement 10) */}
-          <div className="space-y-4 border-b border-neutral-100 pb-5 mb-5">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase select-none font-bold flex items-center gap-1.5">
-                <FileVideo size={16} className="text-red-700" />
-                <span>VIDEO BULLETIN DIRECTORY ({filteredVideos.length})</span>
-              </h3>
-              {loading && <span className="text-xs text-neutral-400 font-sans animate-pulse">Syncing Cloud ...</span>}
-            </div>
-
-            {/* Inline Dashboard Filters Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-400 pointer-events-none">
-                  <Search size={14} />
-                </span>
-                <input
-                  type="text"
-                  placeholder="Search report archives..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white border border-neutral-200 rounded-md pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-red-650"
-                />
-              </div>
-
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-400 pointer-events-none">
-                  <Filter size={14} />
-                </span>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Category desk</label>
                 <select
-                  value={selectedCategoryFilter}
-                  onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-                  className="w-full bg-white border border-neutral-200 rounded-md pl-9 pr-3 py-2 text-xs focus:outline-none cursor-pointer"
+                  disabled={uploading}
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
                 >
-                  <option value="all">All Categories</option>
-                  {VIDEO_CATEGORIES.map((cat) => (
+                  {VIDEO_CATEGORIES.map(cat => (
                     <option key={cat.id} value={cat.id}>{cat.name}</option>
                   ))}
                 </select>
               </div>
 
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-400 pointer-events-none">
-                  <Clock size={14} />
-                </span>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full bg-white border border-neutral-200 rounded-md pl-9 pr-3 py-2 text-xs focus:outline-none cursor-pointer"
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Reporting Author</label>
+                <input
+                  type="text"
+                  disabled
+                  placeholder="Desk credentials..."
+                  value={author}
+                  className="w-full bg-neutral-100 border border-neutral-200 rounded p-2 text-xs cursor-not-allowed text-neutral-450"
+                />
+              </div>
+            </div>
+
+            {/* Source Type selection */}
+            <div className="pt-2">
+              <span className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-2">Video Feed Source</span>
+              <div className="grid grid-cols-2 gap-2 border-b border-neutral-100 pb-3">
+                <button
+                  type="button"
+                  disabled={uploading}
+                  onClick={() => setSourceType("upload")}
+                  className={`py-2 px-3 text-xs font-medium rounded border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    sourceType === "upload" 
+                      ? "bg-neutral-900 border-neutral-900 text-white" 
+                      : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                  }`}
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="Published">Published Only</option>
-                  <option value="Draft">Drafts Only</option>
+                  <Upload size={13} />
+                  Local HD Upload
+                </button>
+                <button
+                  type="button"
+                  disabled={uploading}
+                  onClick={() => setSourceType("url")}
+                  className={`py-2 px-3 text-xs font-medium rounded border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    sourceType === "url" 
+                      ? "bg-neutral-900 border-neutral-900 text-white" 
+                      : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                  }`}
+                >
+                  <LinkIcon size={13} />
+                  Video Feed URL
+                </button>
+              </div>
+            </div>
+
+            {sourceType === "upload" ? (
+              <div className="space-y-3 animate-fadeIn">
+                <div 
+                  onDragEnter={handleDrag}
+                  onDragOver={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDrop={handleDrop}
+                  onClick={triggerFileSelect}
+                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-all cursor-pointer select-none ${
+                    dragActive 
+                      ? "border-red-500 bg-red-50/30" 
+                      : selectedFile 
+                        ? "border-green-400 bg-green-50/20" 
+                        : "border-neutral-200 hover:border-neutral-350 bg-neutral-50/40"
+                  }`}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="video/*"
+                    onChange={handleFileChange}
+                    disabled={uploading}
+                    className="hidden"
+                  />
+
+                  {selectedFile ? (
+                    <div className="space-y-1.5 animate-fadeIn">
+                      <FileVideo className="mx-auto text-green-500" size={28} />
+                      <p className="text-xs font-semibold text-neutral-800 break-all">{selectedFile.name}</p>
+                      <p className="text-[10px] text-neutral-450 font-mono">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB • Standard Format Detected
+                      </p>
+                      <span className="inline-block text-[10px] font-bold bg-neutral-100 text-neutral-650 px-2.5 py-0.5 rounded-full mt-2 hover:bg-neutral-250 cursor-pointer transition-all">
+                        Repoint file
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1 text-neutral-450">
+                      <Upload className="mx-auto text-neutral-400 mb-1" size={24} />
+                      <p className="text-xs font-semibold text-neutral-700">Drag & Drop Broadcast Video, or Browse</p>
+                      <p className="text-[10px]">MP4, MOV, WEBM, MKV, FLV down to 150MB</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1 animate-fadeIn">
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500">Live Video URL / External Feed</label>
+                <div className="relative">
+                  <input
+                    type="url"
+                    required={sourceType === "url"}
+                    disabled={uploading}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2.5 pl-8 text-xs focus:outline-none focus:border-neutral-450 focus:bg-white font-mono"
+                  />
+                  <LinkIcon size={12} className="absolute left-2.5 top-3.5 text-neutral-400" />
+                </div>
+                <p className="text-[10px] text-neutral-450 leading-relaxed font-mono mt-1">
+                  Supports YouTube watch links, stream embeds, or public server video pathways.
+                </p>
+              </div>
+            )}
+
+            {/* Publishing Status & Scheduling parameters */}
+            <div className="grid grid-cols-1 gap-3 pt-1 border-t border-neutral-100 mt-2">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Publishing Status Options</label>
+                <select
+                  disabled={uploading}
+                  value={publishStatus}
+                  onChange={(e) => setPublishStatus(e.target.value as any)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
+                >
+                  <option value="Published">Immediate Broadcast (Published)</option>
+                  <option value="Scheduled">Scheduled Release Window (Scheduled)</option>
+                  <option value="Draft">Draft Mode Workspace (Draft)</option>
                 </select>
               </div>
+
+              {publishStatus === "Scheduled" && (
+                <div className="space-y-1 animate-fadeIn">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500">Scheduled Time (Local)</label>
+                  <input
+                    type="datetime-local"
+                    required={publishStatus === "Scheduled"}
+                    disabled={uploading}
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:bg-white font-mono"
+                  />
+                  <p className="text-[10px] text-neutral-450 leading-normal">
+                    Bulletin will remain hidden from standard public feeds until this local timestamp threshold is reached.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Simple Progress Bar */}
+            {uploading && (
+              <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-2 animate-fadeIn">
+                <div className="flex justify-between items-center text-[10px] font-bold text-neutral-600 font-mono">
+                  <span className="flex items-center gap-1.5">
+                    <RefreshCw size={11} className="animate-spin text-red-600" />
+                    <span>{currentStatusText}</span>
+                  </span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                  <div 
+                    className="bg-red-600 h-full transition-all duration-350"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Sticky Action Button on Mobile, normal on Desktop */}
+            <div className="pt-2 md:relative fixed bottom-0 left-0 right-0 md:bottom-auto bg-white p-4 md:p-0 border-t border-neutral-200 md:border-t-0 z-40 select-none">
+              <button
+                type="submit"
+                disabled={uploading}
+                className={`w-full py-3 px-4 rounded text-xs tracking-wider uppercase font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md ${
+                  uploading
+                    ? "bg-neutral-300 text-neutral-500 cursor-not-allowed"
+                    : "bg-red-600 hover:bg-red-700 text-white hover:shadow-lg active:scale-[0.985]"
+                }`}
+              >
+                {uploading ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Broadcasting Reporting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload size={13} />
+                    <span>PUBLISH VIDEO BULLETIN</span>
+                  </>
+                )}
+              </button>
+            </div>
+            {/* Prevent bottom elements clip on mobile due to sticky */}
+            <div className="h-16 md:hidden" />
+          </form>
+        )}
+      </div>
+
+      {/* COLUMN 2/3: Video briefing feed catalog */}
+      <div className="lg:col-span-2 bg-white border border-neutral-200 rounded-lg p-6 shadow-xs flex flex-col justify-between">
+        <div>
+          <div className="border-b border-neutral-100 pb-3 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
+            <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase font-bold flex items-center gap-2">
+              <Clock size={16} className="text-neutral-500" />
+              ACTIVE DIGITAL COVERAGE MODULES ({videos.length})
+            </h3>
+
+            {/* Quick Filter Section */}
+            <div className="flex gap-2 items-center">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Query feeds..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-neutral-50 border border-neutral-200 text-xs rounded py-1 px-2.5 pl-7 focus:outline-none focus:bg-white focus:border-neutral-350 font-mono"
+                />
+                <Search size={11} className="absolute left-2 top-2 text-neutral-400" />
+              </div>
+
+              <select
+                value={selectedCategoryFilter}
+                onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                className="bg-neutral-50 border border-neutral-200 text-xs rounded py-1 px-2 cursor-pointer focus:outline-none"
+              >
+                <option value="all">All Desks</option>
+                {VIDEO_CATEGORIES.map(category => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* EDIT DIALOG MODAL IF ACTIVE (Requirement 10: "Edit metadata" & "Replace video") */}
-          {editingVideo && (
-            <div className="bg-neutral-50 rounded-xl p-5 border border-red-200/60 mb-6 space-y-4 animate-scaleIn select-none">
-              <div className="flex justify-between items-center border-b border-neutral-200 pb-2.5">
-                <span className="text-xs font-bold text-red-800 font-mono flex items-center gap-1.5 uppercase">
-                  <Edit3 size={14} />
-                  <span>Edit Bulletin ID Reference: {editingVideo.id.substring(0, 10)}</span>
-                </span>
-                <button 
-                  onClick={() => { setEditingVideo(null); setReplaceFile(null); }}
-                  className="text-neutral-400 hover:text-neutral-600 p-1 rounded-full cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <form onSubmit={handleEditVideoCommit} className="space-y-3 text-xs text-neutral-700">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="font-bold">Title Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      className="w-full bg-white border border-neutral-350 p-2 rounded focus:outline-none focus:border-red-650"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="font-bold">Category</label>
-                    <select
-                      value={editCategory}
-                      onChange={(e) => setEditCategory(e.target.value)}
-                      className="w-full bg-white border border-neutral-350 p-2 rounded focus:outline-none cursor-pointer"
-                    >
-                      {VIDEO_CATEGORIES.map((cat) => (
-                        <option key={cat.id} value={cat.id}>{cat.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold">Description Narrative</label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    className="w-full bg-white border border-neutral-350 p-2 rounded focus:outline-none focus:border-red-650"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white p-3 rounded border border-neutral-200/60">
-                  <label className="flex items-center gap-2 cursor-pointer font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={editIsLive}
-                      onChange={(e) => {
-                        setEditIsLive(e.target.checked);
-                        if (e.target.checked) {
-                          setEditIsScheduled(false);
-                          setEditScheduledTime("");
-                        }
-                      }}
-                      className="rounded border-neutral-300 text-red-600 focus:ring-red-600 cursor-pointer"
-                    />
-                    <span>Set live right now</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={editIsScheduled}
-                      onChange={(e) => {
-                        setEditIsScheduled(e.target.checked);
-                        if (e.target.checked) setEditIsLive(false);
-                      }}
-                      className="rounded border-neutral-300 text-red-600 focus:ring-red-600 cursor-pointer"
-                    />
-                    <span>Schedule release</span>
-                  </label>
-
-                  <div>
-                    <label className="block mb-1 text-[10px] uppercase font-mono font-bold text-neutral-500">Status</label>
-                    <select
-                      value={editStatus}
-                      onChange={(e) => setEditStatus(e.target.value as any)}
-                      className="px-2 py-0.5 border border-neutral-300 rounded cursor-pointer"
-                    >
-                      <option value="Published">Published</option>
-                      <option value="Draft">Draft</option>
-                    </select>
-                  </div>
-                </div>
-
-                {editIsScheduled && (
-                  <div className="pt-1">
-                    <label className="block mb-1 font-mono text-[9px] uppercase text-neutral-500">Scheduled ISO Release</label>
-                    <input
-                      type="datetime-local"
-                      required={editIsScheduled}
-                      value={editScheduledTime}
-                      onChange={(e) => setEditScheduledTime(e.target.value)}
-                      className="bg-white border rounded p-1.5 text-xs font-mono"
-                    />
-                  </div>
-                )}
-
-                {/* Replace video file options (Requirement 10: "Replace video without changing article ID") */}
-                <div className="bg-neutral-100 p-3 rounded-lg border border-neutral-250/70 space-y-1.5">
-                  <label className="font-extrabold text-neutral-800 uppercase text-[10px] tracking-wider block">Replace Video Source File (In-Place)</label>
-                  <p className="text-[10px] text-neutral-500 pb-1 leading-snug">
-                    Upload a replacement file to swap the content globally without affecting any references. Leave blank to keep current raw streaming file intact.
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button 
-                      type="button" 
-                      onClick={() => document.getElementById("edit_replace_video_input")?.click()}
-                      className="bg-white text-neutral-700 border border-neutral-300 flex items-center gap-1.5 px-3 py-1.5 rounded hover:bg-neutral-50 font-bold cursor-pointer"
-                    >
-                      <Upload size={12} />
-                      <span>{replaceFile ? "Change replacement Selection" : "Browse replacement video"}</span>
-                    </button>
-                    <input 
-                      type="file" 
-                      id="edit_replace_video_input"
-                      onChange={handleReplaceFileChange}
-                      accept="video/mp4,video/quicktime,video/webm"
-                      className="hidden"
-                    />
-                    {replaceFile && (
-                      <span className="font-mono text-[9px] font-bold text-red-700 bg-red-100 px-2 py-1 rounded truncate max-w-[200px]">
-                        {replaceFile.name} ({(replaceFile.size/(1024*1024)).toFixed(1)}MB)
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Edit Upload progress bar / Live Telemetry (Requirement 2, 7 & 10) */}
-                {editUploadStatus !== "idle" && (
-                  <div className="bg-neutral-900 border border-neutral-850 rounded-lg p-3 font-mono text-[10px] text-neutral-300 space-y-2 shadow-md animate-fadeIn">
-                    <div className="flex justify-between items-center border-b border-neutral-800 pb-1.5">
-                      <span className="text-red-500 font-extrabold flex items-center gap-1.5 uppercase text-[9px] select-none">
-                        <span className="w-1.5 h-1.5 bg-red-650 rounded-full animate-ping shrink-0" />
-                        In-Place Replacement Telemetry
-                      </span>
-                      <span className="font-black text-[8px] bg-red-950/80 text-red-400 px-1.5 py-0.5 rounded tracking-wide uppercase select-none">
-                        {editUploadStatus === "uploading" ? "Broadcasting..." : editUploadStatus}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 leading-tight text-[10px]">
-                      <div className="text-neutral-400">FILE DETAILS: <span className="text-neutral-100 font-sans font-semibold">{(replaceFile?.size ? replaceFile.size / (1024 * 1024) : 0).toFixed(2)} MB</span></div>
-                      <div className="text-neutral-400">LIVE SPEED: <span className="text-emerald-400 font-bold">{instantSpeed || "Measuring..."}</span></div>
-                      <div className="text-neutral-400">NET LATENCY: <span className="text-neutral-100 font-semibold">{instantLatency ? `${instantLatency} ms` : "Calculating..."}</span></div>
-                      <div className="text-neutral-400">GCS RESPONSE: <span className="text-neutral-100 font-semibold">{instantStorageResponse ? `${instantStorageResponse} ms` : "Awaiting..."}</span></div>
-                    </div>
-
-                    {/* Dynamic Progress Indicator */}
-                    <div className="space-y-1 pt-1">
-                      <div className="flex justify-between items-center text-[9px] font-extrabold text-neutral-200">
-                        <span>CONCURRENT REPLACE SEGMENTS</span>
-                        <span className="text-red-400">{editProgress}%</span>
-                      </div>
-                      <div className="w-full bg-neutral-850 h-1.5 rounded-full overflow-hidden border border-neutral-800/60 p-0.5">
-                        <div 
-                          className="bg-red-600 h-full rounded-full transition-all duration-300 shadow-inner"
-                          style={{ width: `${editProgress}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-2.5 pt-3 justify-end border-t border-neutral-200">
-                  <button
-                    type="submit"
-                    disabled={editUploading}
-                    className="bg-red-700 text-white font-bold px-4 py-2 rounded shadow hover:bg-red-800 cursor-pointer text-xs"
-                  >
-                    {editUploading ? "Uploading replacement..." : "Commit Metadata & Source Modifications"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={editUploading}
-                    onClick={() => { setEditingVideo(null); setReplaceFile(null); }}
-                    className="bg-neutral-200 hover:bg-neutral-300 text-neutral-700 font-bold px-3 py-2 rounded cursor-pointer text-xs"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* MAIN LIST VIEW */}
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3 text-neutral-400">
-              <span className="w-8 h-8 border-3 border-red-200 border-t-red-700 rounded-full animate-spin" />
-              <p className="text-xs font-mono">Synchronizing live documents...</p>
+            <div className="py-20 text-center animate-pulse flex flex-col items-center justify-center gap-2 text-neutral-450 text-xs font-mono">
+              <RefreshCw className="animate-spin text-neutral-300" size={32} />
+              <span>Resolving digital broadcast feed catalogs...</span>
             </div>
           ) : filteredVideos.length === 0 ? (
-            <div className="text-center py-24 select-none">
-              <FileVideo className="mx-auto text-neutral-300 mb-3 animate-pulse" size={48} />
-              <h4 className="text-slate-900 font-extrabold text-sm">No Bulletins Matched</h4>
-              <p className="text-neutral-500 text-xs mt-1.5 max-w-sm mx-auto leading-relaxed">
-                We couldn't locate any video bulletins matching your current search parameters. Clear query or category tags.
+            <div className="py-24 text-center border-2 border-dashed border-neutral-100 rounded-lg bg-neutral-50/30 select-none flex flex-col items-center justify-center gap-2 text-neutral-450 animate-fadeIn">
+              <Radio size={36} className="text-neutral-200" />
+              <p className="text-xs font-semibold text-neutral-700">No matching news broadcasts listed.</p>
+              <p className="text-[11px] max-w-sm leading-relaxed px-4">
+                Use the column creator to upload high-fidelity bulleting items directly or stream continuous YouTube live urls.
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {filteredVideos.map((vid) => (
-                <div 
-                  key={vid.id}
-                  className="bg-neutral-50 border border-neutral-200/80 rounded-xl overflow-hidden p-3.5 flex flex-col justify-between hover:shadow-sm transition duration-300"
-                >
-                  <div className="space-y-3">
-                    {/* CDN Visual Card Previews */}
-                    <div className="aspect-video w-full bg-neutral-900 rounded overflow-hidden relative shadow-inner group/vid">
-                      {/* Live badges overlays */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fadeIn">
+              {filteredVideos.map((vid) => {
+                const categoryObj = VIDEO_CATEGORIES.find(c => c.id === vid.category);
+                const isSelectedForDelete = deleteConfirmId === vid.id;
+
+                return (
+                  <div 
+                    key={vid.id}
+                    className="border border-neutral-200 hover:border-neutral-350 rounded-lg overflow-hidden flex flex-col justify-between bg-neutral-50/20 group transition-all"
+                  >
+                    {/* Upper Thumbnail card */}
+                    <div className="relative aspect-video bg-neutral-900 overflow-hidden select-none">
                       <img 
-                        src={vid.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640"}
+                        src={vid.thumbnailUrl || "https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640"} 
                         alt={vid.title}
-                        className="absolute inset-0 w-full h-full object-cover rounded opacity-80"
                         referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover opacity-85 group-hover:scale-103 transition-all duration-350"
                       />
                       
-                      {/* Play Hover circle badge */}
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/vid:opacity-100 transition-opacity duration-300">
-                        <div className="p-3 bg-red-650 text-white rounded-full shadow-lg transform scale-90 group-hover/vid:scale-100 transition-transform">
-                          <Play size={16} className="fill-current text-white translate-x-0.5" />
-                        </div>
-                      </div>
-
-                      {vid.isLive && (
-                        <span className="absolute top-2 left-2 bg-red-650 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow z-10 animate-pulse flex items-center gap-1 select-none">
-                          <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
-                          LIVE NOW
-                        </span>
-                      )}
-                      {vid.isScheduled && (
-                        <span className="absolute top-2 left-2 bg-blue-650 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow z-10 flex items-center gap-1 select-none font-mono">
-                          <Clock size={10} />
-                          SCHEDULED
-                        </span>
-                      )}
-
-                      {/* Display calculated duration in corner if available */}
-                      {vid.duration && vid.duration !== "0:00" && (
-                        <span className="absolute bottom-2 right-2 bg-black/80 font-mono text-white text-[9px] px-1.5 py-0.5 rounded shadow z-10 font-black">
+                      {vid.duration && (
+                        <span className="absolute bottom-2 right-2 bg-neutral-950/85 text-white font-mono text-[9px] px-1.5 py-0.5 rounded font-extrabold shadow-sm">
                           {vid.duration}
                         </span>
                       )}
 
-                      {/* category code flag */}
-                      <span className="absolute bottom-2 left-2 bg-neutral-950/80 font-mono text-neutral-300 text-[8px] uppercase tracking-widest px-2 py-0.5 rounded shadow z-10 font-bold">
-                        {vid.category || "General"}
+                      <span className="absolute top-2 left-2 bg-white/90 text-neutral-850 font-mono text-[9px] px-2 py-0.5 rounded font-extrabold select-none shadow-sm capitalize">
+                        {categoryObj?.name || "General Desk"}
                       </span>
+
+                      {/* Display public page link status */}
+                      <span className="absolute top-2 right-2 bg-green-100 text-green-750 font-mono text-[9px] px-2 py-0.5 rounded font-extrabold select-none shadow-sm flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
+                        Live on Page
+                      </span>
+
+                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                        <a 
+                          href={vid.videoUrl || vid.url} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="bg-white/95 text-neutral-900 rounded-full p-2.5 hover:scale-110 shadow transition-all cursor-pointer"
+                        >
+                          <Play size={16} fill="currentColor" className="text-neutral-900 pl-0.5" />
+                        </a>
+                      </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <div className="flex justify-between items-start gap-2">
-                        <h4 className="font-extrabold text-xs text-slate-950 leading-snug line-clamp-1 flex-1" title={vid.title}>
-                          {vid.title}
-                        </h4>
-                        
-                        {/* Draft indicators */}
-                        {vid.status === "Draft" && (
-                          <span className="text-[8px] bg-neutral-300 text-neutral-700 font-extrabold rounded px-1 uppercase font-mono">DRAFT</span>
-                        )}
+                    {/* Metadata body */}
+                    <div className="p-3.5 space-y-1.5 flex-1 flex flex-col justify-between">
+                      <div>
+                        <h4 className="text-[12.5px] font-bold text-neutral-850 leading-snug group-hover:text-red-655 transition-all line-clamp-1">{vid.title}</h4>
+                        <p className="text-[11px] text-neutral-450 leading-relaxed line-clamp-2 mt-1">{vid.description}</p>
                       </div>
 
-                      {vid.isScheduled && vid.scheduledTime && (
-                        <p className="text-[10px] text-blue-600 font-mono font-bold flex items-center gap-1 select-none pb-0.5">
-                          <Clock size={10} />
-                          Streaming: {new Date(vid.scheduledTime).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                        </p>
-                      )}
-                      
-                      <p className="text-slate-500 text-[11px] leading-relaxed line-clamp-2 font-sans" title={vid.description}>
-                        {vid.description}
-                      </p>
+                      <div className="border-t border-neutral-100 pt-3 mt-3 flex items-center justify-between text-[10px] font-mono font-medium text-neutral-450 select-none">
+                        <span className="flex items-center gap-1 truncate max-w-[130px]">
+                          <User size={11} className="text-neutral-400" />
+                          <span className="truncate">{vid.author || "system-desk"}</span>
+                        </span>
+                        
+                        <span>
+                          {vid.createdAt ? new Date(vid.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : "Active"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Interactive edits controls and deletion */}
-                  <div className="flex justify-between items-center text-[10px] font-mono mt-4 pt-3 border-t border-neutral-200">
-                    <span className="flex items-center gap-1 text-neutral-400">
-                      <Clock size={11} className="text-neutral-500" />
-                      {new Date(vid.publishedAt || vid.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </span>
-
-                    {/* Author tags */}
-                    {vid.author && (
-                      <span className="text-neutral-400 font-sans flex items-center gap-1">
-                        <User size={11} />
-                        <span className="truncate max-w-[80px]" title={vid.author}>{vid.author.split("@")[0]}</span>
-                      </span>
-                    )}
-
-                    {/* Meta views counters */}
-                    <span className="text-neutral-400 flex items-center gap-1 bg-neutral-200/50 px-1.5 py-0.5 rounded">
-                      <Eye size={11} />
-                      <span>{vid.views || 0}</span>
-                    </span>
-
-                    {/* Controls cluster block */}
-                    <div className="flex items-center gap-2.5">
-                      {/* edit Metadata button */}
-                      <button 
-                        onClick={() => {
-                          setEditingVideo(vid);
-                          setEditTitle(vid.title);
-                          setEditDescription(vid.description);
-                          setEditCategory(vid.category || "general");
-                          setEditStatus((vid.status as any) || "Published");
-                          setEditIsLive(vid.isLive || false);
-                          setEditIsScheduled(vid.isScheduled || false);
-                          setEditScheduledTime(vid.scheduledTime || "");
-                        }}
-                        className="text-neutral-500 hover:text-red-700 font-bold flex items-center gap-1 cursor-pointer"
-                        title="Edit metadata in place"
-                      >
-                        <Edit3 size={11} />
-                        <span>Edit</span>
-                      </button>
-
-                      {deleteConfirmId === vid.id ? (
-                        <div className="flex items-center gap-1.5 shrink-0 animate-scaleIn select-none bg-red-50 p-1.5 rounded border border-red-200">
-                          <span className="text-[9px] text-red-650 font-black">CONFIRM?</span>
-                          <button
-                            onClick={() => handleDeleteVideoPermanently(vid)}
-                            className="bg-red-700 hover:bg-red-800 text-white font-bold px-2 py-0.5 rounded text-[9px] cursor-pointer"
-                          >
-                            YES
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirmId(null)}
-                            className="bg-neutral-200 hover:bg-neutral-300 text-neutral-600 px-2 py-0.5 rounded text-[9px] cursor-pointer"
-                          >
-                            NO
-                          </button>
+                    {/* Footer Actions */}
+                    <div className="bg-neutral-50 border-t border-neutral-100 py-2.5 px-3.5 flex justify-between items-center select-none">
+                      {isSelectedForDelete ? (
+                        <div className="w-full flex items-center justify-between text-[11px] font-bold animate-fadeIn">
+                          <span className="text-red-700 flex items-center gap-1 font-mono">Confirm deletion?</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleDeleteVideoPermanently(vid)}
+                              className="text-red-600 hover:text-red-800 underline uppercase cursor-pointer"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="text-neutral-500 hover:text-neutral-800 underline uppercase cursor-pointer"
+                            >
+                              Abort
+                            </button>
+                          </div>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => setDeleteConfirmId(vid.id)}
-                          className="text-red-600 hover:text-red-800 font-extrabold flex items-center gap-1 cursor-pointer"
-                          title="Delete permanently from cloud and Firestore"
-                        >
-                          <Trash2 size={11} />
-                          <span>Erase</span>
-                        </button>
+                        <>
+                          <div className="flex gap-2 text-[10px] text-neutral-500 font-bold font-mono">
+                            <span className="text-neutral-400">Views:</span>
+                            <span className="text-neutral-700">{vid.views || 0}</span>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => {
+                                setEditingVideo(vid);
+                                setEditTitle(vid.title);
+                                setEditDescription(vid.description);
+                                setEditCategory(vid.category || "general");
+                                setReplaceFile(null);
+                              }}
+                              className="text-neutral-500 hover:text-neutral-900 flex items-center gap-1 text-[11px] font-bold cursor-pointer transition-all hover:underline"
+                            >
+                              <Edit3 size={11} />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmId(vid.id)}
+                              className="text-red-500 hover:text-red-700 flex items-center gap-1 text-[11px] font-bold cursor-pointer transition-all hover:underline"
+                            >
+                              <Trash2 size={11} />
+                              Delete
+                            </button>
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
-
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* Informative Help Footer */}
+        <div className="mt-8 border-t border-neutral-100 pt-4 text-[10.5px] leading-relaxed text-neutral-450 select-none flex items-start gap-1.5 font-mono">
+          <Info size={14} className="shrink-0 text-red-500 mt-0.5" />
+          <p>
+            Newly added video briefings appear instantly in the <span className="text-neutral-700 font-semibold">"Fast Coverage Bulletins"</span> carousel widget on the public page for real-time news delivery. No publishing queue is required.
+          </p>
+        </div>
       </div>
 
-      {/* Dynamic YouTube-style Fixed Floating Background Upload Hub */}
-      {(instantUploadStatus === "uploading" || editUploadStatus === "uploading" || pendingFirestoreDocsRef.current !== null) && (
-        <div className="fixed bottom-6 right-6 w-96 bg-neutral-900 border border-neutral-800 text-white shadow-2xl rounded-xl overflow-hidden z-50 animate-scaleIn select-none font-sans">
-          
-          {/* Header */}
-          <div className="bg-neutral-950 px-4 py-3 border-b border-neutral-800 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 bg-red-600 rounded-full animate-pulse shrink-0" />
-              <span className="text-[10px] font-mono font-black uppercase tracking-widest text-neutral-300">
-                {pendingFirestoreDocsRef.current ? "Processing Bulletin" : "Uploading Payload Stream"}
-              </span>
+      {/* EDIT MODAL DIALOG POPUP */}
+      {editingVideo && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950/45 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white border border-neutral-200 rounded-lg p-6 max-w-md w-full shadow-xl space-y-4">
+            <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
+              <h3 className="text-xs font-mono font-bold tracking-widest text-neutral-500 uppercase flex items-center gap-2">
+                <Edit3 size={14} className="text-red-655" />
+                EDIT VIDEO BULLETIN
+              </h3>
+              <button 
+                onClick={() => {
+                  setEditingVideo(null);
+                  setReplaceFile(null);
+                }}
+                disabled={editUploading}
+                className="text-neutral-450 hover:text-neutral-850 cursor-pointer p-0.5 hover:bg-neutral-100 rounded transition-all"
+              >
+                <X size={15} />
+              </button>
             </div>
-            {instantLatency && (
-              <span className="text-[9px] font-mono px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-neutral-400">
-                {instantLatency}ms Latency
-              </span>
-            )}
+
+            <form onSubmit={handleEditVideoCommit} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Edit Title</label>
+                <input
+                  type="text"
+                  required
+                  disabled={editUploading}
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none focus:border-neutral-400 focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Edit Synopsis</label>
+                <textarea
+                  required
+                  rows={4}
+                  disabled={editUploading}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none focus:border-neutral-400 focus:bg-white resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">desk category</label>
+                <select
+                  disabled={editUploading}
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none cursor-pointer focus:bg-white font-medium"
+                >
+                  {VIDEO_CATEGORIES.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Replace Video File option (Optional) */}
+              <div className="bg-neutral-50 p-3.5 rounded border border-neutral-155 space-y-1 text-center font-mono select-none">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-450 mb-1.5">Replace Video File (Optional)</span>
+                
+                <input
+                  type="file"
+                  accept="video/*"
+                  disabled={editUploading}
+                  onChange={handleReplaceFileChange}
+                  className="hidden text-[10px] w-full"
+                  id="replace-file-picker-input-id"
+                />
+
+                {replaceFile ? (
+                  <div className="space-y-1 text-neutral-700 animate-fadeIn">
+                    <FileCheck className="mx-auto text-green-500" size={18} />
+                    <p className="font-semibold text-[10px] text-neutral-800 break-all">{replaceFile.name}</p>
+                    <p className="text-[9px] text-neutral-500">{(replaceFile.size / (1024 * 1024)).toFixed(1)} MB</p>
+                    <button
+                      type="button"
+                      disabled={editUploading}
+                      onClick={() => setReplaceFile(null)}
+                      className="text-red-500 text-[9px] font-bold hover:underline cursor-pointer uppercase mt-1 block mx-auto"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={editUploading}
+                    onClick={() => document.getElementById("replace-file-picker-input-id")?.click()}
+                    className="py-1.5 px-3 bg-white border border-neutral-200 rounded hover:border-neutral-350 text-[10px] text-neutral-600 font-bold transition-all cursor-pointer inline-flex items-center gap-1 hover:bg-neutral-50"
+                  >
+                    <Upload size={10} />
+                    Browse replacement video
+                  </button>
+                )}
+              </div>
+
+              {/* Edit Progress Bar */}
+              {editUploading && (
+                <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-1 animate-fadeIn">
+                  <div className="flex justify-between items-center text-[9px] font-bold text-neutral-600 font-mono">
+                    <span className="flex items-center gap-1 text-red-600">
+                      <RefreshCw size={10} className="animate-spin" />
+                      Uploading replacements...
+                    </span>
+                    <span>{editProgress}%</span>
+                  </div>
+                  <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-red-600 h-full transition-all duration-350"
+                      style={{ width: `${editProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2 border-t border-neutral-100 select-none">
+                <button
+                  type="submit"
+                  disabled={editUploading}
+                  className="flex-1 py-2 bg-neutral-900 text-white font-extrabold hover:bg-black rounded text-[11px] tracking-wider uppercase transition-all cursor-pointer shadow-xs"
+                >
+                  {editUploading ? "Saving..." : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  disabled={editUploading}
+                  onClick={() => {
+                    setEditingVideo(null);
+                    setReplaceFile(null);
+                  }}
+                  className="flex-1 py-2 bg-neutral-100 border border-neutral-200 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800 rounded text-[11px] tracking-wider uppercase transition-all cursor-pointer font-bold"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
-
-          {/* Body */}
-          <div className="p-4 space-y-3">
-            <div>
-              <div className="flex justify-between items-start text-xs font-bold leading-snug">
-                <span className="truncate max-w-[200px] text-neutral-100" title={selectedFile?.name || replaceFile?.name || "Active Broadcast Payload"}>
-                  {selectedFile?.name || replaceFile?.name || "Initializing broadcast segment..."}
-                </span>
-                <span className="text-red-500 text-xs font-mono font-black shrink-0">
-                  {editUploadStatus === "uploading" ? editProgress : instantUploadProgress}%
-                </span>
-              </div>
-              <p className="text-[10px] text-neutral-400 mt-1 font-mono">
-                {instantSpeed ? `Transferring Speed: ${instantSpeed}` : "Synchronizing packets..."}
-              </p>
-            </div>
-
-            {/* Micro Progress Track */}
-            <div className="w-full bg-neutral-800 h-1.5 rounded-full overflow-hidden">
-              <div 
-                className="bg-red-650 h-full rounded-full transition-all duration-300"
-                style={{ width: `${editUploadStatus === "uploading" ? editProgress : instantUploadProgress}%` }}
-              />
-            </div>
-
-            {/* System Status Indicators */}
-            <div className="pt-2 border-t border-neutral-800 flex items-center justify-between text-[9px] font-mono text-neutral-300">
-              <span className="flex items-center gap-1.5">
-                <RefreshCw size={10} className="animate-spin text-neutral-500 hover:text-red-500" />
-                <span>Dual-DB Sync active</span>
-              </span>
-              <span>
-                {pendingFirestoreDocsRef.current ? "● PROCESSING IN BACKGROUND" : "⚡ STREAM TUNNELLING"}
-              </span>
-            </div>
-
-            {pendingFirestoreDocsRef.current && (
-              <div className="bg-red-950/40 border border-red-900/30 rounded p-2.5 text-[10px] text-red-250 font-sans leading-relaxed">
-                <strong>Instant Published:</strong> Bulletin draft created in Firestore! You can safely navigate or create other bulletins while the upload completes in the background.
-              </div>
-            )}
-
-            {instantBottleneck && (
-              <div className="bg-yellow-950/20 border border-yellow-900/30 rounded p-2 text-[9px] text-yellow-500 font-mono">
-                ⚠️ {instantBottleneck}
-              </div>
-            )}
-          </div>
-
         </div>
       )}
 

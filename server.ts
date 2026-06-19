@@ -42,8 +42,8 @@ const PRE_APPROVED_USERS = [
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(express.json({ limit: "150mb" }));
+  app.use(express.urlencoded({ limit: "150mb", extended: true }));
 
   // CORS headers
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -434,11 +434,11 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
 
     try {
       const lowerName = fileName.toLowerCase();
-      const validExtensions = [".mp4", ".mov", ".webm", ".avi", ".mkv"];
+      const validExtensions = [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv"];
       const ext = path.extname(lowerName);
-      if (!validExtensions.includes(ext)) {
+      if (!validExtensions.includes(ext) && !lowerName.startsWith("video")) {
         return res.status(400).json({ 
-          error: "Only video file extensions (.mp4, .mov, .webm, .avi, .mkv) are authorized." 
+          error: "Only standard video files are authorized." 
         });
       }
 
@@ -446,10 +446,10 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
       const base64Data = fileData.replace(/^data:video\/\w+;base64,/, "");
       const buffer = Buffer.from(base64Data, "base64");
 
-      // Limit file size to 35MB
-      const MAX_SIZE = 35 * 1024 * 1024;
+      // Limit file size to 150MB
+      const MAX_SIZE = 150 * 1024 * 1024;
       if (buffer.length > MAX_SIZE) {
-        return res.status(400).json({ error: "Video file exceeds the 35MB admin preview uploads cap." });
+        return res.status(400).json({ error: "Video file exceeds the 150MB admin preview uploads cap." });
       }
 
       const safeName = "video-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + ext;
@@ -467,6 +467,46 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
       console.error("Video write failed on backend:", err);
       return res.status(500).json({ error: "Failed to write the video file payload onto the preview server." });
     }
+  });
+
+  // 5b. HIGH PERFORMANCE Video Binary Upload with streaming disk write and real-time progress Support
+  app.post("/api/admin/upload-video-binary", authenticateJWT, (req: Request, res: Response) => {
+    const fileName = req.headers["x-file-name"] as string || (req.query.fileName as string) || "video-" + Date.now() + ".mp4";
+    const lowerName = fileName.toLowerCase();
+    const validExtensions = [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv"];
+    const ext = path.extname(lowerName) || ".mp4";
+    if (!validExtensions.includes(ext) && !lowerName.startsWith("video")) {
+      return res.status(400).json({ 
+        error: "Only standard video files are authorized." 
+      });
+    }
+
+    const safeName = "video-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + ext;
+    const targetPath = path.join(uploadsDir, safeName);
+
+    const writeStream = fs.createWriteStream(targetPath);
+
+    req.pipe(writeStream);
+
+    writeStream.on("finish", () => {
+      const fileUrl = `/uploads/${safeName}`;
+      return res.json({
+        success: true,
+        url: fileUrl,
+        name: safeName
+      });
+    });
+
+    writeStream.on("error", (err: any) => {
+      console.error("Video streaming write failed on backend:", err);
+      // Clean up incomplete file if any
+      try {
+        if (fs.existsSync(targetPath)) {
+          fs.unlinkSync(targetPath);
+        }
+      } catch (cleanErr) {}
+      return res.status(500).json({ error: "Failed to write the video file payload onto the preview server." });
+    });
   });
 
   // Serve static files when integrated in production, otherwise mount local dev Vite configuration
