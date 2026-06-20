@@ -21,7 +21,7 @@ import {
   Clock,
   Info
 } from "lucide-react";
-import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc, setDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "../firebase";
 import { generateVideoThumbnail, formatDuration, base64ToBlob } from "../utils/videoHelpers";
@@ -122,6 +122,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
   // Publish Status configurations
   const [publishStatus, setPublishStatus] = useState<"Draft" | "Scheduled" | "Published">("Published");
+  const [featured, setFeatured] = useState(false);
   const [scheduledTime, setScheduledTime] = useState("");
   const [publishedSuccess, setPublishedSuccess] = useState<VideoItem | null>(null);
   
@@ -138,6 +139,40 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Background Direct Storage Upload state
+  interface UploadJob {
+    id: string;
+    file: File;
+    fileName: string;
+    progress: number;
+    bytesTransferred: number;
+    totalBytes: number;
+    speedMBs: number;
+    etaSeconds: number | null;
+    startTime: number;
+    status: "Uploading..." | "Processing..." | "Published..." | "Failed";
+    downloadUrl: string | null;
+    thumbnailUrl: string | null;
+    duration: string;
+    isCommitted: boolean;
+    title: string;
+    description: string;
+    category: string;
+    publishStatus: "Draft" | "Scheduled" | "Published";
+    featured: boolean;
+    scheduledTime: string;
+    author: string;
+    isEditType: boolean;
+    editingVideoId?: string;
+    firestoreDocId?: string;
+    retryCount?: number;
+    error?: string;
+  }
+
+  const [backgroundJobs, setBackgroundJobs] = useState<UploadJob[]>([]);
+  const [activeUploadJobId, setActiveUploadJobId] = useState<string | null>(null);
+  const [editUploadJobId, setEditUploadJobId] = useState<string | null>(null);
+
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all");
@@ -147,14 +182,17 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editCategory, setEditCategory] = useState("general");
+  const [editPublishStatus, setEditPublishStatus] = useState<"Draft" | "Published">("Published");
+  const [editFeatured, setEditFeatured] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const [editUploading, setEditUploading] = useState(false);
   const [editProgress, setEditProgress] = useState(0);
 
   // Prevent closing tab when uploading is active
   useEffect(() => {
+    const isJobUploading = backgroundJobs.some(j => j.status === "Uploading..." || j.status === "Processing...");
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (uploading || editUploading) {
+      if (isJobUploading || uploading || editUploading) {
         e.preventDefault();
         e.returnValue = "Video upload is still in progress. Closing this tab will cancel the upload.";
         return e.returnValue;
@@ -164,7 +202,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [uploading, editUploading]);
+  }, [backgroundJobs, uploading, editUploading]);
 
   // Load active session user email if changed
   useEffect(() => {
@@ -279,6 +317,279 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     }
   };
 
+  const publishCommittedJob = async (job: UploadJob) => {
+    try {
+      const timestampISO = new Date().toISOString();
+      const isSched = job.publishStatus === "Scheduled";
+      const actualPublishTime = isSched && job.scheduledTime ? new Date(job.scheduledTime).toISOString() : timestampISO;
+
+      const docData = {
+        title: job.title.trim(),
+        description: job.description.trim(),
+        category: job.category,
+        url: job.downloadUrl,
+        videoUrl: job.downloadUrl,
+        thumbnailUrl: job.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640",
+        duration: job.duration || "0:00",
+        createdAt: timestampISO,
+        updatedAt: timestampISO,
+        publishedAt: actualPublishTime,
+        author: job.author || "admin@fastcoverage.news",
+        status: job.publishStatus,
+        published: job.publishStatus === "Published",
+        featured: job.featured,
+        views: 0,
+        isLive: false,
+        isScheduled: isSched,
+        scheduledTime: isSched && job.scheduledTime ? actualPublishTime : ""
+      };
+
+      console.log("[DEBUG] SAVING FIRESTORE DOCUMENT FROM JOB:", docData);
+
+      let docId = job.firestoreDocId;
+      if (job.isEditType && job.editingVideoId) {
+        docId = job.editingVideoId;
+        await updateDoc(doc(db, "videoBulletins", docId), docData);
+        await updateDoc(doc(db, "videos", docId), docData);
+        console.log("[Background Edit Stream] Published successfully for existing doc:", docId);
+      } else {
+        if (docId) {
+          // If we already wrote a temporary document, update/merge it
+          await setDoc(doc(db, "videoBulletins", docId), docData, { merge: true });
+          await setDoc(doc(db, "videos", docId), { ...docData, id: docId }, { merge: true });
+          console.log("[Background Live Stream] Merged details into existing doc:", docId);
+        } else {
+          // Create new document
+          const bulletDoc = await addDoc(collection(db, "videoBulletins"), docData);
+          docId = bulletDoc.id;
+          await setDoc(doc(db, "videos", docId), {
+            ...docData,
+            id: docId
+          });
+          console.log("[Background Live Stream] Published successfully with ID:", docId);
+        }
+      }
+
+      // Update local state with doc ID and status
+      setBackgroundJobs(prev => prev.map(j => j.id === job.id ? { 
+        ...j, 
+        status: "Published...", 
+        firestoreDocId: docId 
+      } : j));
+
+      console.log(`[DEBUG] Publish completed successfully for video "${job.title}".`);
+
+      // Keep job on screen for 1.5 seconds so admin sees the "Published..." state, then clean up
+      setTimeout(() => {
+        setBackgroundJobs(prev => prev.filter(j => j.id !== job.id));
+      }, 1500);
+
+    } catch (err: any) {
+      console.error("Background publication write failed:", err);
+      setBackgroundJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: "Failed", error: err.message || "Auto-publish failed." } : j));
+    }
+  };
+
+  const updateFirestoreMetadataLocallyAndDb = async (jobId: string, duration: string, thumbnailUrl: string) => {
+    let matchedJob: UploadJob | undefined;
+    setBackgroundJobs(prev => {
+      const idx = prev.findIndex(j => j.id === jobId);
+      if (idx !== -1) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], duration, thumbnailUrl };
+        matchedJob = copy[idx];
+        return copy;
+      }
+      return prev;
+    });
+
+    if (matchedJob) {
+      const docId = matchedJob.firestoreDocId || (matchedJob.isEditType ? matchedJob.editingVideoId : undefined);
+      if (docId) {
+        try {
+          console.log(`[DEBUG] Background Metadata Hydration: document ${docId} is now enriched with duration "${duration}" and thumb "${thumbnailUrl}"`);
+          await updateDoc(doc(db, "videoBulletins", docId), { duration, thumbnailUrl });
+          await updateDoc(doc(db, "videos", docId), { duration, thumbnailUrl });
+        } catch (err) {
+          console.warn("Could not enrich existing firestore video document:", err);
+        }
+      }
+    }
+  };
+
+  const startDirectStorageUpload = (file: File, isEditing: boolean) => {
+    console.log(`[DEBUG] File selected: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB), Type: ${file.type || 'unknown'}`);
+    const timestamp = Date.now();
+    const uniqueId = Math.random().toString(36).substring(2, 8);
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase() || ".mp4";
+    const videoPath = `videoBulletins/${timestamp}-${uniqueId}${ext}`;
+    const storageRef = ref(storage, videoPath);
+
+    const metadata = {
+      contentType: file.type || 'video/mp4',
+      cacheControl: 'public, max-age=31536000',
+    };
+
+    const jobId = `${isEditing ? 'edit' : 'new'}-${timestamp}-${uniqueId}`;
+
+    const newJob: UploadJob = {
+      id: jobId,
+      file,
+      fileName: file.name,
+      progress: 0,
+      bytesTransferred: 0,
+      totalBytes: file.size,
+      speedMBs: 0,
+      etaSeconds: null,
+      startTime: Date.now(),
+      status: "Uploading...",
+      downloadUrl: null,
+      thumbnailUrl: null,
+      duration: "0:00",
+      isCommitted: false,
+      title: isEditing ? editTitle : (title || file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ")),
+      description: isEditing ? editDescription : description,
+      category: isEditing ? editCategory : category,
+      publishStatus: isEditing ? (editPublishStatus as any) : publishStatus,
+      featured: isEditing ? editFeatured : featured,
+      scheduledTime: isEditing ? "" : scheduledTime,
+      author: author || "admin@fastcoverage.news",
+      isEditType: isEditing,
+      editingVideoId: isEditing ? editingVideo?.id : undefined,
+      retryCount: 0
+    };
+
+    // Pre-insert into list immediately so it starts updating on-screen
+    setBackgroundJobs(prev => [...prev, newJob]);
+    if (isEditing) {
+      setEditUploadJobId(jobId);
+    } else {
+      setActiveUploadJobId(jobId);
+    }
+
+    console.log(`[DEBUG] Upload started for jobId: ${jobId}, path: ${videoPath}`);
+
+    const runUploadLoop = (retryCountNum: number) => {
+      const uploadTask = uploadBytesResumable(storageRef, file, metadata);
+
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const bytesTransferred = snapshot.bytesTransferred;
+          const totalBytes = snapshot.totalBytes;
+          const progress = totalBytes > 0 ? Math.round((bytesTransferred / totalBytes) * 100) : 0;
+          
+          const now = Date.now();
+          const elapsedSeconds = (now - newJob.startTime) / 1000;
+          let speedMBs = 0;
+          let etaSeconds = null;
+
+          if (elapsedSeconds > 0.1) {
+            const speedBps = bytesTransferred / elapsedSeconds;
+            speedMBs = speedBps / (1024 * 1024);
+            if (speedBps > 0) {
+              etaSeconds = Math.max(0, Math.round((totalBytes - bytesTransferred) / speedBps));
+            }
+          }
+
+          console.log(`[DEBUG] Upload progress for ${jobId}: ${progress}% - Speed: ${speedMBs.toFixed(2)} MB/s - ETA: ${etaSeconds !== null ? etaSeconds + 's' : 'unknown'}`);
+
+          setBackgroundJobs(prev => prev.map(j => j.id === jobId ? {
+            ...j,
+            progress,
+            bytesTransferred,
+            totalBytes,
+            speedMBs,
+            etaSeconds
+          } : j));
+        },
+        (error: any) => {
+          console.error(`[DEBUG] Firebase Storage direct upload error:`, error);
+          if (retryCountNum < 3) {
+            console.warn(`[DEBUG] Failsafe auto-retry: re-triggering file upload attempt ${retryCountNum + 1}/3...`);
+            setTimeout(() => {
+              runUploadLoop(retryCountNum + 1);
+            }, 1000);
+          } else {
+            setBackgroundJobs(prev => prev.map(j => j.id === jobId ? {
+              ...j,
+              status: "Failed",
+              error: `Direct storage write failed: ${error.message || "Network Timeout."}`
+            } : j));
+          }
+        },
+        async () => {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          console.log(`[DEBUG] Download URL created: ${downloadUrl}`);
+
+          // Cache in IndexedDB instantly for lag-free playing
+          try {
+            await saveVideoFile(downloadUrl, file);
+          } catch (dbErr) {
+            console.warn("Local IndexedDB caching skipped:", dbErr);
+          }
+
+          // Let's obtain the reference to the newest job record to check if it's already committed
+          let isCommittedNow = false;
+          let matchedJobSnapshot: UploadJob | undefined;
+
+          setBackgroundJobs(prevJobs => {
+            const jobIndex = prevJobs.findIndex(j => j.id === jobId);
+            if (jobIndex === -1) return prevJobs;
+            const matchedJob = prevJobs[jobIndex];
+            isCommittedNow = matchedJob.isCommitted;
+            
+            const updatedJob = {
+              ...matchedJob,
+              progress: 100,
+              status: "Processing..." as const,
+              downloadUrl
+            };
+            matchedJobSnapshot = updatedJob;
+
+            const copy = [...prevJobs];
+            copy[jobIndex] = updatedJob;
+            return copy;
+          });
+
+          // Wait 100ms for state to finalize, then execute publish if committed
+          setTimeout(() => {
+            if (matchedJobSnapshot) {
+              if (isCommittedNow || matchedJobSnapshot.isCommitted) {
+                publishCommittedJob(matchedJobSnapshot);
+              }
+            }
+          }, 100);
+
+          // Now, generate and upload thumbnail & duration completely in the background after upload completes!
+          console.log(`[DEBUG] Triggering background metadata processing for completed upload...`);
+          generateVideoThumbnail(file).then(async (result) => {
+            const calculatedDuration = formatDuration(result.durationSeconds);
+            console.log(`[DEBUG] Metadata extracted successfully. Duration decoded: ${calculatedDuration}`);
+
+            const thumbPath = `videoBulletins/thumbnails/${timestamp}-${uniqueId}-thumb.jpg`;
+            const thumbRef = ref(storage, thumbPath);
+            try {
+              await uploadBytesResumable(thumbRef, result.thumbnail);
+              const thumbUrl = await getDownloadURL(thumbRef);
+              console.log(`[DEBUG] Background thumbnail uploaded: ${thumbUrl}`);
+
+              // Hydrate Firestore and Local state
+              await updateFirestoreMetadataLocallyAndDb(jobId, calculatedDuration, thumbUrl);
+            } catch (thumbUploadErr) {
+              console.warn("Metadata thumbnail save skipped in background:", thumbUploadErr);
+              await updateFirestoreMetadataLocallyAndDb(jobId, calculatedDuration, "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640");
+            }
+          }).catch(err => {
+            console.warn("Background processing skipped:", err);
+          });
+        }
+      );
+    };
+
+    runUploadLoop(0);
+  };
+
   const validateAndSetFile = (file: File, isEditing: boolean) => {
     const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
     const isVideo = file.type.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv"].includes(ext);
@@ -301,11 +612,13 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
     if (isEditing) {
       setReplaceFile(file);
+      startDirectStorageUpload(file, true);
     } else {
       setSelectedFile(file);
       if (!title) {
         setTitle(file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "));
       }
+      startDirectStorageUpload(file, false);
     }
   };
 
@@ -396,126 +709,11 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       return;
     }
 
-    setUploading(true);
-    setUploadProgress(0);
-
-    try {
-      let finalVideoUrl = "";
-      let finalThumbnailUrl = "";
-      let calculatedDuration = "0:00";
-
-      if (sourceType === "upload") {
-        const file = selectedFile!;
-        const timestamp = Date.now();
-        const uniqueId = Math.random().toString(36).substring(2, 8);
-        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase() || ".mp4";
-        const videoPath = `videoBulletins/${timestamp}-${uniqueId}${ext}`;
-
-        // Extraction Pipeline: Generate thumbnail and detect duration asynchronously
-        setCurrentStatusText("Extracting video metadata & duration...");
-        try {
-          const result = await generateVideoThumbnail(file);
-          calculatedDuration = formatDuration(result.durationSeconds);
-          
-          setCurrentStatusText("Uploading video thumbnail to server...");
-          const thumbPath = `videoBulletins/thumbnails/${timestamp}-${uniqueId}-thumb.jpg`;
-          try {
-            // High-speed local write first
-            const base64Data = await fileToBase64(result.thumbnail);
-            const res = await fetch("/api/admin/upload-image", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${adminToken}`
-              },
-              body: JSON.stringify({
-                fileName: `${timestamp}-${uniqueId}-thumb.jpg`,
-                fileData: base64Data
-              })
-            });
-            if (res.ok) {
-              const resData = await res.json();
-              finalThumbnailUrl = resData.url || "";
-            } else {
-              throw new Error("Local backend image upload endpoint failed");
-            }
-          } catch (localThumbnailError) {
-            console.warn("Storage thumbnail local write failed, falling back to Firebase storage:", localThumbnailError);
-            try {
-              finalThumbnailUrl = await uploadToStorageWithProgress(result.thumbnail, thumbPath, () => {});
-            } catch (storageErr) {
-              console.error("Firebase Storage thumbnail write failed:", storageErr);
-            }
-          }
-        } catch (thumbErr) {
-          console.warn("Background thumbnail/duration generation skipped:", thumbErr);
-        }
-
-        if (!finalThumbnailUrl) {
-          finalThumbnailUrl = "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
-        }
-
-        // Upload Video File
-        setCurrentStatusText("Uploading video file (0%)...");
-        try {
-          // Priority A: High-speed local binary streaming (super fast, perfect progress tracking)
-          setCurrentStatusText("Streaming video payload to server (0%)...");
-          finalVideoUrl = await uploadToBackendWithProgress(file, adminToken, (prog) => {
-            setUploadProgress(prog);
-            setCurrentStatusText(`Uploading video file (${prog}%)...`);
-          });
-        } catch (backendUploadErr: any) {
-          console.warn("High-speed binary stream upload failed, falling back to Firebase Storage:", backendUploadErr);
-          setCurrentStatusText("Routing to Firebase Cloud Storage (0%)...");
-          setUploadProgress(0);
-          try {
-            finalVideoUrl = await uploadToStorageWithProgress(file, videoPath, (prog) => {
-              setUploadProgress(Math.min(prog, 99));
-              setCurrentStatusText(`Uploading video file (${Math.min(prog, 99)}%)...`);
-            });
-          } catch (storageException) {
-            console.error("Firebase Storage failed, trying base64 fallback:", storageException);
-            setCurrentStatusText("Invoking compatibility base64 chunker...");
-            setUploadProgress(20);
-            const base64Str = await fileToBase64(file);
-            setUploadProgress(50);
-            
-            const response = await fetch("/api/admin/upload-video", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${adminToken}`
-              },
-              body: JSON.stringify({
-                fileName: file.name,
-                fileData: base64Str
-              })
-            });
-            
-            setUploadProgress(85);
-            if (!response.ok) {
-              const errDetail = await response.json().catch(() => ({}));
-              throw new Error(errDetail.error || `Server HTTP Error ${response.status}`);
-            }
-            
-            const responseData = await response.json();
-            if (!responseData.url) {
-              throw new Error("Express upload proxy did not return valid url.");
-            }
-            finalVideoUrl = responseData.url;
-          }
-        }
-
-        // Buffer locally in IndexedDB as a helpful benefit
-        try {
-          await saveVideoFile(finalVideoUrl, file);
-        } catch (dbErr) {
-          console.warn("Local IndexedDB storage disabled:", dbErr);
-        }
-
-      } else {
-        // Stream URL Mode
-        finalVideoUrl = videoUrl.trim();
+    if (sourceType === "url") {
+      setUploading(true);
+      try {
+        let finalThumbnailUrl = "";
+        let finalVideoUrl = videoUrl.trim();
         if (finalVideoUrl.includes("youtube.com") || finalVideoUrl.includes("youtu.be")) {
           let ytId = "";
           if (finalVideoUrl.includes("v=")) {
@@ -533,100 +731,87 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         if (!finalThumbnailUrl) {
           finalThumbnailUrl = `https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640`;
         }
+
+        const timestampISO = new Date().toISOString();
+        const isSched = publishStatus === "Scheduled";
+        const actualPublishTime = isSched && scheduledTime ? new Date(scheduledTime).toISOString() : timestampISO;
+
+        const docData = {
+          title: title.trim(),
+          description: description.trim(),
+          category,
+          url: finalVideoUrl,
+          videoUrl: finalVideoUrl,
+          thumbnailUrl: finalThumbnailUrl,
+          duration: "0:00",
+          createdAt: timestampISO,
+          updatedAt: timestampISO,
+          publishedAt: actualPublishTime,
+          author,
+          status: publishStatus,
+          published: publishStatus === "Published",
+          featured: featured,
+          views: 0,
+          isLive: false,
+          isScheduled: isSched,
+          scheduledTime: isSched && scheduledTime ? actualPublishTime : ""
+        };
+
+        const bulletDoc = await addDoc(collection(db, "videoBulletins"), docData);
+        await setDoc(doc(db, "videos", bulletDoc.id), { ...docData, id: bulletDoc.id });
+
+        setSuccessMsg(`✓ Broadcast Published Successfully: "${title}" recorded.`);
+        
+        setTitle("");
+        setDescription("");
+        setVideoUrl("");
+        setSelectedFile(null);
+        setCategory("general");
+        setPublishStatus("Published");
+        setScheduledTime("");
+      } catch (err: any) {
+        setErrorMsg(err.message || "Failed to publish URL stream.");
+      } finally {
+        setUploading(false);
       }
-
-      setCurrentStatusText("Verifying publishing metadata...");
-      setUploadProgress(99);
-
-      const timestampISO = new Date().toISOString();
-      const isSched = publishStatus === "Scheduled";
-      const actualPublishTime = isSched && scheduledTime ? new Date(scheduledTime).toISOString() : timestampISO;
-
-      const docData = {
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        url: finalVideoUrl,
-        videoUrl: finalVideoUrl,
-        thumbnailUrl: finalThumbnailUrl,
-        duration: calculatedDuration,
-        createdAt: timestampISO,
-        publishedAt: actualPublishTime,
-        author,
-        status: publishStatus, // "Draft" | "Scheduled" | "Published"
-        views: 0,
-        isLive: false,
-        isScheduled: isSched,
-        scheduledTime: isSched && scheduledTime ? actualPublishTime : ""
-      };
-
-      // Log verified administrative activity details securely
-      console.log("SECURE ADMINISTRATIVE ACTION REPORT:", {
-        action: "PUBLISH_VIDEO_REPORT",
-        publisher: adminSession.email,
-        role: adminSession.role || "Admin",
-        sessionToken: adminSession.token ? "Verified" : "Missing",
-        ipAddress: adminSession.ip || "unknown",
-        title: docData.title,
-        status: docData.status,
-        timestamp: timestampISO
-      });
-
-      // 1. Write to 'videoBulletins' collection so it works on public page
-      const bulletDoc = await addDoc(collection(db, "videoBulletins"), docData);
-
-      // 2. Dual Write to 'videos' collection to maintain compatibility
-      await addDoc(collection(db, "videos"), {
-        id: bulletDoc.id,
-        title: title.trim(),
-        description: description.trim(),
-        url: finalVideoUrl,
-        createdAt: docData.createdAt,
-        views: 0,
-        isLive: false,
-        isScheduled: isSched,
-        scheduledTime: isSched && scheduledTime ? actualPublishTime : ""
-      });
-
-      // Formulate complete VideoItem for navigation/success action metrics
-      const successVideoItem: VideoItem = {
-        id: bulletDoc.id,
-        title: docData.title,
-        description: docData.description,
-        url: docData.url,
-        videoUrl: docData.videoUrl,
-        thumbnailUrl: docData.thumbnailUrl,
-        category: docData.category,
-        duration: docData.duration,
-        createdAt: docData.createdAt,
-        publishedAt: docData.publishedAt,
-        author: docData.author,
-        status: docData.status as any,
-        views: docData.views,
-        isLive: docData.isLive,
-        isScheduled: docData.isScheduled,
-        scheduledTime: docData.scheduledTime
-      };
-
-      setSuccessMsg(`✓ Broadcast Published Successfully: "${title}" recorded under ID "${bulletDoc.id}".`);
-      setPublishedSuccess(successVideoItem);
-
-      // Reset form fields
-      setTitle("");
-      setDescription("");
-      setVideoUrl("");
-      setSelectedFile(null);
-      setCategory("general");
-      setPublishStatus("Published");
-      setScheduledTime("");
-
-    } catch (err: any) {
-      console.error("Publishing video bulletin failed:", err);
-      setErrorMsg(err.message || "Failed to publish reporting video.");
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
+      return;
     }
+
+    // Direct Upload mode
+    const job = backgroundJobs.find(j => j.id === activeUploadJobId);
+    if (!job) {
+      setErrorMsg("Error: Corresponding background upload task could not be resolved.");
+      return;
+    }
+
+    const updatedJob = {
+      ...job,
+      title: title.trim(),
+      description: description.trim(),
+      category,
+      publishStatus,
+      featured,
+      scheduledTime,
+      isCommitted: true
+    };
+
+    setBackgroundJobs(prev => prev.map(j => j.id === activeUploadJobId ? updatedJob : j));
+
+    if (job.status === "Processing..." || job.downloadUrl) {
+      publishCommittedJob(updatedJob);
+      setSuccessMsg(`✓ Direct Storage Upload published successfully!`);
+    } else {
+      setSuccessMsg(`✓ Uploading in progress (${job.progress}%). Bulletin metadata committed and queued for automatic publishing once direct upload completes.`);
+    }
+
+    setTitle("");
+    setDescription("");
+    setVideoUrl("");
+    setSelectedFile(null);
+    setCategory("general");
+    setPublishStatus("Published");
+    setScheduledTime("");
+    setActiveUploadJobId(null);
   };
 
   // Replace/Edit existing Video Bulletin with absolute reliability
@@ -634,146 +819,68 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     e.preventDefault();
     if (!editingVideo) return;
     setErrorMsg(null);
-    setEditUploading(true);
-    setEditProgress(0);
 
-    try {
-      let finalVideoUrl = editingVideo.videoUrl || editingVideo.url;
-      let finalThumbnailUrl = editingVideo.thumbnailUrl || "";
-      let calculatedDuration = editingVideo.duration || "0:00";
-
-      if (replaceFile) {
-        const file = replaceFile;
-        const timestamp = Date.now();
-        const uniqueId = Math.random().toString(36).substring(2, 8);
-        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase() || ".mp4";
-        const videoPath = `videoBulletins/${timestamp}-${uniqueId}${ext}`;
-
-        // Generate replacements
-        try {
-          const result = await generateVideoThumbnail(file);
-          calculatedDuration = formatDuration(result.durationSeconds);
-          
-          const thumbPath = `videoBulletins/thumbnails/${timestamp}-${uniqueId}-thumb.jpg`;
-          try {
-            // High-speed local write first
-            const base64Data = await fileToBase64(result.thumbnail);
-            const res = await fetch("/api/admin/upload-image", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${adminToken}`
-              },
-              body: JSON.stringify({
-                fileName: `${timestamp}-${uniqueId}-thumb.jpg`,
-                fileData: base64Data
-              })
-            });
-            if (res.ok) {
-              const resData = await res.json();
-              finalThumbnailUrl = resData.url || "";
-            } else {
-              throw new Error("Local backend image upload endpoint failed");
-            }
-          } catch (localThumbnailError) {
-            console.warn("Storage replacement thumb write failed, falling back to Firebase storage:", localThumbnailError);
-            try {
-              finalThumbnailUrl = await uploadToStorageWithProgress(result.thumbnail, thumbPath, () => {});
-            } catch (storageErr) {
-              console.error("Firebase Storage replacement thumbnail write failed:", storageErr);
-            }
-          }
-        } catch (thumbErr) {
-          console.warn("Replacement thumbnail extraction skipped:", thumbErr);
-        }
-
-        if (!finalThumbnailUrl) {
-          finalThumbnailUrl = editingVideo.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640";
-        }
-
-        // Upload replacement video
-        try {
-          // Priority A: High-speed local binary streaming (super fast, perfect progress tracking)
-          finalVideoUrl = await uploadToBackendWithProgress(file, adminToken, (prog) => {
-            setEditProgress(prog);
-          });
-        } catch (backendUploadErr: any) {
-          console.warn("High-speed binary stream upload failed for edit, falling back to Firebase Storage:", backendUploadErr);
-          try {
-            finalVideoUrl = await uploadToStorageWithProgress(file, videoPath, (prog) => {
-              setEditProgress(Math.min(prog, 99));
-            });
-          } catch (storageExc) {
-            console.error("Firebase Storage failed for edit, trying base64 fallback:", storageExc);
-            const base64Str = await fileToBase64(file);
-            
-            const response = await fetch("/api/admin/upload-video", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${adminToken}`
-              },
-              body: JSON.stringify({
-                fileName: file.name,
-                fileData: base64Str
-              })
-            });
-            
-            if (!response.ok) {
-              const errDetail = await response.json().catch(() => ({}));
-              throw new Error(errDetail.error || `Server HTTP Error ${response.status}`);
-            }
-            
-            const responseData = await response.json();
-            finalVideoUrl = responseData.url;
-          }
-        }
-
-        try {
-          await saveVideoFile(finalVideoUrl, file);
-        } catch (dbErr) {
-          console.warn("IndexedDB backup failed:", dbErr);
-        }
-      }
-
-      // Update Firestore documents
-      const updatedFields = {
-        title: editTitle.trim(),
-        description: editDescription.trim(),
-        category: editCategory,
-        url: finalVideoUrl,
-        videoUrl: finalVideoUrl,
-        thumbnailUrl: finalThumbnailUrl,
-        duration: calculatedDuration,
-        status: "Published",
-        publishedAt: new Date().toISOString()
-      };
-
-      // 1. Update videoBulletins document
-      await updateDoc(doc(db, "videoBulletins", editingVideo.id), updatedFields);
-
-      // 2. Keep standard dual collection mapped
+    if (!replaceFile) {
+      setEditUploading(true);
       try {
-        await updateDoc(doc(db, "videos", editingVideo.id), {
+        const timestampISO = new Date().toISOString();
+        const updatedFields = {
           title: editTitle.trim(),
           description: editDescription.trim(),
-          url: finalVideoUrl
-        });
-      } catch (err) {
-        console.warn("Dual update to legacy collection skipped:", err);
+          category: editCategory,
+          url: editingVideo.url,
+          videoUrl: editingVideo.videoUrl || editingVideo.url,
+          thumbnailUrl: editingVideo.thumbnailUrl,
+          duration: editingVideo.duration || "0:00",
+          status: editPublishStatus,
+          published: editPublishStatus === "Published",
+          featured: editFeatured,
+          updatedAt: timestampISO
+        };
+
+        await updateDoc(doc(db, "videoBulletins", editingVideo.id), updatedFields);
+        await updateDoc(doc(db, "videos", editingVideo.id), updatedFields);
+
+        setSuccessMsg(`✓ Video Bulletin "${editTitle}" successfully updated.`);
+        setEditingVideo(null);
+      } catch (err: any) {
+        console.error("Editing Video Bulletin entry failed: ", err);
+        setErrorMsg(err.message || "Failed to update metadata records.");
+      } finally {
+        setEditUploading(false);
       }
-
-      setSuccessMsg(`Information: Video Bulletin "${editTitle}" successfully updated.`);
-      setEditingVideo(null);
-      setReplaceFile(null);
-
-    } catch (err: any) {
-      console.error("Editing Video Bulletin entry failed: ", err);
-      setErrorMsg(err.message || "Failed to update metadata records.");
-    } finally {
-      setEditUploading(false);
-      setEditProgress(0);
+      return;
     }
+
+    // Replace video direct upload mode
+    const job = backgroundJobs.find(j => j.id === editUploadJobId);
+    if (!job) {
+      setErrorMsg("Error: Replacement background upload task could not be resolved.");
+      return;
+    }
+
+    const updatedJob = {
+      ...job,
+      title: editTitle.trim(),
+      description: editDescription.trim(),
+      category: editCategory,
+      publishStatus: editPublishStatus as any,
+      featured: editFeatured,
+      isCommitted: true
+    };
+
+    setBackgroundJobs(prev => prev.map(j => j.id === editUploadJobId ? updatedJob : j));
+
+    if (job.status === "Processing..." || job.downloadUrl) {
+      publishCommittedJob(updatedJob);
+      setSuccessMsg(`✓ Video replacement direct storage published successfully!`);
+    } else {
+      setSuccessMsg(`✓ Replacement uploading in progress (${job.progress}%). Queue committed. Edits will finalize automatically when direct upload is complete.`);
+    }
+
+    setEditingVideo(null);
+    setReplaceFile(null);
+    setEditUploadJobId(null);
   };
 
   // Remove completely from Storage and Firestore collections
@@ -825,6 +932,49 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     } catch (err: any) {
       console.error("Permanent delete action failed: ", err);
       setErrorMsg("Failed to delete video or free storage assets completely.");
+    }
+  };
+
+  // Toggle status option
+  const handleTogglePublish = async (vid: VideoItem) => {
+    try {
+      const newStatus = vid.status === "Published" ? "Draft" : "Published";
+      const isPublished = newStatus === "Published";
+      const updatedFields = {
+        status: newStatus,
+        published: isPublished,
+        updatedAt: new Date().toISOString()
+      };
+      await updateDoc(doc(db, "videoBulletins", vid.id), updatedFields);
+      try {
+        await setDoc(doc(db, "videos", vid.id), updatedFields, { merge: true });
+      } catch (err) {
+        console.warn("Dual update failed:", err);
+      }
+      setSuccessMsg(`Status updated for "${vid.title}" to ${newStatus}.`);
+    } catch (err: any) {
+      console.error("Failed to toggle publish status:", err);
+      setErrorMsg(`Failed to change publish status: ${err.message || err}`);
+    }
+  };
+
+  const handleToggleFeatured = async (vid: VideoItem) => {
+    try {
+      const newFeatured = !vid.featured;
+      const updatedFields = {
+        featured: newFeatured,
+        updatedAt: new Date().toISOString()
+      };
+      await updateDoc(doc(db, "videoBulletins", vid.id), updatedFields);
+      try {
+        await setDoc(doc(db, "videos", vid.id), updatedFields, { merge: true });
+      } catch (err) {
+        console.warn("Dual update failed:", err);
+      }
+      setSuccessMsg(`Featured status of "${vid.title}" set to ${newFeatured ? "Featured" : "Regular"}.`);
+    } catch (err: any) {
+      console.error("Failed to toggle featured status:", err);
+      setErrorMsg(`Failed to change featured status: ${err.message || err}`);
     }
   };
 
@@ -1110,57 +1260,109 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
             )}
 
             {/* Publishing Status & Scheduling parameters */}
-            <div className="grid grid-cols-1 gap-3 pt-1 border-t border-neutral-100 mt-2">
+            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-neutral-100 mt-2">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Publishing Status Options</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Publish Status</label>
                 <select
                   disabled={uploading}
                   value={publishStatus}
                   onChange={(e) => setPublishStatus(e.target.value as any)}
                   className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
                 >
-                  <option value="Published">Immediate Broadcast (Published)</option>
-                  <option value="Scheduled">Scheduled Release Window (Scheduled)</option>
-                  <option value="Draft">Draft Mode Workspace (Draft)</option>
+                  <option value="Published">Immediate (Published)</option>
+                  <option value="Scheduled">Scheduled Release</option>
+                  <option value="Draft">Draft Mode</option>
                 </select>
               </div>
 
-              {publishStatus === "Scheduled" && (
-                <div className="space-y-1 animate-fadeIn">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500">Scheduled Time (Local)</label>
-                  <input
-                    type="datetime-local"
-                    required={publishStatus === "Scheduled"}
-                    disabled={uploading}
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:bg-white font-mono"
-                  />
-                  <p className="text-[10px] text-neutral-450 leading-normal">
-                    Bulletin will remain hidden from standard public feeds until this local timestamp threshold is reached.
-                  </p>
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Featured Video</label>
+                <select
+                  disabled={uploading}
+                  value={featured ? "Featured" : "Regular"}
+                  onChange={(e) => setFeatured(e.target.value === "Featured")}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
+                >
+                  <option value="Regular">Regular (Normal list)</option>
+                  <option value="Featured">Featured (High priority)</option>
+                </select>
+              </div>
             </div>
 
-            {/* Simple Progress Bar */}
-            {uploading && (
-              <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-2 animate-fadeIn">
-                <div className="flex justify-between items-center text-[10px] font-bold text-neutral-600 font-mono">
-                  <span className="flex items-center gap-1.5">
-                    <RefreshCw size={11} className="animate-spin text-red-600" />
-                    <span>{currentStatusText}</span>
-                  </span>
-                  <span>{uploadProgress}%</span>
-                </div>
-                <div className="w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-red-600 h-full transition-all duration-350"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
+            {publishStatus === "Scheduled" && (
+              <div className="space-y-1 animate-fadeIn">
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500">Scheduled Time (Local)</label>
+                <input
+                  type="datetime-local"
+                  required={publishStatus === "Scheduled"}
+                  disabled={uploading}
+                  value={scheduledTime}
+                  onChange={(e) => setScheduledTime(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:bg-white font-mono"
+                />
+                <p className="text-[10px] text-neutral-450 leading-normal">
+                  Bulletin will remain hidden from standard public feeds until this local timestamp threshold is reached.
+                </p>
               </div>
             )}
+
+            {/* Active Direct Storage Video Upload Progress Bar */}
+            {(() => {
+              const activeJob = backgroundJobs.find(j => j.id === activeUploadJobId);
+              if (activeJob) {
+                return (
+                  <div className="bg-neutral-50 p-3.5 rounded border border-neutral-150 space-y-2 animate-fadeIn font-mono">
+                    <div className="flex justify-between items-center text-[10px] font-bold text-neutral-600">
+                      <span className="flex items-center gap-1.5 font-bold text-neutral-800">
+                        <RefreshCw size={11} className="animate-spin text-red-600" />
+                        <span>Direct Storage: {activeJob.status}</span>
+                      </span>
+                      <span>{activeJob.progress}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-red-600 h-full transition-all duration-350"
+                        style={{ width: `${activeJob.progress}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9px] text-neutral-500 font-bold">
+                      <div className="flex gap-2">
+                        {activeJob.speedMBs > 0 && (
+                          <span className="text-red-600">{activeJob.speedMBs.toFixed(2)} MB/s</span>
+                        )}
+                        {activeJob.etaSeconds !== null && (
+                          <span className="text-neutral-650">ETA: {activeJob.etaSeconds}s</span>
+                        )}
+                      </div>
+                      <span>{activeJob.duration !== "0:00" ? `Duration: ${activeJob.duration}` : "Preparing duration..."}</span>
+                    </div>
+                    <div className="text-[8.5px] text-neutral-400 truncate">
+                      File: {activeJob.fileName} ({(activeJob.totalBytes / (1024 * 1024)).toFixed(1)} MB)
+                    </div>
+                  </div>
+                );
+              }
+              if (uploading) {
+                return (
+                  <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-2 animate-fadeIn font-mono">
+                    <div className="flex justify-between items-center text-[10px] font-bold text-neutral-600">
+                      <span className="flex items-center gap-1.5">
+                        <RefreshCw size={11} className="animate-spin text-red-600" />
+                        <span>{currentStatusText || "Processing URL..."}</span>
+                      </span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-red-600 h-full transition-all duration-350"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* Sticky Action Button on Mobile, normal on Desktop */}
             <div className="pt-2 md:relative fixed bottom-0 left-0 right-0 md:bottom-auto bg-white p-4 md:p-0 border-t border-neutral-200 md:border-t-0 z-40 select-none">
@@ -1271,10 +1473,23 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                       </span>
 
                       {/* Display public page link status */}
-                      <span className="absolute top-2 right-2 bg-green-100 text-green-750 font-mono text-[9px] px-2 py-0.5 rounded font-extrabold select-none shadow-sm flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
-                        Live on Page
-                      </span>
+                      <div className="absolute top-2 right-2 flex flex-col gap-1 items-end select-none">
+                        <span className={`font-mono text-[9px] px-2 py-0.5 rounded font-extrabold shadow-sm flex items-center gap-1 ${
+                          vid.status === "Published" || vid.published
+                            ? "bg-green-100 text-green-750"
+                            : "bg-amber-100 text-amber-700"
+                        }`}>
+                          {(vid.status === "Published" || vid.published) && (
+                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
+                          )}
+                          {vid.status || (vid.published ? "Published" : "Draft")}
+                        </span>
+                        {vid.featured && (
+                          <span className="bg-red-100 text-red-700 font-mono text-[8px] px-1.5 py-0.5 rounded font-extrabold uppercase shadow-sm">
+                            ★ Featured
+                          </span>
+                        )}
+                      </div>
 
                       <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
                         <a 
@@ -1334,25 +1549,43 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                             <span className="text-neutral-700">{vid.views || 0}</span>
                           </div>
 
-                          <div className="flex gap-3">
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => handleTogglePublish(vid)}
+                              className={`text-[10px] font-bold cursor-pointer transition-all hover:underline ${
+                                vid.status === "Published" || vid.published ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"
+                              }`}
+                            >
+                              {vid.status === "Published" || vid.published ? "Make Draft" : "Publish"}
+                            </button>
+
+                            <button
+                              onClick={() => handleToggleFeatured(vid)}
+                              className={`text-[10px] font-bold cursor-pointer transition-all hover:underline ${
+                                vid.featured ? "text-red-700 hover:text-red-900" : "text-neutral-450 hover:text-neutral-600"
+                              }`}
+                            >
+                              {vid.featured ? "Featured ★" : "Feature"}
+                            </button>
+
                             <button
                               onClick={() => {
                                 setEditingVideo(vid);
                                 setEditTitle(vid.title);
                                 setEditDescription(vid.description);
                                 setEditCategory(vid.category || "general");
+                                setEditPublishStatus(vid.status === "Published" || vid.published ? "Published" : "Draft");
+                                setEditFeatured(vid.featured || false);
                                 setReplaceFile(null);
                               }}
-                              className="text-neutral-500 hover:text-neutral-900 flex items-center gap-1 text-[11px] font-bold cursor-pointer transition-all hover:underline"
+                              className="text-neutral-500 hover:text-neutral-900 flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-all hover:underline"
                             >
-                              <Edit3 size={11} />
                               Edit
                             </button>
                             <button
                               onClick={() => setDeleteConfirmId(vid.id)}
-                              className="text-red-500 hover:text-red-700 flex items-center gap-1 text-[11px] font-bold cursor-pointer transition-all hover:underline"
+                              className="text-red-500 hover:text-red-700 flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-all hover:underline"
                             >
-                              <Trash2 size={11} />
                               Delete
                             </button>
                           </div>
@@ -1435,6 +1668,34 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                 </select>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Publish Status</label>
+                  <select
+                    disabled={editUploading}
+                    value={editPublishStatus}
+                    onChange={(e) => setEditPublishStatus(e.target.value as any)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none cursor-pointer focus:bg-white font-medium"
+                  >
+                    <option value="Published">Published</option>
+                    <option value="Draft">Draft</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Featured Video</label>
+                  <select
+                    disabled={editUploading}
+                    value={editFeatured ? "Featured" : "Regular"}
+                    onChange={(e) => setEditFeatured(e.target.value === "Featured")}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none cursor-pointer focus:bg-white font-medium"
+                  >
+                    <option value="Regular">Regular</option>
+                    <option value="Featured">Featured</option>
+                  </select>
+                </div>
+              </div>
+
               {/* Replace Video File option (Optional) */}
               <div className="bg-neutral-50 p-3.5 rounded border border-neutral-155 space-y-1 text-center font-mono select-none">
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-450 mb-1.5">Replace Video File (Optional)</span>
@@ -1476,23 +1737,56 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
               </div>
 
               {/* Edit Progress Bar */}
-              {editUploading && (
-                <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-1 animate-fadeIn">
-                  <div className="flex justify-between items-center text-[9px] font-bold text-neutral-600 font-mono">
-                    <span className="flex items-center gap-1 text-red-600">
-                      <RefreshCw size={10} className="animate-spin" />
-                      Uploading replacements...
-                    </span>
-                    <span>{editProgress}%</span>
-                  </div>
-                  <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-red-600 h-full transition-all duration-350"
-                      style={{ width: `${editProgress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const editJob = backgroundJobs.find(j => j.id === editUploadJobId);
+                if (editJob) {
+                  return (
+                    <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-1.5 animate-fadeIn font-mono">
+                      <div className="flex justify-between items-center text-[9px] font-bold text-neutral-600">
+                        <span className="flex items-center gap-1 text-red-600 font-bold">
+                          <RefreshCw size={10} className="animate-spin" />
+                          <span>Direct Replace: {editJob.status}</span>
+                        </span>
+                        <span>{editJob.progress}%</span>
+                      </div>
+                      <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-red-600 h-full transition-all duration-350"
+                          style={{ width: `${editJob.progress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[8px] text-neutral-500 font-bold">
+                        {editJob.speedMBs > 0 && (
+                          <span className="text-red-500">{editJob.speedMBs.toFixed(2)} MB/s</span>
+                        )}
+                        {editJob.etaSeconds !== null && (
+                          <span>ETA: {editJob.etaSeconds}s</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                if (editUploading) {
+                  return (
+                    <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-1 animate-fadeIn font-mono">
+                      <div className="flex justify-between items-center text-[9px] font-bold text-neutral-600">
+                        <span className="flex items-center gap-1 text-red-600">
+                          <RefreshCw size={10} className="animate-spin" />
+                          Uploading replacements...
+                        </span>
+                        <span>{editProgress}%</span>
+                      </div>
+                      <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-red-600 h-full transition-all duration-350"
+                          style={{ width: `${editProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               <div className="flex gap-2 pt-2 border-t border-neutral-100 select-none">
                 <button
@@ -1515,6 +1809,49 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Background Status Tray */}
+      {backgroundJobs.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-neutral-900 text-white rounded-lg shadow-2xl p-4 space-y-3 font-mono border border-neutral-800 animate-slideUp select-none">
+          <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+              <RefreshCw size={11} className="animate-spin text-red-500" />
+              Tasks In Progress ({backgroundJobs.length})
+            </span>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-3 pr-1 text-[11px]">
+            {backgroundJobs.map(job => (
+              <div key={job.id} className="space-y-1.5 border-b border-neutral-850 pb-2 last:border-b-0 last:pb-0">
+                <div className="flex justify-between text-[10px] text-neutral-300">
+                  <span className="truncate max-w-[180px] font-semibold">{job.title || job.fileName}</span>
+                  <span className={`${job.status === "Failed" ? "text-red-500" : "text-amber-500"} font-bold`}>
+                    {job.status}
+                  </span>
+                </div>
+                <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden">
+                  <div 
+                    className="bg-red-500 h-full transition-all duration-350"
+                    style={{ width: `${job.progress}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[8.5px] text-neutral-400 font-mono">
+                  <div className="flex gap-2">
+                    <span>{job.progress}%</span>
+                    {job.speedMBs > 0 && <span className="text-red-400 font-bold">{job.speedMBs.toFixed(2)} MB/s</span>}
+                    {job.etaSeconds !== null && <span className="text-neutral-300">ETA: {job.etaSeconds}s</span>}
+                  </div>
+                  <span>{job.duration !== "0:00" ? `Dur: ${job.duration}` : "Metadata idle"}</span>
+                </div>
+                {job.error && (
+                  <p className="text-[8.5px] text-red-400 leading-normal bg-red-950/40 p-1 rounded-sm border border-red-900/40">
+                    {job.error}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

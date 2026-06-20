@@ -120,14 +120,21 @@
         "id": { "type": "string" },
         "title": { "type": "string" },
         "description": { "type": "string" },
+        "category": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
         "url": { "type": "string" },
+        "published": { "type": "boolean" },
+        "featured": { "type": "boolean" },
         "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "status": { "type": "string" },
         "views": { "type": "number" },
         "isLive": { "type": "boolean" },
         "isScheduled": { "type": "boolean" },
         "scheduledTime": { "type": "string" }
       },
-      "required": ["id", "title", "description", "url", "createdAt"]
+      "required": ["id", "title", "description", "videoUrl", "createdAt"]
     },
     "CoverageZone": {
       "title": "CoverageZone",
@@ -178,6 +185,10 @@
     "/videos/{videoId}": {
       "schema": "VideoItem",
       "description": "Uploaded video repository"
+    },
+    "/videoBulletins/{videoId}": {
+      "schema": "VideoItem",
+      "description": "Premium video bulletins feed"
     },
     "/coverage_zones/{zoneId}": {
       "schema": "CoverageZone",

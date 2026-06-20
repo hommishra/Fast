@@ -3,6 +3,7 @@ import { Article, Category, VideoItem, CoverageZone } from "../types";
 import { Clock, Eye, TrendingUp, Tv } from "lucide-react";
 import ActiveSectionsMap from "./ActiveSectionsMap";
 import SmartVideoPlayer from "./SmartVideoPlayer";
+import { getFallbackImage } from "../utils/imageHelpers";
 
 const safeFormatDateFull = (isoStr?: string) => {
   if (!isoStr) return "Just now";
@@ -110,6 +111,10 @@ export default function FCLayout({
                       alt={art.title}
                       className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
                       referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
+                      }}
                     />
                   </div>
                 )}
@@ -161,6 +166,10 @@ export default function FCLayout({
               alt={featuredHero.title}
               className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
               referrerPolicy="no-referrer"
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = getFallbackImage(featuredHero.title, featuredHero.categoryId);
+              }}
             />
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/90 to-transparent p-6 text-white pt-24 hidden md:block">
               <span className="bg-red-600 text-white text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded">
@@ -249,6 +258,10 @@ export default function FCLayout({
                         alt={art.title}
                         className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
                         referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
+                        }}
                       />
                     </div>
                   )}

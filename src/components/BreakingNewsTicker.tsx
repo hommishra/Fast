@@ -49,6 +49,8 @@ export default function BreakingNewsTicker() {
 
       setTickerItems(items);
       setLastItemCount(items.length);
+    }, (error) => {
+      console.error("BreakingNewsTicker onSnapshot subscription failed:", error);
     });
 
     return () => unsubscribe();

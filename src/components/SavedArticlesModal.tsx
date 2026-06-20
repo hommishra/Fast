@@ -1,6 +1,7 @@
 import React from "react";
 import { Bookmark } from "../types";
 import { X, BookMarked, Trash2, ArrowUpRight, FolderHeart, Calendar } from "lucide-react";
+import { getFallbackImage } from "../utils/imageHelpers";
 
 interface SavedArticlesModalProps {
   isOpen: boolean;
@@ -82,6 +83,10 @@ export default function SavedArticlesModal({
                         alt=""
                         className="w-12 h-12 object-cover rounded-lg border border-slate-200 bg-white shrink-0 group-hover:brightness-95 transition"
                         referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = getFallbackImage(bookmark.articleTitle, bookmark.categoryId);
+                        }}
                       />
                     ) : (
                       <div className="w-12 h-12 bg-slate-100 rounded-lg shrink-0 flex items-center justify-center font-bold text-[9px] text-slate-400 border border-slate-200 uppercase font-mono">

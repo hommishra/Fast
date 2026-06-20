@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import { Article, Comment, Bookmark } from "../types";
 import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment } from "firebase/firestore";
 import { db } from "../firebase";
-import { Clock, User, ArrowLeft, Send, MessageSquare, Flame, Bookmark as BookmarkIcon } from "lucide-react";
+import { Clock, User, ArrowLeft, Send, MessageSquare, Flame, Bookmark as BookmarkIcon, Share2, Twitter, Facebook, MessageCircle, Link, X, Maximize2 } from "lucide-react";
+import { getFallbackImage } from "../utils/imageHelpers";
+import { AnimatePresence, motion } from "motion/react";
 
 interface ArticleViewProps {
   article: Article;
@@ -28,8 +30,56 @@ export default function ArticleView({
   const [commentEmail, setCommentEmail] = useState("");
   const [commentContent, setCommentContent] = useState("");
   const [submitStatus, setSubmitStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [copied, setCopied] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+
+  // Esc-key keydown event listener to close the Lightbox for high accessibility
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsLightboxOpen(false);
+      }
+    };
+    if (isLightboxOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [isLightboxOpen]);
 
   const isBookmarked = bookmarks?.some((b) => b.articleId === article.id) || false;
+
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+  const shareTitle = article.title;
+
+  const handleShare = (platform: "X" | "Facebook" | "WhatsApp" | "Copy") => {
+    if (platform === "X") {
+      window.open(
+        `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(shareUrl)}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    } else if (platform === "Facebook") {
+      window.open(
+        `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    } else if (platform === "WhatsApp") {
+      window.open(
+        `https://api.whatsapp.com/send?text=${encodeURIComponent(shareTitle + " - " + shareUrl)}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    } else if (platform === "Copy") {
+      navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
 
   // Sync user details to comment fields on change
   useEffect(() => {
@@ -73,6 +123,8 @@ export default function ArticleView({
       // Sort comments by date
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setComments(list);
+    }, (error) => {
+      console.error("Article comments onSnapshot subscription failed:", error);
     });
 
     return () => unsubscribe();
@@ -145,7 +197,7 @@ export default function ArticleView({
             )}
 
             {/* Author info and Date details */}
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-y border-slate-100 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-y border-slate-100 py-2.5 mb-4">
               <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono text-slate-400">
                 <div className="flex items-center gap-1.5 font-bold text-slate-800">
                   <User size={12} className="text-blue-600" />
@@ -177,23 +229,132 @@ export default function ArticleView({
                 <span>{isBookmarked ? "Saved to Briefs" : "Save Briefing"}</span>
               </button>
             </div>
+
+            {/* Social Share Ribbon */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200/80 mb-6">
+              <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 select-none">
+                <Share2 size={12} className="text-blue-600" /> Share bulletins
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleShare("X")}
+                  title="Share on X / Twitter"
+                  className="p-1 px-2.5 text-[10px] font-bold font-sans tracking-wide bg-neutral-900 border border-neutral-950 text-white rounded-lg hover:bg-neutral-800 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Twitter size={11} />
+                  <span>X</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleShare("Facebook")}
+                  title="Share on Facebook"
+                  className="p-1 px-2.5 text-[10px] font-bold font-sans tracking-wide bg-blue-700 border border-blue-800 text-white rounded-lg hover:bg-blue-650 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Facebook size={11} />
+                  <span>Facebook</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleShare("WhatsApp")}
+                  title="Share on WhatsApp"
+                  className="p-1 px-2.5 text-[10px] font-bold font-sans tracking-wide bg-green-600 border border-green-700 text-white rounded-lg hover:bg-green-550 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <MessageCircle size={11} />
+                  <span>WhatsApp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleShare("Copy")}
+                  title="Copy share link"
+                  className={`p-1 px-2.5 text-[10px] font-bold font-sans tracking-wide rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
+                    copied
+                      ? "bg-green-150 text-green-800 border-green-250 font-black"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <Link size={11} />
+                  <span>{copied ? "Copied!" : "Copy Link"}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Featured Card Image */}
+          {/* Featured Card Image with Lightbox Zoom Trigger */}
           {article.featuredImage && (
-            <div className="mb-6 rounded-lg overflow-hidden shadow-xs bg-slate-50 border border-slate-200 aspect-[16/9]">
+            <div
+              onClick={() => setIsLightboxOpen(true)}
+              className="group relative mb-6 rounded-lg overflow-hidden shadow-sm bg-slate-50 border border-slate-200 aspect-[16/9] cursor-zoom-in active:scale-[0.99] transition-transform duration-200"
+              title="Click to view full-screen"
+            >
               <img
                 src={article.featuredImage}
                 alt={article.title}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500 ease-out"
                 referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
+                }}
               />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors duration-350 flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transform translate-y-3 group-hover:translate-y-0 bg-neutral-900/90 text-white text-[10px] font-bold font-sans uppercase tracking-wider px-3.5 py-2 rounded-full flex items-center gap-2 transition-all duration-300 shadow-lg border border-white/10 select-none">
+                  <Maximize2 size={11} className="text-blue-400" />
+                  <span>Click to expand image</span>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Inner Content Paragraphs */}
           <div className="text-slate-800 text-sm md:text-base leading-relaxed whitespace-pre-line space-y-4 max-w-none font-sans">
             {article.content}
+          </div>
+
+          {/* Post-Reading Bulletin Share Row */}
+          <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="text-left select-none">
+              <h4 className="text-xs font-bold text-slate-800 tracking-tight leading-none animate-fade-in">Share this Story</h4>
+              <p className="text-[10px] text-slate-400 mt-1">If you found this reporting valuable, distribute it on your networks.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleShare("X")}
+                className="p-1.5 px-3 bg-neutral-900 border border-neutral-950 text-white text-[11px] font-bold rounded-lg hover:bg-neutral-800 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Twitter size={12} />
+                <span>X / Twitter</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleShare("Facebook")}
+                className="p-1.5 px-3 bg-blue-700 border border-blue-800 text-white text-[11px] font-bold rounded-lg hover:bg-blue-650 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Facebook size={12} />
+                <span>Facebook</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleShare("WhatsApp")}
+                className="p-1.5 px-3 bg-green-600 border border-green-700 text-white text-[11px] font-bold rounded-lg hover:bg-green-550 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <MessageCircle size={12} />
+                <span>WhatsApp</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleShare("Copy")}
+                className={`p-1.5 px-3 text-[11px] font-bold rounded-lg border transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                  copied
+                    ? "bg-green-100 text-green-800 border-green-200 font-bold"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                <Link size={12} />
+                <span>{copied ? "Link Copied!" : "Copy URL"}</span>
+              </button>
+            </div>
           </div>
         </article>
 
@@ -216,6 +377,10 @@ export default function ArticleView({
                       alt={rel.title}
                       className="w-16 h-16 object-cover rounded shrink-0 border border-slate-200"
                       referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = getFallbackImage(rel.title, rel.categoryId);
+                      }}
                     />
                   )}
                   <div className="space-y-1 overflow-hidden">
@@ -363,6 +528,80 @@ export default function ArticleView({
           </div>
         </section>
       </div>
+
+      {/* Polish Lightbox / Full-screen Media Overlay */}
+      <AnimatePresence>
+        {isLightboxOpen && article.featuredImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-neutral-950/95 backdrop-blur-md select-none cursor-zoom-out"
+            onClick={() => setIsLightboxOpen(false)}
+          >
+            {/* Close button with nice hover interaction */}
+            <motion.button
+              type="button"
+              initial={{ y: -12, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -12, opacity: 0 }}
+              transition={{ delay: 0.05 }}
+              onClick={() => setIsLightboxOpen(false)}
+              className="absolute top-4 right-4 md:top-6 md:right-6 bg-white/10 hover:bg-white/20 active:bg-white/35 text-white rounded-full p-2.5 transition-all backdrop-blur-sm cursor-pointer shadow-xl border border-white/10"
+              title="Close full-screen (Esc)"
+              style={{ pointerEvents: "auto" }}
+            >
+              <X size={20} />
+            </motion.button>
+
+            {/* Main Full-screen image container */}
+            <motion.div
+              initial={{ scale: 0.96, y: 12 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 12 }}
+              transition={{ type: "spring", damping: 26, stiffness: 280 }}
+              onClick={(e) => e.stopPropagation()} // Prevent closure when clicking on image card
+              className="relative max-w-5xl w-full max-h-[85vh] flex flex-col rounded-xl overflow-hidden shadow-2xl border border-white/10 bg-neutral-900 cursor-default"
+            >
+              <div className="w-full h-full max-h-[75vh] flex items-center justify-center overflow-hidden bg-neutral-950">
+                <img
+                  src={article.featuredImage}
+                  alt={article.title}
+                  className="max-w-full max-h-[75vh] object-contain select-all"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
+                  }}
+                />
+              </div>
+              
+              {/* Image Details Bottom Bar inside Lightbox */}
+              <div className="bg-neutral-950/90 backdrop-blur-xs p-4 border-t border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-3 text-white">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[9px] uppercase tracking-wider text-blue-400 font-extrabold font-mono select-none block mb-0.5">
+                    {article.categoryId}
+                  </span>
+                  <h3 className="text-xs md:text-sm font-bold truncate text-neutral-200" title={article.title}>
+                    {article.title}
+                  </h3>
+                  {article.imageCaption && (
+                    <p className="text-[10px] md:text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
+                      {article.imageCaption}
+                    </p>
+                  )}
+                </div>
+                {(article.photographerCredit || article.authorName) && (
+                  <div className="text-[10px] font-mono text-neutral-400 shrink-0 text-left md:text-right select-all select-none">
+                    {article.photographerCredit ? `Photo: ${article.photographerCredit}` : `Reporter: ${article.authorName}`}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

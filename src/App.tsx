@@ -56,6 +56,16 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
 
+  // Keep selectedArticle in sync with database updates to avoid showing stale images
+  useEffect(() => {
+    if (selectedArticle) {
+      const liveArticle = articles.find((a) => a.id === selectedArticle.id);
+      if (liveArticle && (liveArticle.featuredImage !== selectedArticle.featuredImage || liveArticle.title !== selectedArticle.title || liveArticle.categoryId !== selectedArticle.categoryId)) {
+        setSelectedArticle(liveArticle);
+      }
+    }
+  }, [articles, selectedArticle]);
+
   // Reader authentication & saved blogs states
   const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -133,7 +143,7 @@ export default function App() {
 
   // Listen to current user's bookmarks
   useEffect(() => {
-    if (!currentUser) {
+    if (!currentUser || !currentUser.isFirebaseUser) {
       setBookmarks([]);
       return;
     }
@@ -189,6 +199,8 @@ export default function App() {
       // Sort articles by publish date descending
       items.sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
       setArticles(items);
+    }, (error) => {
+      console.error("Articles onSnapshot subscription failed:", error);
     });
 
     // Listen to Categories Database
@@ -198,6 +210,8 @@ export default function App() {
         items.push({ id: doc.id, ...doc.data() } as Category);
       });
       setCategories(items);
+    }, (error) => {
+      console.error("Categories onSnapshot subscription failed:", error);
     });
 
     // Listen to Custom Site Settings
@@ -205,10 +219,13 @@ export default function App() {
       if (docSnap.exists()) {
         setGlobalSettings(docSnap.data() as WebSettings);
       }
+    }, (error) => {
+      console.error("Global settings onSnapshot subscription failed:", error);
     });
 
     // Listen to Videos database feed (using premium cnn style video bulletins)
-    const unsubscribeVideos = onSnapshot(collection(db, "videoBulletins"), (snapshot) => {
+    const qVideos = query(collection(db, "videoBulletins"), where("status", "==", "Published"));
+    const unsubscribeVideos = onSnapshot(qVideos, (snapshot) => {
       const items: VideoItem[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
@@ -228,14 +245,15 @@ export default function App() {
           views: data.views || 0,
           isLive: data.isLive || false,
           isScheduled: data.isScheduled || false,
-          scheduledTime: data.scheduledTime || ""
+          scheduledTime: data.scheduledTime || "",
+          featured: data.featured || false,
+          published: data.published !== undefined ? data.published : true
         } as VideoItem);
       });
 
-      // Filter: display published items only, and handle scheduled release thresholds
+      // Filter: handle any client-side scheduled release checks
       const now = new Date();
       const visibleItems = items.filter(v => {
-        if (v.status === "Draft") return false;
         if (v.isScheduled && v.scheduledTime) {
           return now >= new Date(v.scheduledTime);
         }
@@ -253,13 +271,32 @@ export default function App() {
     }, (error) => {
       console.warn("videoBulletins listener failed, subscribing to legacy videos:", error);
       // Clean fallback if collection didn't bootstrap
-      onSnapshot(collection(db, "videos"), (legacySnap) => {
+      const qLegacy = query(collection(db, "videos"), where("status", "==", "Published"));
+      onSnapshot(qLegacy, (legacySnap) => {
         const items: VideoItem[] = [];
         legacySnap.forEach((doc) => {
-          items.push({ id: doc.id, ...doc.data() } as VideoItem);
+          const data = doc.data();
+          items.push({
+            id: doc.id,
+            title: data.title || "",
+            description: data.description || "",
+            url: data.videoUrl || data.url || "",
+            videoUrl: data.videoUrl || "",
+            thumbnailUrl: data.thumbnailUrl || "",
+            category: data.category || "general",
+            duration: data.duration || "",
+            createdAt: data.createdAt || new Date().toISOString(),
+            publishedAt: data.publishedAt || data.createdAt || new Date().toISOString(),
+            status: data.status || "Published",
+            views: data.views || 0,
+            featured: data.featured || false,
+            published: data.published !== undefined ? data.published : true
+          } as VideoItem);
         });
         items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setVideos(items);
+      }, (legacyErr) => {
+        console.error("Legacy videos listener failed:", legacyErr);
       });
     });
 
@@ -271,6 +308,8 @@ export default function App() {
       });
       items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setCoverageZones(items);
+    }, (error) => {
+      console.error("Coverage zones onSnapshot subscription failed:", error);
     });
 
     return () => {

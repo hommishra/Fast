@@ -31,6 +31,11 @@ export interface Article {
   isLazyLoaded?: boolean;
   compressionQuality?: "Low" | "Medium" | "High";
   cdnOptimized?: boolean;
+  imageGallery?: string[];
+  featuredImage400?: string;
+  featuredImage85?: string;
+  featuredImage800?: string;
+  featuredImageBackup?: string;
 }
 
 export interface Category {
@@ -114,9 +119,12 @@ export interface VideoItem {
   category?: string; // category classification
   duration?: string; // parsed or custom duration
   createdAt: string; // ISO format
+  updatedAt?: string; // ISO format
   publishedAt?: string; // published timestamp
   author?: string; // publisher author email or name
   status?: "Draft" | "Published"; // published/draft status
+  published?: boolean;
+  featured?: boolean;
   views: number;
   isLive?: boolean; // Live video badge
   isScheduled?: boolean; // Scheduled video option

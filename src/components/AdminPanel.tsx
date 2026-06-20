@@ -128,6 +128,8 @@ export default function AdminPanel({
         items.push({ id: doc.id, ...doc.data() } as Comment);
       });
       setComments(items);
+    }, (error) => {
+      console.error("AdminPanel comments onSnapshot subscription failed:", error);
     });
 
     // 2. Users
@@ -137,6 +139,8 @@ export default function AdminPanel({
         items.push({ id: doc.id, ...doc.data() } as UserDB);
       });
       setUsers(items);
+    }, (error) => {
+      console.error("AdminPanel users onSnapshot subscription failed:", error);
     });
 
     // 3. Breaking News Bulletins
@@ -146,6 +150,8 @@ export default function AdminPanel({
         items.push({ id: doc.id, ...doc.data() } as BreakingNews);
       });
       setBreakingLogs(items);
+    }, (error) => {
+      console.error("AdminPanel breaking_news onSnapshot subscription failed:", error);
     });
 
     // 4. Global Settings
@@ -153,6 +159,8 @@ export default function AdminPanel({
       if (docSnap.exists()) {
         setGlobalSettings(docSnap.data() as WebSettings);
       }
+    }, (error) => {
+      console.error("AdminPanel global settings onSnapshot subscription failed:", error);
     });
 
     // 5. Audit Activity Logs limit 20
@@ -164,6 +172,8 @@ export default function AdminPanel({
       // Sort most recent first
       items.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       setActivityLogs(items.slice(0, 25));
+    }, (error) => {
+      console.error("AdminPanel activity_logs onSnapshot subscription failed:", error);
     });
 
     return () => {
