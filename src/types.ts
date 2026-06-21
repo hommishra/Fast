@@ -32,6 +32,8 @@ export interface Article {
   compressionQuality?: "Low" | "Medium" | "High";
   cdnOptimized?: boolean;
   imageGallery?: string[];
+  images?: string[];
+  imageCaptions?: string[];
   featuredImage400?: string;
   featuredImage85?: string;
   featuredImage800?: string;

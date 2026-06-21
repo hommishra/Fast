@@ -21,7 +21,10 @@
         "views": { "type": "number" },
         "seoTitle": { "type": "string" },
         "seoDescription": { "type": "string" },
-        "seoKeywords": { "type": "string" }
+        "seoKeywords": { "type": "string" },
+        "imageGallery": { "type": "array", "items": { "type": "string" } },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "imageCaptions": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["id", "title", "content", "slug", "categoryId", "publishDate", "authorName", "views"]
     },

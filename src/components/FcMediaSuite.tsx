@@ -11,7 +11,9 @@ import { getFallbackImage } from "../utils/imageHelpers";
 interface FcMediaSuiteProps {
   article: Partial<Article>;
   adminToken: string;
-  onChangeArticle: (updatedFields: Partial<Article>) => void;
+  onChangeArticle: (
+    updatedFields: Partial<Article> | ((prev: Partial<Article>) => Partial<Article>)
+  ) => void;
 }
 
 interface UploadingTask {
@@ -489,9 +491,19 @@ export default function FcMediaSuite({
           updateStatus("success", 100, undefined, { speed: "Complete", eta: "0s remaining" });
           uploadedSignatures.current.add(`${file.name}-${file.size}-${target}`);
 
-          const currentGallery = article.imageGallery || [];
-          onChangeArticle({
-            imageGallery: [...currentGallery, w1200Url]
+          onChangeArticle((prev) => {
+            const currentImages = prev.images || prev.imageGallery || [];
+            const nextImages = [...currentImages, w1200Url];
+            const currentCaptions = prev.imageCaptions || [];
+            const nextCaptions = [...currentCaptions];
+            while (nextCaptions.length < nextImages.length) {
+              nextCaptions.push("");
+            }
+            return {
+              images: nextImages,
+              imageGallery: nextImages,
+              imageCaptions: nextCaptions
+            };
           });
           setInfoMessage("Gallery photo added successfully!");
         } catch (uploadErr: any) {
@@ -621,6 +633,12 @@ export default function FcMediaSuite({
       if (target === "featured") {
         await startUploadWorkflow(filesArray[0], "featured");
       } else {
+        const existingImagesCount = (article.images || article.imageGallery || []).length;
+        const incomingCount = filesArray.length;
+        if (existingImagesCount + incomingCount > 20) {
+          setErrorLogs(`Advisory limit reached: An article can only contain a maximum of 20 images. You attempted to upload ${incomingCount} files, which exceeds the 20 images limit (Current count: ${existingImagesCount}).`);
+          return;
+        }
         // Parallel batch loop safely
         filesArray.forEach(f => {
           startUploadWorkflow(f, "gallery");
@@ -657,14 +675,35 @@ export default function FcMediaSuite({
     }
   };
 
+  const handleUpdateCaption = (index: number, val: string) => {
+    onChangeArticle((prev) => {
+      const currentCaptions = [...(prev.imageCaptions || [])];
+      const g = prev.images || prev.imageGallery || [];
+      while (currentCaptions.length < g.length) {
+        currentCaptions.push("");
+      }
+      currentCaptions[index] = val;
+      return {
+        imageCaptions: currentCaptions
+      };
+    });
+  };
+
   const handleDeleteGalleryItem = async (index: number) => {
-    const gallery = article.imageGallery || [];
-    const imageUrlToDelete = gallery[index];
-    const updatedGallery = gallery.filter((_, i) => i !== index);
+    const currentImages = article.images || article.imageGallery || [];
+    const imageUrlToDelete = currentImages[index];
     
     addSystemLog(`Gallery [Index ${index}]`, "Admin deleted item.");
-    onChangeArticle({
-      imageGallery: updatedGallery
+    onChangeArticle((prev) => {
+      const g = prev.images || prev.imageGallery || [];
+      const updatedGallery = g.filter((_, i) => i !== index);
+      const c = prev.imageCaptions || [];
+      const updatedCaptions = c.filter((_, i) => i !== index);
+      return {
+        images: updatedGallery,
+        imageGallery: updatedGallery,
+        imageCaptions: updatedCaptions
+      };
     });
 
     setInfoMessage("Gallery image removed from collection sheet.");
@@ -854,28 +893,47 @@ export default function FcMediaSuite({
 
       {/* MULTI IMAGE COLLECTION (GALLERY) */}
       <div className="space-y-3 pt-3 border-t border-neutral-800" id="gallery_media_container_box">
-        <span className="text-[10px] font-bold font-mono tracking-widest uppercase text-neutral-400 block select-none">
-          2. Supplement Multi-Image Gallery
-        </span>
+        <div className="flex justify-between items-center select-none">
+          <span className="text-[10px] font-bold font-mono tracking-widest uppercase text-neutral-400 block">
+            2. Supplement Multi-Image Gallery
+          </span>
+          <span className="text-[10px] font-mono text-neutral-500">
+            {(article.images || article.imageGallery || []).length}/20 images uploaded
+          </span>
+        </div>
 
-        {article.imageGallery && article.imageGallery.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {article.imageGallery.map((imgUrl, idx) => (
-              <div key={idx} className="bg-neutral-950 border border-neutral-800 rounded overflow-hidden aspect-square relative group">
-                <img
-                  src={imgUrl}
-                  alt={`Gallery piece ${idx}`}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleDeleteGalleryItem(idx)}
-                  className="absolute top-1.5 right-1.5 bg-black/80 hover:bg-red-800 text-white p-1 rounded shadow cursor-pointer transition border border-neutral-750 opacity-100 sm:opacity-0 group-hover:opacity-100"
-                  title="Remove image from gallery"
-                >
-                  <Trash2 size={11} />
-                </button>
+        {(article.images || article.imageGallery) && (article.images || article.imageGallery)!.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {(article.images || article.imageGallery)!.map((imgUrl, idx) => (
+              <div key={idx} className="bg-neutral-950 border border-neutral-800 rounded-lg overflow-hidden p-2 flex flex-col justify-between group relative">
+                <div className="aspect-square w-full rounded overflow-hidden relative">
+                  <img
+                    src={imgUrl}
+                    alt={`Gallery piece ${idx}`}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteGalleryItem(idx)}
+                    className="absolute top-1.5 right-1.5 bg-black/80 hover:bg-red-800 text-white p-1 rounded shadow cursor-pointer transition border border-neutral-750 opacity-100"
+                    title="Remove image from gallery"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                  <div className="absolute bottom-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-mono text-neutral-300">
+                    #{idx + 1}
+                  </div>
+                </div>
+                <div className="mt-2 space-y-1">
+                  <input
+                    type="text"
+                    placeholder="Enter image caption..."
+                    value={article.imageCaptions?.[idx] || ""}
+                    onChange={(e) => handleUpdateCaption(idx, e.target.value)}
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-[9px] text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-red-500 transition-colors font-sans"
+                  />
+                </div>
               </div>
             ))}
           </div>
@@ -891,7 +949,7 @@ export default function FcMediaSuite({
         >
           <FileImage size={15} className="text-neutral-500 animate-pulse" />
           <span className="text-[11px] font-mono text-neutral-400 hover:text-neutral-200">
-            Drag files here or click to add multiple complementary gallery pictures
+            Drag files here or click to add multiple complementary gallery pictures (Max 20)
           </span>
         </div>
 
@@ -902,6 +960,12 @@ export default function FcMediaSuite({
           onChange={(e) => {
             if (e.target.files) {
               const filesArray = Array.from(e.target.files) as File[];
+              const existingImagesCount = (article.images || article.imageGallery || []).length;
+              const incomingCount = filesArray.length;
+              if (existingImagesCount + incomingCount > 20) {
+                setErrorLogs(`Advisory limit reached: An article can only contain a maximum of 20 images. You attempted to upload ${incomingCount} files, which exceeds the 20 images limit (Current count: ${existingImagesCount}).`);
+                return;
+              }
               filesArray.forEach(f => {
                 startUploadWorkflow(f, "gallery");
               });

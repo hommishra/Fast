@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Article, Comment, Bookmark } from "../types";
 import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment } from "firebase/firestore";
 import { db } from "../firebase";
-import { Clock, User, ArrowLeft, Send, MessageSquare, Flame, Bookmark as BookmarkIcon, Share2, Twitter, Facebook, MessageCircle, Link, X, Maximize2 } from "lucide-react";
+import { Clock, User, ArrowLeft, Send, MessageSquare, Flame, Bookmark as BookmarkIcon, Share2, Twitter, Facebook, MessageCircle, Link, X, Maximize2, ChevronLeft, ChevronRight } from "lucide-react";
 import { getFallbackImage } from "../utils/imageHelpers";
 import { AnimatePresence, motion } from "motion/react";
 
@@ -32,12 +32,29 @@ export default function ArticleView({
   const [submitStatus, setSubmitStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [copied, setCopied] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
-  // Esc-key keydown event listener to close the Lightbox for high accessibility
+  const articleImages = article.images && article.images.length > 0 
+    ? article.images 
+    : article.imageGallery && article.imageGallery.length > 0
+      ? article.imageGallery
+      : article.featuredImage 
+        ? [article.featuredImage] 
+        : [];
+
+  const articleCaptions = article.imageCaptions && article.imageCaptions.length > 0
+    ? article.imageCaptions
+    : articleImages.map((_, i) => i === 0 ? (article.imageCaption || "Featured media image") : "");
+
+  // Esc-key and arrow keys event listener for high accessibility and carousel nav
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setIsLightboxOpen(false);
+      } else if (e.key === "ArrowLeft" && articleImages.length > 1) {
+        setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : articleImages.length - 1));
+      } else if (e.key === "ArrowRight" && articleImages.length > 1) {
+        setCurrentImageIndex((prev) => (prev < articleImages.length - 1 ? prev + 1 : 0));
       }
     };
     if (isLightboxOpen) {
@@ -48,7 +65,7 @@ export default function ArticleView({
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
     };
-  }, [isLightboxOpen]);
+  }, [isLightboxOpen, articleImages.length]);
 
   const isBookmarked = bookmarks?.some((b) => b.articleId === article.id) || false;
 
@@ -282,7 +299,10 @@ export default function ArticleView({
 
           {/* Featured Card Image with Lightbox Zoom Trigger */}
           <div
-            onClick={() => setIsLightboxOpen(true)}
+            onClick={() => {
+              setCurrentImageIndex(0);
+              setIsLightboxOpen(true);
+            }}
             className="group relative mb-6 rounded-lg overflow-hidden shadow-sm bg-slate-50 border border-slate-200 aspect-[16/9] cursor-zoom-in active:scale-[0.99] transition-transform duration-200"
             title="Click to view full-screen"
           >
@@ -309,6 +329,53 @@ export default function ArticleView({
           <div className="text-slate-800 text-sm md:text-base leading-relaxed whitespace-pre-line space-y-4 max-w-none font-sans">
             {article.content}
           </div>
+
+          {/* GALLERY SPOTLIGHT COMPONENT */}
+          {articleImages.length > 1 && (
+            <div className="mt-8 pt-6 border-t border-slate-100" id="article_view_gallery_block">
+              <div className="flex justify-between items-center mb-4 select-none">
+                <h3 className="text-xs font-bold text-slate-900 tracking-wider uppercase border-l-3 border-blue-600 pl-3">
+                  Documentary Image Gallery ({articleImages.length} Photos)
+                </h3>
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                  Click any photo to expand
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {articleImages.map((imgUrl, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => {
+                      setCurrentImageIndex(idx);
+                      setIsLightboxOpen(true);
+                    }}
+                    className="group relative bg-slate-50 border border-slate-250 rounded-lg overflow-hidden aspect-square cursor-zoom-in hover:border-blue-600 hover:shadow-md transition-all duration-300"
+                  >
+                    <img
+                      src={imgUrl}
+                      alt={articleCaptions[idx] || `Gallery piece ${idx + 1}`}
+                      className="w-full h-full object-cover group-hover:scale-104 transition-transform duration-500 ease-out"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent opacity-90 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2.5 pt-8">
+                      <span className="text-[8px] font-mono font-bold text-white uppercase bg-blue-600 px-1 py-0.5 rounded self-start mb-1">
+                        View Slide
+                      </span>
+                      {articleCaptions[idx] && (
+                        <p className="text-[10px] text-zinc-200 line-clamp-1 leading-snug font-sans">
+                          {articleCaptions[idx]}
+                        </p>
+                      )}
+                    </div>
+                    <div className="absolute top-1.5 right-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[8px] font-mono text-neutral-300 font-bold z-10">
+                      {idx + 1} of {articleImages.length}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Post-Reading Bulletin Share Row */}
           <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -529,7 +596,7 @@ export default function ArticleView({
 
       {/* Polish Lightbox / Full-screen Media Overlay */}
       <AnimatePresence>
-        {isLightboxOpen && article.featuredImage && (
+        {isLightboxOpen && articleImages.length > 0 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -546,12 +613,42 @@ export default function ArticleView({
               exit={{ y: -12, opacity: 0 }}
               transition={{ delay: 0.05 }}
               onClick={() => setIsLightboxOpen(false)}
-              className="absolute top-4 right-4 md:top-6 md:right-6 bg-white/10 hover:bg-white/20 active:bg-white/35 text-white rounded-full p-2.5 transition-all backdrop-blur-sm cursor-pointer shadow-xl border border-white/10"
+              className="absolute top-4 right-4 md:top-6 md:right-6 bg-white/10 hover:bg-white/20 active:bg-white/35 text-white rounded-full p-2.5 transition-all backdrop-blur-sm cursor-pointer shadow-xl border border-white/10 z-20"
               title="Close full-screen (Esc)"
               style={{ pointerEvents: "auto" }}
             >
               <X size={20} />
             </motion.button>
+
+            {/* Slider edge arrows (Previous) */}
+            {articleImages.length > 1 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : articleImages.length - 1));
+                }}
+                className="absolute left-4 md:left-8 z-20 bg-black/50 hover:bg-black/80 text-white rounded-full p-3 transition backdrop-blur-xs cursor-pointer shadow-lg border border-white/10 pointer-events-auto"
+                title="Previous Image (Left Arrow)"
+              >
+                <ChevronLeft size={24} />
+              </button>
+            )}
+
+            {/* Slider edge arrows (Next) */}
+            {articleImages.length > 1 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentImageIndex((prev) => (prev < articleImages.length - 1 ? prev + 1 : 0));
+                }}
+                className="absolute right-4 md:right-8 z-20 bg-black/50 hover:bg-black/80 text-white rounded-full p-3 transition backdrop-blur-xs cursor-pointer shadow-lg border border-white/10 pointer-events-auto"
+                title="Next Image (Right Arrow)"
+              >
+                <ChevronRight size={24} />
+              </button>
+            )}
 
             {/* Main Full-screen image container */}
             <motion.div
@@ -562,11 +659,12 @@ export default function ArticleView({
               onClick={(e) => e.stopPropagation()} // Prevent closure when clicking on image card
               className="relative max-w-5xl w-full max-h-[85vh] flex flex-col rounded-xl overflow-hidden shadow-2xl border border-white/10 bg-neutral-900 cursor-default"
             >
-              <div className="w-full h-full max-h-[75vh] flex items-center justify-center overflow-hidden bg-neutral-950">
+              <div className="w-full h-full max-h-[75vh] min-h-[40vh] flex items-center justify-center overflow-hidden bg-neutral-950 relative">
                 <img
-                  src={article.featuredImage}
+                  key={currentImageIndex} // force image transition animation
+                  src={articleImages[currentImageIndex]}
                   alt={article.title}
-                  className="max-w-full max-h-[75vh] object-contain select-all"
+                  className="max-w-full max-h-[70vh] object-contain select-all transition duration-350"
                   referrerPolicy="no-referrer"
                   onError={(e) => {
                     e.currentTarget.onerror = null;
@@ -579,14 +677,14 @@ export default function ArticleView({
               <div className="bg-neutral-950/90 backdrop-blur-xs p-4 border-t border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-3 text-white">
                 <div className="min-w-0 flex-1">
                   <span className="text-[9px] uppercase tracking-wider text-blue-400 font-extrabold font-mono select-none block mb-0.5">
-                    {article.categoryId}
+                    Image {currentImageIndex + 1} of {articleImages.length}
                   </span>
-                  <h3 className="text-xs md:text-sm font-bold truncate text-neutral-200" title={article.title}>
+                  <h3 className="text-xs md:text-sm font-bold truncate text-neutral-250" title={article.title}>
                     {article.title}
                   </h3>
-                  {article.imageCaption && (
+                  {articleCaptions[currentImageIndex] && (
                     <p className="text-[10px] md:text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
-                      {article.imageCaption}
+                      {articleCaptions[currentImageIndex]}
                     </p>
                   )}
                 </div>
@@ -596,6 +694,27 @@ export default function ArticleView({
                   </div>
                 )}
               </div>
+
+              {/* Carousel Strip Navigation Thumbnails */}
+              {articleImages.length > 1 && (
+                <div className="flex justify-center gap-2 p-3 bg-neutral-950 border-t border-white/5 overflow-x-auto max-w-full">
+                  {articleImages.map((thumbUrl, tIdx) => (
+                    <button
+                      key={tIdx}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentImageIndex(tIdx);
+                      }}
+                      className={`w-11 h-11 rounded overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
+                        currentImageIndex === tIdx ? "border-blue-500 scale-105" : "border-zinc-800 opacity-50 hover:opacity-100"
+                      }`}
+                    >
+                      <img src={thumbUrl} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

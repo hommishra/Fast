@@ -294,6 +294,9 @@ export default function AdminArticles({
         featuredImageBackup: editingArticle.featuredImageBackup || existingArticle?.featuredImageBackup || "",
         featuredImage800: editingArticle.featuredImage800 || existingArticle?.featuredImage800 || "",
         featuredImage400: editingArticle.featuredImage400 || existingArticle?.featuredImage400 || "",
+        images: editingArticle.images || existingArticle?.images || editingArticle.imageGallery || existingArticle?.imageGallery || [],
+        imageGallery: editingArticle.images || existingArticle?.images || editingArticle.imageGallery || existingArticle?.imageGallery || [],
+        imageCaptions: editingArticle.imageCaptions || existingArticle?.imageCaptions || [],
       };
 
       await onSaveArticle(payload);
@@ -525,12 +528,15 @@ export default function AdminArticles({
                 <FcMediaSuite 
                   article={editingArticle || {}} 
                   adminToken={adminToken}
-                  onChangeArticle={(updatedFields) => {
+                  onChangeArticle={(updatedFieldsOrUpdater) => {
                     setEditingArticle(prev => {
                       if (!prev) return null;
+                      const fields = typeof updatedFieldsOrUpdater === "function"
+                        ? updatedFieldsOrUpdater(prev)
+                        : updatedFieldsOrUpdater;
                       return {
                         ...prev,
-                        ...updatedFields
+                        ...fields
                       };
                     });
                   }}

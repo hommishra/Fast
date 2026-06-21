@@ -1,9 +1,29 @@
 import React from "react";
 import { Article, Category, VideoItem, CoverageZone } from "../types";
-import { Clock, Eye, TrendingUp, Tv } from "lucide-react";
+import { Clock, Eye, TrendingUp, Tv, Camera } from "lucide-react";
 import ActiveSectionsMap from "./ActiveSectionsMap";
 import SmartVideoPlayer from "./SmartVideoPlayer";
 import { getFallbackImage } from "../utils/imageHelpers";
+
+const getArticleThumb = (art: Article) => {
+  if (art.images && art.images.length > 0) {
+    return art.images[0];
+  }
+  if (art.imageGallery && art.imageGallery.length > 0) {
+    return art.imageGallery[0];
+  }
+  return art.featuredImage || getFallbackImage(art.title, art.categoryId);
+};
+
+const getArticleImagesCount = (art: Article) => {
+  if (art.images && art.images.length > 0) {
+    return art.images.length;
+  }
+  if (art.imageGallery && art.imageGallery.length > 0) {
+    return art.imageGallery.length;
+  }
+  return 0;
+};
 
 const safeFormatDateFull = (isoStr?: string) => {
   if (!isoStr) return "Just now";
@@ -106,7 +126,7 @@ export default function FCLayout({
               <div className="space-y-3">
                 <div className="aspect-[16/10] w-full overflow-hidden rounded-lg bg-slate-100 relative">
                   <img
-                    src={art.featuredImage || getFallbackImage(art.title, art.categoryId)}
+                    src={getArticleThumb(art)}
                     alt={art.title}
                     className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
                     referrerPolicy="no-referrer"
@@ -116,6 +136,12 @@ export default function FCLayout({
                       e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
                     }}
                   />
+                  {getArticleImagesCount(art) > 1 && (
+                    <span className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[9px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded shadow z-10 flex items-center gap-1">
+                      <Camera size={11} className="text-blue-400" />
+                      {getArticleImagesCount(art)} Photos
+                    </span>
+                  )}
                 </div>
                 <div>
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans">
@@ -161,7 +187,7 @@ export default function FCLayout({
         >
           <div className="overflow-hidden bg-slate-100 rounded-xl aspect-[16/9] border border-slate-200 relative">
             <img
-              src={featuredHero.featuredImage || getFallbackImage(featuredHero.title, featuredHero.categoryId)}
+              src={getArticleThumb(featuredHero)}
               alt={featuredHero.title}
               className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
               referrerPolicy="no-referrer"
@@ -171,6 +197,18 @@ export default function FCLayout({
                 e.currentTarget.src = getFallbackImage(featuredHero.title, featuredHero.categoryId);
               }}
             />
+            {getArticleImagesCount(featuredHero) > 1 && (
+              <span className="absolute bottom-4 right-4 bg-black/75 backdrop-blur-xs text-white text-[10px] font-mono uppercase tracking-wider font-bold px-3 py-1 rounded shadow z-10 flex items-center gap-1.5 md:hidden">
+                <Camera size={12} className="text-blue-400" />
+                {getArticleImagesCount(featuredHero)} Photos
+              </span>
+            )}
+            {getArticleImagesCount(featuredHero) > 1 && (
+              <span className="absolute top-4 left-4 bg-slate-900/95 backdrop-blur-xs text-white text-[10px] font-mono uppercase tracking-wider font-bold px-3 py-1 rounded shadow z-10 flex items-center gap-1.5 hidden md:flex border border-white/10">
+                <Camera size={12} className="text-blue-400" />
+                Gallery: {getArticleImagesCount(featuredHero)} Photos
+              </span>
+            )}
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/90 to-transparent p-6 text-white pt-24 hidden md:block">
               <span className="bg-red-600 text-white text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded">
                 Spotlight Bulletin
@@ -253,7 +291,7 @@ export default function FCLayout({
                 <div className="space-y-2">
                   <div className="aspect-[16/10] w-full overflow-hidden bg-slate-50 rounded-lg border border-slate-150 image-box relative">
                     <img
-                      src={art.featuredImage || getFallbackImage(art.title, art.categoryId)}
+                      src={getArticleThumb(art)}
                       alt={art.title}
                       className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
                       referrerPolicy="no-referrer"
@@ -263,6 +301,12 @@ export default function FCLayout({
                         e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
                       }}
                     />
+                    {getArticleImagesCount(art) > 1 && (
+                      <span className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[9px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded shadow z-10 flex items-center gap-1">
+                        <Camera size={11} className="text-blue-400" />
+                        {getArticleImagesCount(art)} Photos
+                      </span>
+                    )}
                   </div>
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans block">
                     {art.categoryId}
