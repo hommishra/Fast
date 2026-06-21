@@ -281,30 +281,29 @@ export default function ArticleView({
           </div>
 
           {/* Featured Card Image with Lightbox Zoom Trigger */}
-          {article.featuredImage && (
-            <div
-              onClick={() => setIsLightboxOpen(true)}
-              className="group relative mb-6 rounded-lg overflow-hidden shadow-sm bg-slate-50 border border-slate-200 aspect-[16/9] cursor-zoom-in active:scale-[0.99] transition-transform duration-200"
-              title="Click to view full-screen"
-            >
-              <img
-                src={article.featuredImage}
-                alt={article.title}
-                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500 ease-out"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  e.currentTarget.onerror = null;
-                  e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
-                }}
-              />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors duration-350 flex items-center justify-center">
-                <div className="opacity-0 group-hover:opacity-100 transform translate-y-3 group-hover:translate-y-0 bg-neutral-900/90 text-white text-[10px] font-bold font-sans uppercase tracking-wider px-3.5 py-2 rounded-full flex items-center gap-2 transition-all duration-300 shadow-lg border border-white/10 select-none">
-                  <Maximize2 size={11} className="text-blue-400" />
-                  <span>Click to expand image</span>
-                </div>
+          <div
+            onClick={() => setIsLightboxOpen(true)}
+            className="group relative mb-6 rounded-lg overflow-hidden shadow-sm bg-slate-50 border border-slate-200 aspect-[16/9] cursor-zoom-in active:scale-[0.99] transition-transform duration-200"
+            title="Click to view full-screen"
+          >
+            <img
+              src={article.featuredImage || getFallbackImage(article.title, article.categoryId)}
+              alt={article.title}
+              className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+              referrerPolicy="no-referrer"
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
+              }}
+            />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors duration-350 flex items-center justify-center">
+              <div className="opacity-0 group-hover:opacity-100 transform translate-y-3 group-hover:translate-y-0 bg-neutral-900/90 text-white text-[10px] font-bold font-sans uppercase tracking-wider px-3.5 py-2 rounded-full flex items-center gap-2 transition-all duration-300 shadow-lg border border-white/10 select-none">
+                <Maximize2 size={11} className="text-blue-400" />
+                <span>Click to expand image</span>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Inner Content Paragraphs */}
           <div className="text-slate-800 text-sm md:text-base leading-relaxed whitespace-pre-line space-y-4 max-w-none font-sans">
@@ -371,18 +370,17 @@ export default function ArticleView({
                   onClick={() => onSelectArticle(rel)}
                   className="group cursor-pointer flex gap-3 bg-slate-50 hover:bg-slate-100/75 p-3 rounded-lg border border-slate-200/60 transition-all duration-200"
                 >
-                  {rel.featuredImage && (
-                    <img
-                      src={rel.featuredImage}
-                      alt={rel.title}
-                      className="w-16 h-16 object-cover rounded shrink-0 border border-slate-200"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = getFallbackImage(rel.title, rel.categoryId);
-                      }}
-                    />
-                  )}
+                  <img
+                    src={rel.featuredImage || getFallbackImage(rel.title, rel.categoryId)}
+                    alt={rel.title}
+                    className="w-16 h-16 object-cover rounded shrink-0 border border-slate-200"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = getFallbackImage(rel.title, rel.categoryId);
+                    }}
+                  />
                   <div className="space-y-1 overflow-hidden">
                     <span className="text-[9px] uppercase tracking-wider text-red-650 font-extrabold font-sans">
                       {rel.categoryId}

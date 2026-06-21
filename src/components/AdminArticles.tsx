@@ -144,7 +144,9 @@ export default function AdminArticles({
   const startCreateNew = () => {
     setImagePrompt("");
     setSuggestedKeywords("");
+    const newId = "art_" + Date.now() + "_" + Math.random().toString(36).substring(2, 11);
     setEditingArticle({
+      id: newId,
       title: "",
       subtitle: "",
       excerpt: "",
@@ -281,12 +283,17 @@ export default function AdminArticles({
     
     setSaveLoading(true);
     try {
+      const existingArticle = articles.find(a => a.id === editingArticle.id);
       const finalFeaturedImage = editingArticle.featuredImage?.trim() || 
+        existingArticle?.featuredImage?.trim() ||
         getAutoCaughtImage(editingArticle.title || "", editingArticle.categoryId || "");
       
       const payload: Partial<Article> = {
         ...editingArticle,
-        featuredImage: finalFeaturedImage
+        featuredImage: finalFeaturedImage,
+        featuredImageBackup: editingArticle.featuredImageBackup || existingArticle?.featuredImageBackup || "",
+        featuredImage800: editingArticle.featuredImage800 || existingArticle?.featuredImage800 || "",
+        featuredImage400: editingArticle.featuredImage400 || existingArticle?.featuredImage400 || "",
       };
 
       await onSaveArticle(payload);

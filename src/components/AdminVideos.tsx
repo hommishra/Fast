@@ -1,102 +1,33 @@
 import React, { useState, useRef, useEffect } from "react";
+import { motion } from "motion/react";
 import { VideoItem } from "../types";
 import { 
   Video, 
   Trash2, 
   Upload, 
-  Link as LinkIcon, 
   Play, 
   CheckCircle, 
   AlertTriangle,
   Search,
-  Filter,
-  Edit3,
   RefreshCw,
   X,
-  FileCheck,
-  User,
-  Radio,
-  Eye,
   FileVideo,
-  Clock,
-  Info
+  Image as ImageIcon,
+  Edit2,
+  Calendar,
+  Lock,
+  ExternalLink,
+  ChevronRight
 } from "lucide-react";
 import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc, setDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "../firebase";
-import { generateVideoThumbnail, formatDuration, base64ToBlob } from "../utils/videoHelpers";
-import { saveVideoFile } from "../indexedDB";
-
-const fileToBase64 = (file: File | Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
-  });
-};
-
-const uploadToBackendWithProgress = (
-  file: File,
-  adminToken: string,
-  progressCallback: (prog: number) => void
-): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    // Use the optimized web streaming upload endpoint with query parameters
-    xhr.open("POST", `/api/admin/upload-video-binary?fileName=${encodeURIComponent(file.name)}`, true);
-    xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`);
-    xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name));
-    xhr.setRequestHeader("Content-Type", "application/octet-stream");
-
-    // Hook standard XMLHttpRequest progress listener
-    xhr.upload.addEventListener("progress", (event) => {
-      if (event.lengthComputable) {
-        const percentComplete = (event.loaded / event.total) * 100;
-        progressCallback(Math.round(percentComplete));
-      }
-    });
-
-    xhr.addEventListener("load", () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          if (response.url) {
-            resolve(response.url);
-          } else {
-            reject(new Error("Server response is missing the file URL."));
-          }
-        } catch (e) {
-          reject(new Error("Failed to parse server response as JSON."));
-        }
-      } else {
-        try {
-          const errRes = JSON.parse(xhr.responseText);
-          reject(new Error(errRes.error || `Upload failed with HTTP status ${xhr.status}.`));
-        } catch (e) {
-          reject(new Error(`Upload failed with HTTP status ${xhr.status}.`));
-        }
-      }
-    });
-
-    xhr.addEventListener("error", () => {
-      reject(new Error("Network connection error encountered during upload."));
-    });
-
-    xhr.addEventListener("abort", () => {
-      reject(new Error("Upload aborted by the administrator."));
-    });
-
-    xhr.send(file);
-  });
-};
 
 interface AdminVideosProps {
   adminToken: string;
   adminSession?: { token: string; email: string; name: string; role: string; ip: string };
 }
 
-// Global available report categories
 const VIDEO_CATEGORIES = [
   { id: "politics", name: "Politics & Governance" },
   { id: "world", name: "World Updates" },
@@ -112,109 +43,57 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Create video form fields
+  // Standard simple YouTube-style Upload Form states
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [sourceType, setSourceType] = useState<"upload" | "url">("upload");
-  const [videoUrl, setVideoUrl] = useState("");
   const [category, setCategory] = useState("general");
   const [author, setAuthor] = useState(adminSession?.email || "admin@fastcoverage.news");
 
-  // Publish Status configurations
-  const [publishStatus, setPublishStatus] = useState<"Draft" | "Scheduled" | "Published">("Published");
-  const [featured, setFeatured] = useState(false);
-  const [scheduledTime, setScheduledTime] = useState("");
-  const [publishedSuccess, setPublishedSuccess] = useState<VideoItem | null>(null);
-  
-  // Drag and drop / local file tracking
+  // Local file selection and progress trackers
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // Progress & Error meters
-  const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [currentStatusText, setCurrentStatusText] = useState("");
+  const [uploadSpeed, setUploadSpeed] = useState<string | null>(null);
+  const [uploadEta, setUploadEta] = useState<number | null>(null);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  // Thumbnail optional states
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [thumbnailUrl, setThumbnailUrl] = useState("");
+  const [thumbnailProgress, setThumbnailProgress] = useState(0);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+
+  // Local operation indicators 
+  const [publishing, setPublishing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  // Background Direct Storage Upload state
-  interface UploadJob {
-    id: string;
-    file: File;
-    fileName: string;
-    progress: number;
-    bytesTransferred: number;
-    totalBytes: number;
-    speedMBs: number;
-    etaSeconds: number | null;
-    startTime: number;
-    status: "Uploading..." | "Processing..." | "Published..." | "Failed";
-    downloadUrl: string | null;
-    thumbnailUrl: string | null;
-    duration: string;
-    isCommitted: boolean;
-    title: string;
-    description: string;
-    category: string;
-    publishStatus: "Draft" | "Scheduled" | "Published";
-    featured: boolean;
-    scheduledTime: string;
-    author: string;
-    isEditType: boolean;
-    editingVideoId?: string;
-    firestoreDocId?: string;
-    retryCount?: number;
-    error?: string;
-  }
-
-  const [backgroundJobs, setBackgroundJobs] = useState<UploadJob[]>([]);
-  const [activeUploadJobId, setActiveUploadJobId] = useState<string | null>(null);
-  const [editUploadJobId, setEditUploadJobId] = useState<string | null>(null);
+  // Drag and drop helper state
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all");
 
-  // Edit State
+  // Edit Video States
   const [editingVideo, setEditingVideo] = useState<VideoItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editCategory, setEditCategory] = useState("general");
-  const [editPublishStatus, setEditPublishStatus] = useState<"Draft" | "Published">("Published");
-  const [editFeatured, setEditFeatured] = useState(false);
-  const [replaceFile, setReplaceFile] = useState<File | null>(null);
-  const [editUploading, setEditUploading] = useState(false);
-  const [editProgress, setEditProgress] = useState(0);
+  const [editStatus, setEditStatus] = useState<"Draft" | "Published">("Published");
+  const [editVideoUrl, setEditVideoUrl] = useState("");
+  const [editThumbnailUrl, setEditThumbnailUrl] = useState("");
+  const [editVideoProgress, setEditVideoProgress] = useState(0);
+  const [editVideoUploading, setEditVideoUploading] = useState(false);
+  const [editThumbProgress, setEditThumbProgress] = useState(0);
+  const [editThumbUploading, setEditThumbUploading] = useState(false);
 
-  // Prevent closing tab when uploading is active
-  useEffect(() => {
-    const isJobUploading = backgroundJobs.some(j => j.status === "Uploading..." || j.status === "Processing...");
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isJobUploading || uploading || editUploading) {
-        e.preventDefault();
-        e.returnValue = "Video upload is still in progress. Closing this tab will cancel the upload.";
-        return e.returnValue;
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [backgroundJobs, uploading, editUploading]);
-
-  // Load active session user email if changed
-  useEffect(() => {
-    if (adminSession?.email) {
-      setAuthor(adminSession.email);
-    }
-  }, [adminSession]);
-
-  // Synchronize with database: we load from both collections or fallback
+  // Synchronize with database: we load from videoBulletins with a legacy "videos" fallback
   useEffect(() => {
     setLoading(true);
-    // Listen to videoBulletins collection
     const unsubscribe = onSnapshot(
       collection(db, "videoBulletins"), 
       (snap) => {
@@ -229,11 +108,12 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
             videoUrl: data.videoUrl || "",
             thumbnailUrl: data.thumbnailUrl || "",
             category: data.category || "general",
-            duration: data.duration || "",
+            duration: data.duration || "0:00",
             createdAt: data.createdAt || new Date().toISOString(),
             publishedAt: data.publishedAt || data.createdAt || new Date().toISOString(),
             author: data.author || "admin@fastcoverage.news",
             status: data.status || "Published",
+            published: data.published !== false,
             views: data.views || 0,
             isLive: data.isLive || false,
             isScheduled: data.isScheduled || false,
@@ -241,10 +121,9 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
           } as VideoItem);
         });
 
-        // Sort by publication timestamp descending
         items.sort((a, b) => {
-          const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : new Date(a.createdAt).getTime();
-          const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : new Date(b.createdAt).getTime();
+          const dateA = new Date(a.publishedAt || a.createdAt).getTime();
+          const dateB = new Date(b.publishedAt || a.createdAt).getTime();
           return dateB - dateA;
         });
 
@@ -252,8 +131,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         setLoading(false);
       },
       (error) => {
-        console.error("Firestore read videoBulletins failed, subscribing to legacy 'videos':", error);
-        const subLegacy = onSnapshot(collection(db, "videos"), (legacySnap) => {
+        console.warn("Firestore subscription failed, trying legacy videos fallback:", error);
+        const unsubscribeLegacy = onSnapshot(collection(db, "videos"), (legacySnap) => {
           const items: VideoItem[] = [];
           legacySnap.forEach((doc) => {
             const data = doc.data();
@@ -263,26 +142,32 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
               description: data.description || "",
               url: data.url || "",
               videoUrl: data.url || "",
+              thumbnailUrl: data.thumbnailUrl || "",
+              category: "general",
               createdAt: data.createdAt || new Date().toISOString(),
               publishedAt: data.createdAt || new Date().toISOString(),
               views: data.views || 0,
-              isLive: data.isLive || false,
-              isScheduled: data.isScheduled || false,
-              scheduledTime: data.scheduledTime || "",
-              category: "general"
+              duration: "0:00"
             } as VideoItem);
           });
           setVideos(items);
           setLoading(false);
         });
-        return () => subLegacy();
+        return () => unsubscribeLegacy();
       }
     );
 
     return () => unsubscribe();
   }, []);
 
-  // Drag and Drop helpers
+  // Update staff credentials when loaded
+  useEffect(() => {
+    if (adminSession?.email) {
+      setAuthor(adminSession.email);
+    }
+  }, [adminSession]);
+
+  // Handle Drag / Drop and File selecting triggers
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -297,916 +182,583 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    setErrorMsg(null);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      validateAndSetFile(e.dataTransfer.files[0], false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith("video/")) {
+      console.log("File selected: " + file.name);
+      setSelectedFile(file);
+      startVideoUpload(file);
+    } else {
+      setErrorMsg("Please select a valid HD video file.");
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setErrorMsg(null);
-    if (e.target.files && e.target.files[0]) {
-      validateAndSetFile(e.target.files[0], false);
-    }
-  };
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const handleReplaceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setErrorMsg(null);
-    if (e.target.files && e.target.files[0]) {
-      validateAndSetFile(e.target.files[0], true);
-    }
-  };
-
-  const publishCommittedJob = async (job: UploadJob) => {
-    try {
-      const timestampISO = new Date().toISOString();
-      const isSched = job.publishStatus === "Scheduled";
-      const actualPublishTime = isSched && job.scheduledTime ? new Date(job.scheduledTime).toISOString() : timestampISO;
-
-      const docData = {
-        title: job.title.trim(),
-        description: job.description.trim(),
-        category: job.category,
-        url: job.downloadUrl,
-        videoUrl: job.downloadUrl,
-        thumbnailUrl: job.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640",
-        duration: job.duration || "0:00",
-        createdAt: timestampISO,
-        updatedAt: timestampISO,
-        publishedAt: actualPublishTime,
-        author: job.author || "admin@fastcoverage.news",
-        status: job.publishStatus,
-        published: job.publishStatus === "Published",
-        featured: job.featured,
-        views: 0,
-        isLive: false,
-        isScheduled: isSched,
-        scheduledTime: isSched && job.scheduledTime ? actualPublishTime : ""
-      };
-
-      console.log("[DEBUG] SAVING FIRESTORE DOCUMENT FROM JOB:", docData);
-
-      let docId = job.firestoreDocId;
-      if (job.isEditType && job.editingVideoId) {
-        docId = job.editingVideoId;
-        await updateDoc(doc(db, "videoBulletins", docId), docData);
-        await updateDoc(doc(db, "videos", docId), docData);
-        console.log("[Background Edit Stream] Published successfully for existing doc:", docId);
-      } else {
-        if (docId) {
-          // If we already wrote a temporary document, update/merge it
-          await setDoc(doc(db, "videoBulletins", docId), docData, { merge: true });
-          await setDoc(doc(db, "videos", docId), { ...docData, id: docId }, { merge: true });
-          console.log("[Background Live Stream] Merged details into existing doc:", docId);
-        } else {
-          // Create new document
-          const bulletDoc = await addDoc(collection(db, "videoBulletins"), docData);
-          docId = bulletDoc.id;
-          await setDoc(doc(db, "videos", docId), {
-            ...docData,
-            id: docId
-          });
-          console.log("[Background Live Stream] Published successfully with ID:", docId);
-        }
-      }
-
-      // Update local state with doc ID and status
-      setBackgroundJobs(prev => prev.map(j => j.id === job.id ? { 
-        ...j, 
-        status: "Published...", 
-        firestoreDocId: docId 
-      } : j));
-
-      console.log(`[DEBUG] Publish completed successfully for video "${job.title}".`);
-
-      // Keep job on screen for 1.5 seconds so admin sees the "Published..." state, then clean up
-      setTimeout(() => {
-        setBackgroundJobs(prev => prev.filter(j => j.id !== job.id));
-      }, 1500);
-
-    } catch (err: any) {
-      console.error("Background publication write failed:", err);
-      setBackgroundJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: "Failed", error: err.message || "Auto-publish failed." } : j));
-    }
-  };
-
-  const updateFirestoreMetadataLocallyAndDb = async (jobId: string, duration: string, thumbnailUrl: string) => {
-    let matchedJob: UploadJob | undefined;
-    setBackgroundJobs(prev => {
-      const idx = prev.findIndex(j => j.id === jobId);
-      if (idx !== -1) {
-        const copy = [...prev];
-        copy[idx] = { ...copy[idx], duration, thumbnailUrl };
-        matchedJob = copy[idx];
-        return copy;
-      }
-      return prev;
-    });
-
-    if (matchedJob) {
-      const docId = matchedJob.firestoreDocId || (matchedJob.isEditType ? matchedJob.editingVideoId : undefined);
-      if (docId) {
-        try {
-          console.log(`[DEBUG] Background Metadata Hydration: document ${docId} is now enriched with duration "${duration}" and thumb "${thumbnailUrl}"`);
-          await updateDoc(doc(db, "videoBulletins", docId), { duration, thumbnailUrl });
-          await updateDoc(doc(db, "videos", docId), { duration, thumbnailUrl });
-        } catch (err) {
-          console.warn("Could not enrich existing firestore video document:", err);
-        }
-      }
-    }
-  };
-
-  const startDirectStorageUpload = (file: File, isEditing: boolean) => {
-    console.log(`[DEBUG] File selected: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB), Type: ${file.type || 'unknown'}`);
-    const timestamp = Date.now();
-    const uniqueId = Math.random().toString(36).substring(2, 8);
-    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase() || ".mp4";
-    const videoPath = `videoBulletins/${timestamp}-${uniqueId}${ext}`;
-    const storageRef = ref(storage, videoPath);
-
-    const metadata = {
-      contentType: file.type || 'video/mp4',
-      cacheControl: 'public, max-age=31536000',
-    };
-
-    const jobId = `${isEditing ? 'edit' : 'new'}-${timestamp}-${uniqueId}`;
-
-    const newJob: UploadJob = {
-      id: jobId,
-      file,
-      fileName: file.name,
-      progress: 0,
-      bytesTransferred: 0,
-      totalBytes: file.size,
-      speedMBs: 0,
-      etaSeconds: null,
-      startTime: Date.now(),
-      status: "Uploading...",
-      downloadUrl: null,
-      thumbnailUrl: null,
-      duration: "0:00",
-      isCommitted: false,
-      title: isEditing ? editTitle : (title || file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ")),
-      description: isEditing ? editDescription : description,
-      category: isEditing ? editCategory : category,
-      publishStatus: isEditing ? (editPublishStatus as any) : publishStatus,
-      featured: isEditing ? editFeatured : featured,
-      scheduledTime: isEditing ? "" : scheduledTime,
-      author: author || "admin@fastcoverage.news",
-      isEditType: isEditing,
-      editingVideoId: isEditing ? editingVideo?.id : undefined,
-      retryCount: 0
-    };
-
-    // Pre-insert into list immediately so it starts updating on-screen
-    setBackgroundJobs(prev => [...prev, newJob]);
-    if (isEditing) {
-      setEditUploadJobId(jobId);
-    } else {
-      setActiveUploadJobId(jobId);
-    }
-
-    console.log(`[DEBUG] Upload started for jobId: ${jobId}, path: ${videoPath}`);
-
-    const runUploadLoop = (retryCountNum: number) => {
-      const uploadTask = uploadBytesResumable(storageRef, file, metadata);
-
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const bytesTransferred = snapshot.bytesTransferred;
-          const totalBytes = snapshot.totalBytes;
-          const progress = totalBytes > 0 ? Math.round((bytesTransferred / totalBytes) * 100) : 0;
-          
-          const now = Date.now();
-          const elapsedSeconds = (now - newJob.startTime) / 1000;
-          let speedMBs = 0;
-          let etaSeconds = null;
-
-          if (elapsedSeconds > 0.1) {
-            const speedBps = bytesTransferred / elapsedSeconds;
-            speedMBs = speedBps / (1024 * 1024);
-            if (speedBps > 0) {
-              etaSeconds = Math.max(0, Math.round((totalBytes - bytesTransferred) / speedBps));
-            }
-          }
-
-          console.log(`[DEBUG] Upload progress for ${jobId}: ${progress}% - Speed: ${speedMBs.toFixed(2)} MB/s - ETA: ${etaSeconds !== null ? etaSeconds + 's' : 'unknown'}`);
-
-          setBackgroundJobs(prev => prev.map(j => j.id === jobId ? {
-            ...j,
-            progress,
-            bytesTransferred,
-            totalBytes,
-            speedMBs,
-            etaSeconds
-          } : j));
-        },
-        (error: any) => {
-          console.error(`[DEBUG] Firebase Storage direct upload error:`, error);
-          if (retryCountNum < 3) {
-            console.warn(`[DEBUG] Failsafe auto-retry: re-triggering file upload attempt ${retryCountNum + 1}/3...`);
-            setTimeout(() => {
-              runUploadLoop(retryCountNum + 1);
-            }, 1000);
-          } else {
-            setBackgroundJobs(prev => prev.map(j => j.id === jobId ? {
-              ...j,
-              status: "Failed",
-              error: `Direct storage write failed: ${error.message || "Network Timeout."}`
-            } : j));
-          }
-        },
-        async () => {
-          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-          console.log(`[DEBUG] Download URL created: ${downloadUrl}`);
-
-          // Cache in IndexedDB instantly for lag-free playing
-          try {
-            await saveVideoFile(downloadUrl, file);
-          } catch (dbErr) {
-            console.warn("Local IndexedDB caching skipped:", dbErr);
-          }
-
-          // Let's obtain the reference to the newest job record to check if it's already committed
-          let isCommittedNow = false;
-          let matchedJobSnapshot: UploadJob | undefined;
-
-          setBackgroundJobs(prevJobs => {
-            const jobIndex = prevJobs.findIndex(j => j.id === jobId);
-            if (jobIndex === -1) return prevJobs;
-            const matchedJob = prevJobs[jobIndex];
-            isCommittedNow = matchedJob.isCommitted;
-            
-            const updatedJob = {
-              ...matchedJob,
-              progress: 100,
-              status: "Processing..." as const,
-              downloadUrl
-            };
-            matchedJobSnapshot = updatedJob;
-
-            const copy = [...prevJobs];
-            copy[jobIndex] = updatedJob;
-            return copy;
-          });
-
-          // Wait 100ms for state to finalize, then execute publish if committed
-          setTimeout(() => {
-            if (matchedJobSnapshot) {
-              if (isCommittedNow || matchedJobSnapshot.isCommitted) {
-                publishCommittedJob(matchedJobSnapshot);
-              }
-            }
-          }, 100);
-
-          // Now, generate and upload thumbnail & duration completely in the background after upload completes!
-          console.log(`[DEBUG] Triggering background metadata processing for completed upload...`);
-          generateVideoThumbnail(file).then(async (result) => {
-            const calculatedDuration = formatDuration(result.durationSeconds);
-            console.log(`[DEBUG] Metadata extracted successfully. Duration decoded: ${calculatedDuration}`);
-
-            const thumbPath = `videoBulletins/thumbnails/${timestamp}-${uniqueId}-thumb.jpg`;
-            const thumbRef = ref(storage, thumbPath);
-            try {
-              await uploadBytesResumable(thumbRef, result.thumbnail);
-              const thumbUrl = await getDownloadURL(thumbRef);
-              console.log(`[DEBUG] Background thumbnail uploaded: ${thumbUrl}`);
-
-              // Hydrate Firestore and Local state
-              await updateFirestoreMetadataLocallyAndDb(jobId, calculatedDuration, thumbUrl);
-            } catch (thumbUploadErr) {
-              console.warn("Metadata thumbnail save skipped in background:", thumbUploadErr);
-              await updateFirestoreMetadataLocallyAndDb(jobId, calculatedDuration, "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640");
-            }
-          }).catch(err => {
-            console.warn("Background processing skipped:", err);
-          });
-        }
-      );
-    };
-
-    runUploadLoop(0);
-  };
-
-  const validateAndSetFile = (file: File, isEditing: boolean) => {
-    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-    const isVideo = file.type.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv"].includes(ext);
-    
-    if (!isVideo) {
-      setErrorMsg("Unauthorized video format. Please upload standard video file formats (MP4, MOV, WEBM, MKV, etc.).");
-      return;
-    }
-
-    const MAX_SIZE = 150 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      setErrorMsg(`File exceeds safety limits (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max size permitted is 150MB.`);
-      return;
-    }
-
-    const isDuplicate = videos.some(v => v.title.toLowerCase() === file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ").toLowerCase());
-    if (isDuplicate) {
-      setErrorMsg(`Warning: A video named "${file.name}" may already exist.`);
-    }
-
-    if (isEditing) {
-      setReplaceFile(file);
-      startDirectStorageUpload(file, true);
-    } else {
-      setSelectedFile(file);
-      if (!title) {
-        setTitle(file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "));
-      }
-      startDirectStorageUpload(file, false);
-    }
+    console.log("File selected: " + file.name);
+    setSelectedFile(file);
+    startVideoUpload(file);
   };
 
   const triggerFileSelect = () => {
     fileInputRef.current?.click();
   };
 
-  const uploadToStorageWithProgress = (
-    fileBlob: Blob | File, 
-    pathName: string, 
-    progressCallback: (prog: number) => void
-  ): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const storageRef = ref(storage, pathName);
-      const uploadTask = uploadBytesResumable(storageRef, fileBlob);
+  const handleThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          progressCallback(Math.round(progress));
-        },
-        (error) => {
-          console.error("Firebase Storage Upload Failure, retrying:", error);
-          setTimeout(() => {
-            const retryTask = uploadBytesResumable(storageRef, fileBlob);
-            retryTask.on(
-              "state_changed",
-              (snap) => {
-                const prog = (snap.bytesTransferred / snap.totalBytes) * 100;
-                progressCallback(Math.round(prog));
-              },
-              (err) => reject(new Error(`Storage write failed after retry: ${err.message}`)),
-              async () => {
-                const downloadURL = await getDownloadURL(retryTask.snapshot.ref);
-                resolve(downloadURL);
-              }
-            );
-          }, 1500);
-        },
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          resolve(downloadURL);
-        }
-      );
-    });
+    console.log("Thumbnail selected: " + file.name);
+    setThumbnailFile(file);
+    startThumbnailUpload(file);
   };
 
-  // Submit and create new Simple Video Bulletin
-  const handleSubmitVideo = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const triggerThumbnailSelect = () => {
+    thumbnailInputRef.current?.click();
+  };
+
+  // IMMEDIATE DIRECT STORAGE UPLOADING & PROGRESS INDICATOR
+  const startVideoUpload = (file: File) => {
     setErrorMsg(null);
     setSuccessMsg(null);
-
-    // 1. Rigorous Field and Format Validation
-    if (!adminSession || !adminSession.email) {
-      setErrorMsg("Security Authorization Error: Only authenticated administrator accounts are authorized to publish reports.");
-      return;
-    }
-
-    if (!title.trim()) {
-      setErrorMsg("Validation Error: Bulletin Title is strictly required.");
-      return;
-    }
-
-    if (!description.trim()) {
-      setErrorMsg("Validation Error: Description / Briefing Synopsis is strictly required.");
-      return;
-    }
-
-    if (!category) {
-      setErrorMsg("Validation Error: Category desk selection is required.");
-      return;
-    }
-
-    if (sourceType === "upload" && !selectedFile) {
-      setErrorMsg("Validation Error: Broadcast Video file is required for local upload. Please drag & drop or browse a video file.");
-      return;
-    }
-
-    if (sourceType === "url" && !videoUrl.trim()) {
-      setErrorMsg("Validation Error: External Video Feed URL is required for stream delivery.");
-      return;
-    }
-
-    if (!author) {
-      setErrorMsg("Validation Error: Reporting Author desk credential could not be resolved.");
-      return;
-    }
-
-    if (sourceType === "url") {
-      setUploading(true);
-      try {
-        let finalThumbnailUrl = "";
-        let finalVideoUrl = videoUrl.trim();
-        if (finalVideoUrl.includes("youtube.com") || finalVideoUrl.includes("youtu.be")) {
-          let ytId = "";
-          if (finalVideoUrl.includes("v=")) {
-            ytId = finalVideoUrl.split("v=")[1]?.split("&")[0] || "";
-          } else if (finalVideoUrl.includes("youtu.be/")) {
-            ytId = finalVideoUrl.split("youtu.be/")[1]?.split("?")[0] || "";
-          } else if (finalVideoUrl.includes("embed/")) {
-            ytId = finalVideoUrl.split("embed/")[1]?.split("?")[0] || "";
-          }
-          if (ytId) {
-            finalThumbnailUrl = `https://img.youtube.com/vi/${ytId}/sddefault.jpg`;
-          }
-        }
-        
-        if (!finalThumbnailUrl) {
-          finalThumbnailUrl = `https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640`;
-        }
-
-        const timestampISO = new Date().toISOString();
-        const isSched = publishStatus === "Scheduled";
-        const actualPublishTime = isSched && scheduledTime ? new Date(scheduledTime).toISOString() : timestampISO;
-
-        const docData = {
-          title: title.trim(),
-          description: description.trim(),
-          category,
-          url: finalVideoUrl,
-          videoUrl: finalVideoUrl,
-          thumbnailUrl: finalThumbnailUrl,
-          duration: "0:00",
-          createdAt: timestampISO,
-          updatedAt: timestampISO,
-          publishedAt: actualPublishTime,
-          author,
-          status: publishStatus,
-          published: publishStatus === "Published",
-          featured: featured,
-          views: 0,
-          isLive: false,
-          isScheduled: isSched,
-          scheduledTime: isSched && scheduledTime ? actualPublishTime : ""
-        };
-
-        const bulletDoc = await addDoc(collection(db, "videoBulletins"), docData);
-        await setDoc(doc(db, "videos", bulletDoc.id), { ...docData, id: bulletDoc.id });
-
-        setSuccessMsg(`✓ Broadcast Published Successfully: "${title}" recorded.`);
-        
-        setTitle("");
-        setDescription("");
-        setVideoUrl("");
-        setSelectedFile(null);
-        setCategory("general");
-        setPublishStatus("Published");
-        setScheduledTime("");
-      } catch (err: any) {
-        setErrorMsg(err.message || "Failed to publish URL stream.");
-      } finally {
-        setUploading(false);
-      }
-      return;
-    }
-
-    // Direct Upload mode
-    const job = backgroundJobs.find(j => j.id === activeUploadJobId);
-    if (!job) {
-      setErrorMsg("Error: Corresponding background upload task could not be resolved.");
-      return;
-    }
-
-    const updatedJob = {
-      ...job,
-      title: title.trim(),
-      description: description.trim(),
-      category,
-      publishStatus,
-      featured,
-      scheduledTime,
-      isCommitted: true
-    };
-
-    setBackgroundJobs(prev => prev.map(j => j.id === activeUploadJobId ? updatedJob : j));
-
-    if (job.status === "Processing..." || job.downloadUrl) {
-      publishCommittedJob(updatedJob);
-      setSuccessMsg(`✓ Direct Storage Upload published successfully!`);
-    } else {
-      setSuccessMsg(`✓ Uploading in progress (${job.progress}%). Bulletin metadata committed and queued for automatic publishing once direct upload completes.`);
-    }
-
-    setTitle("");
-    setDescription("");
     setVideoUrl("");
-    setSelectedFile(null);
-    setCategory("general");
-    setPublishStatus("Published");
-    setScheduledTime("");
-    setActiveUploadJobId(null);
-  };
+    setUploadProgress(0);
+    setUploadSpeed(null);
+    setUploadEta(null);
+    setUploading(true);
 
-  // Replace/Edit existing Video Bulletin with absolute reliability
-  const handleEditVideoCommit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingVideo) return;
-    setErrorMsg(null);
+    console.log("Upload started");
+    const startTime = Date.now();
+    const storageRef = ref(storage, `videoBulletins/videos/${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
 
-    if (!replaceFile) {
-      setEditUploading(true);
-      try {
-        const timestampISO = new Date().toISOString();
-        const updatedFields = {
-          title: editTitle.trim(),
-          description: editDescription.trim(),
-          category: editCategory,
-          url: editingVideo.url,
-          videoUrl: editingVideo.videoUrl || editingVideo.url,
-          thumbnailUrl: editingVideo.thumbnailUrl,
-          duration: editingVideo.duration || "0:00",
-          status: editPublishStatus,
-          published: editPublishStatus === "Published",
-          featured: editFeatured,
-          updatedAt: timestampISO
-        };
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const bytesTransferred = snapshot.bytesTransferred;
+        const totalBytes = snapshot.totalBytes;
+        const progress = totalBytes > 0 ? Math.round((bytesTransferred / totalBytes) * 100) : 0;
+        
+        setUploadProgress(progress);
+        console.log(`Upload progress: ${progress}%`);
 
-        await updateDoc(doc(db, "videoBulletins", editingVideo.id), updatedFields);
-        await updateDoc(doc(db, "videos", editingVideo.id), updatedFields);
-
-        setSuccessMsg(`✓ Video Bulletin "${editTitle}" successfully updated.`);
-        setEditingVideo(null);
-      } catch (err: any) {
-        console.error("Editing Video Bulletin entry failed: ", err);
-        setErrorMsg(err.message || "Failed to update metadata records.");
-      } finally {
-        setEditUploading(false);
+        const now = Date.now();
+        const elapsedSeconds = (now - startTime) / 1000;
+        if (elapsedSeconds > 0.1) {
+          const speedBps = bytesTransferred / elapsedSeconds;
+          const speedMBs = speedBps / (1024 * 1024);
+          setUploadSpeed(speedMBs.toFixed(2) + " MB/s");
+          if (speedBps > 0) {
+            const eta = Math.max(0, Math.round((totalBytes - bytesTransferred) / speedBps));
+            setUploadEta(eta);
+          }
+        }
+      },
+      (error) => {
+        console.error("Direct Video Storage upload failed:", error);
+        setErrorMsg("Direct Video upload failed: " + error.message);
+        setUploading(false);
+      },
+      async () => {
+        try {
+          console.log("Upload completed");
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          console.log("Download URL created: " + downloadUrl);
+          setVideoUrl(downloadUrl);
+          setUploading(false);
+          setSuccessMsg("✓ HD Video successfully uploaded! Fill in Title and click Publish.");
+        } catch (err: any) {
+          console.error("Failed to fetch Video download URL:", err);
+          setErrorMsg("Failed to resolve dynamic URL: " + err.message);
+          setUploading(false);
+        }
       }
-      return;
-    }
-
-    // Replace video direct upload mode
-    const job = backgroundJobs.find(j => j.id === editUploadJobId);
-    if (!job) {
-      setErrorMsg("Error: Replacement background upload task could not be resolved.");
-      return;
-    }
-
-    const updatedJob = {
-      ...job,
-      title: editTitle.trim(),
-      description: editDescription.trim(),
-      category: editCategory,
-      publishStatus: editPublishStatus as any,
-      featured: editFeatured,
-      isCommitted: true
-    };
-
-    setBackgroundJobs(prev => prev.map(j => j.id === editUploadJobId ? updatedJob : j));
-
-    if (job.status === "Processing..." || job.downloadUrl) {
-      publishCommittedJob(updatedJob);
-      setSuccessMsg(`✓ Video replacement direct storage published successfully!`);
-    } else {
-      setSuccessMsg(`✓ Replacement uploading in progress (${job.progress}%). Queue committed. Edits will finalize automatically when direct upload is complete.`);
-    }
-
-    setEditingVideo(null);
-    setReplaceFile(null);
-    setEditUploadJobId(null);
+    );
   };
 
-  // Remove completely from Storage and Firestore collections
-  const handleDeleteVideoPermanently = async (vid: VideoItem) => {
+  // Optional Custom Thumbnail Immediate Upload Action
+  const startThumbnailUpload = (file: File) => {
+    setThumbnailUrl("");
+    setThumbnailProgress(0);
+    setThumbnailUploading(true);
+
+    const storageRef = ref(storage, `videoBulletins/thumbnails/${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const progress = snapshot.totalBytes > 0 ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) : 0;
+        setThumbnailProgress(progress);
+      },
+      (error) => {
+        console.error("Thumbnail Storage upload failed:", error);
+        setErrorMsg("Thumbnail upload failed: " + error.message);
+        setThumbnailUploading(false);
+      },
+      async () => {
+        try {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          setThumbnailUrl(downloadUrl);
+          setThumbnailUploading(false);
+        } catch (err: any) {
+          console.error("Failed to resolve Thumbnail URL:", err);
+          setThumbnailUploading(false);
+        }
+      }
+    );
+  };
+
+  // Submit flow to register completely with Firestore db
+  const handlePublishSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      setErrorMsg("Validation Error: Please enter a descriptive Video Title.");
+      return;
+    }
+    if (!videoUrl) {
+      setErrorMsg("Validation Error: No broadcast video path uploaded yet. Select a video first.");
+      return;
+    }
+
+    setPublishing(true);
     setErrorMsg(null);
     setSuccessMsg(null);
 
     try {
-      // 1. Delete from Firestore videoBulletins and videos
-      await deleteDoc(doc(db, "videoBulletins", vid.id));
-      
-      try {
-        await deleteDoc(doc(db, "videos", vid.id));
-      } catch (e) {
-        // quiet ignore if not in legacy collection
-      }
+      const timestampISO = new Date().toISOString();
+      const defaultThumb = "https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640";
 
-      // 2. Deduce and delete source files from Firebase Storage if it's our hosted domain
-      const srcUrl = vid.videoUrl || vid.url;
-      if (srcUrl && srcUrl.includes("firebasestorage.googleapis.com")) {
-        try {
-          const storagePathDecoded = decodeURIComponent(srcUrl.split("/o/")[1]?.split("?")[0] || "");
-          if (storagePathDecoded) {
-            const fileRef = ref(storage, storagePathDecoded);
-            await deleteObject(fileRef);
-            console.log("Deleted old storage video permanently from storageBucket.");
-          }
-        } catch (stErr) {
-          console.warn("Storage video cleanup skipped or file not found:", stErr);
-        }
-      }
+      const docData = {
+        title: title.trim(),
+        description: description.trim(),
+        category,
+        url: videoUrl,
+        videoUrl: videoUrl,
+        thumbnailUrl: thumbnailUrl || defaultThumb,
+        duration: "0:00",
+        createdAt: timestampISO,
+        updatedAt: timestampISO,
+        publishedAt: timestampISO,
+        author: author || "admin@fastcoverage.news",
+        status: "Published",
+        published: true,
+        featured: false,
+        views: 0,
+        isLive: false,
+        isScheduled: false,
+        scheduledTime: ""
+      };
 
-      // 3. Clear thumbnail if it's hosted in our Storage
-      const thumbUrl = vid.thumbnailUrl;
-      if (thumbUrl && thumbUrl.includes("firebasestorage.googleapis.com")) {
-        try {
-          const thumbPathDecoded = decodeURIComponent(thumbUrl.split("/o/")[1]?.split("?")[0] || "");
-          if (thumbPathDecoded) {
-            await deleteObject(ref(storage, thumbPathDecoded));
-            console.log("Deleted associated thumbnail permanently.");
-          }
-        } catch (thumbDelErr) {
-          console.warn("Associated thumbnail cleanup skipped or missing:", thumbDelErr);
-        }
-      }
+      // Add clean item to primary collection
+      const docRef = await addDoc(collection(db, "videoBulletins"), docData);
+      console.log("Firestore saved");
 
-      setSuccessMsg(`Clean: Video "${vid.title}" erased from library.`);
-      setDeleteConfirmId(null);
+      // Set item to legacy videos mirroring system
+      await setDoc(doc(db, "videos", docRef.id), { ...docData, id: docRef.id });
+      console.log("Publish completed");
+
+      setSuccessMsg(`✓ Broadcast Published Successfully: "${title.trim()}" is now live.`);
+
+      // Reset standard fields
+      setTitle("");
+      setDescription("");
+      setCategory("general");
+      setSelectedFile(null);
+      setThumbnailFile(null);
+      setVideoUrl("");
+      setThumbnailUrl("");
+      setUploadProgress(0);
+      setThumbnailProgress(0);
     } catch (err: any) {
-      console.error("Permanent delete action failed: ", err);
-      setErrorMsg("Failed to delete video or free storage assets completely.");
+      console.error("Publishing video bulletin failed:", err);
+      setErrorMsg("Publish failed: " + (err.message || String(err)));
+    } finally {
+      setPublishing(false);
     }
   };
 
-  // Toggle status option
+  // Edit form file replacement triggers
+  const handleEditVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setEditVideoProgress(0);
+    setEditVideoUploading(true);
+
+    const storageRef = ref(storage, `videoBulletins/videos/edit_${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const progress = snapshot.totalBytes > 0 ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) : 0;
+        setEditVideoProgress(progress);
+      },
+      (error) => {
+        console.error("Edit video upload failed:", error);
+        setErrorMsg("Failed uploading replacement video: " + error.message);
+        setEditVideoUploading(false);
+      },
+      async () => {
+        try {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          setEditVideoUrl(downloadUrl);
+          setEditVideoUploading(false);
+        } catch (err: any) {
+          console.error("Failed obtaining output URL:", err);
+          setEditVideoUploading(false);
+        }
+      }
+    );
+  };
+
+  const handleEditThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setEditThumbProgress(0);
+    setEditThumbUploading(true);
+
+    const storageRef = ref(storage, `videoBulletins/thumbnails/edit_${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const progress = snapshot.totalBytes > 0 ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) : 0;
+        setEditThumbProgress(progress);
+      },
+      (error) => {
+        console.error("Edit thumbnail upload failed:", error);
+        setEditThumbUploading(false);
+      },
+      async () => {
+        try {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          setEditThumbnailUrl(downloadUrl);
+          setEditThumbUploading(false);
+        } catch (err: any) {
+          console.error("Failed obtaining target thumbnail URL:", err);
+          setEditThumbUploading(false);
+        }
+      }
+    );
+  };
+
+  // Apply edits to existing video bulletin securely
+  const handleSaveEditsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVideo) return;
+    if (!editTitle.trim()) {
+      setErrorMsg("Please provide a title.");
+      return;
+    }
+
+    setPublishing(true);
+    setErrorMsg(null);
+
+    try {
+      const timestampISO = new Date().toISOString();
+      const updatedData = {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        category: editCategory,
+        status: editStatus,
+        published: editStatus === "Published",
+        url: editVideoUrl || editingVideo.url,
+        videoUrl: editVideoUrl || editingVideo.videoUrl || editingVideo.url,
+        thumbnailUrl: editThumbnailUrl || editingVideo.thumbnailUrl,
+        updatedAt: timestampISO
+      };
+
+      await updateDoc(doc(db, "videoBulletins", editingVideo.id), updatedData);
+      await setDoc(doc(db, "videos", editingVideo.id), updatedData, { merge: true });
+
+      setSuccessMsg(`✓ Video updated: "${editTitle}" has been saved.`);
+      setEditingVideo(null);
+    } catch (err: any) {
+      console.error("Failed saving video document edits:", err);
+      setErrorMsg("Failed updating broadcast payload: " + err.message);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // Toggle status mode between Published and Draft instantly
   const handleTogglePublish = async (vid: VideoItem) => {
     try {
       const newStatus = vid.status === "Published" ? "Draft" : "Published";
-      const isPublished = newStatus === "Published";
       const updatedFields = {
         status: newStatus,
-        published: isPublished,
+        published: newStatus === "Published",
         updatedAt: new Date().toISOString()
       };
       await updateDoc(doc(db, "videoBulletins", vid.id), updatedFields);
-      try {
-        await setDoc(doc(db, "videos", vid.id), updatedFields, { merge: true });
-      } catch (err) {
-        console.warn("Dual update failed:", err);
-      }
-      setSuccessMsg(`Status updated for "${vid.title}" to ${newStatus}.`);
+      await setDoc(doc(db, "videos", vid.id), updatedFields, { merge: true });
     } catch (err: any) {
-      console.error("Failed to toggle publish status:", err);
-      setErrorMsg(`Failed to change publish status: ${err.message || err}`);
+      console.error("Failed toggling published state:", err);
+      setErrorMsg("Permission denied or database connection offline.");
     }
   };
 
-  const handleToggleFeatured = async (vid: VideoItem) => {
+  // Erase video records and associated storage files permanently
+  const handleDeleteConfirm = async (vid: VideoItem) => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
     try {
-      const newFeatured = !vid.featured;
-      const updatedFields = {
-        featured: newFeatured,
-        updatedAt: new Date().toISOString()
-      };
-      await updateDoc(doc(db, "videoBulletins", vid.id), updatedFields);
+      // 1. Delete from Firestore databases
+      await deleteDoc(doc(db, "videoBulletins", vid.id));
       try {
-        await setDoc(doc(db, "videos", vid.id), updatedFields, { merge: true });
-      } catch (err) {
-        console.warn("Dual update failed:", err);
+        await deleteDoc(doc(db, "videos", vid.id));
+      } catch (e) {
+        // Safe skip legacy record delete if already cleared
       }
-      setSuccessMsg(`Featured status of "${vid.title}" set to ${newFeatured ? "Featured" : "Regular"}.`);
+
+      // 2. Perform safe cleanup of files inside Firebase Storage
+      const mainPath = vid.videoUrl || vid.url;
+      if (mainPath && mainPath.includes("firebasestorage.googleapis.com")) {
+        try {
+          const pathDecoded = decodeURIComponent(mainPath.split("/o/")[1]?.split("?")[0] || "");
+          if (pathDecoded) {
+            await deleteObject(ref(storage, pathDecoded));
+          }
+        } catch (stErr) {
+          console.warn("Storage video cleanup skipped or missing:", stErr);
+        }
+      }
+
+      const thumbPath = vid.thumbnailUrl;
+      if (thumbPath && thumbPath.includes("firebasestorage.googleapis.com")) {
+        try {
+          const thumbDecoded = decodeURIComponent(thumbPath.split("/o/")[1]?.split("?")[0] || "");
+          if (thumbDecoded) {
+            await deleteObject(ref(storage, thumbDecoded));
+          }
+        } catch (tErr) {
+          console.warn("Storage thumbnail cleanup skipped or missing:", tErr);
+        }
+      }
+
+      setSuccessMsg(`✓ Broadcast record and its files have been permanently erased.`);
+      setDeleteConfirmId(null);
     } catch (err: any) {
-      console.error("Failed to toggle featured status:", err);
-      setErrorMsg(`Failed to change featured status: ${err.message || err}`);
+      console.error("Permanent erase operation failed: ", err);
+      setErrorMsg("Error: Failed to clear video or associated storage files.");
     }
   };
 
-  // Filtering list elements computed properties
-  const filteredVideos = videos.filter((vid) => {
-    const matchesSearch = 
+  // Filter video collection dynamically
+  const filteredVideos = videos.filter(vid => {
+    const matchesQuery = 
       vid.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      vid.description.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesCategory = 
-      selectedCategoryFilter === "all" || 
-      vid.category === selectedCategoryFilter;
-
-    return matchesSearch && matchesCategory;
-  });  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 font-sans text-neutral-800" id="admin_videos_manager_view">
+      vid.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (vid.author && vid.author.toLowerCase().includes(searchQuery.toLowerCase()));
       
-      {/* COLUMN 1: Broadcast Creation and Upload module */}
-      <div className="bg-white border border-neutral-200 rounded-lg p-6 height-fit shadow-xs">
-        <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase border-b border-neutral-100 pb-3 mb-5 select-none font-bold flex items-center gap-2">
-          <Video size={16} className="text-red-650" />
-          PUBLISH VIDEO REPORT
-        </h3>
+    if (selectedCategoryFilter === "all") {
+      return matchesQuery;
+    }
+    return matchesQuery && vid.category === selectedCategoryFilter;
+  });
 
-        {/* Global Action Notifications */}
-        {errorMsg && (
-          <div className="bg-red-50 border border-red-200 text-red-700 p-3.5 rounded text-xs leading-relaxed mb-4 flex items-start gap-2 animate-fadeIn">
-            <AlertTriangle className="shrink-0 mt-0.5 text-red-600" size={14} />
-            <p className="font-medium">{errorMsg}</p>
-          </div>
-        )}
+  return (
+    <div className="space-y-6 container mx-auto max-w-7xl animate-fadeIn p-4 md:p-6" id="admin_videos_root">
+      {/* Title block with human labels */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-neutral-150 pb-4 select-none">
+        <div>
+          <h2 className="text-xl font-bold text-neutral-900 tracking-tight flex items-center gap-2">
+            <Video className="text-red-600" size={20} />
+            <span>Video Broadcast Controller</span>
+          </h2>
+          <p className="text-xs text-neutral-510 font-medium">
+            Manage breaking news video bulletins, storage items and public streaming feeds.
+          </p>
+        </div>
+      </div>
 
-        {successMsg && !publishedSuccess && (
-          <div className="bg-green-50 border border-green-200 text-green-750 p-3.5 rounded text-xs leading-relaxed mb-4 flex items-start gap-2 animate-fadeIn">
-            <CheckCircle className="shrink-0 mt-0.5 text-green-600" size={14} />
-            <p className="font-semibold">{successMsg}</p>
-          </div>
-        )}
+      {/* Interactive visual alert system */}
+      {errorMsg && (
+        <motion.div 
+          initial={{ opacity: 0, y: -8 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          className="bg-red-50 border-l-4 border-red-500 p-3.5 rounded-r flex items-start gap-2.5 shadow-sm"
+        >
+          <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={16} />
+          <div className="text-xs text-red-800 font-medium leading-relaxed">{errorMsg}</div>
+        </motion.div>
+      )}
 
-        {publishedSuccess ? (
-          <div className="space-y-6 animate-fadeIn py-2" id="publish-video-success-panel">
-            <div className="text-center space-y-3">
-              <div className="mx-auto w-14 h-14 bg-green-50 rounded-full flex items-center justify-center border border-green-200">
-                <CheckCircle className="text-green-600" size={32} />
-              </div>
-              <h4 className="text-base font-extrabold text-neutral-900 tracking-tight">✓ Video Published Successfully</h4>
-              <p className="text-xs text-neutral-500 leading-relaxed max-w-xs mx-auto">
-                The administrative news bulletin is live. All public feeds and newsroom segments have synchronized automatically.
-              </p>
-            </div>
+      {successMsg && (
+        <motion.div 
+          initial={{ opacity: 0, y: -8 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          className="bg-green-50 border-l-4 border-green-500 p-3.5 rounded-r flex items-start gap-2.5 shadow-sm"
+        >
+          <CheckCircle className="text-green-600 shrink-0 mt-0.5" size={16} />
+          <div className="text-xs text-green-800 font-medium leading-relaxed">{successMsg}</div>
+        </motion.div>
+      )}
 
-            {/* Video preview meta report block */}
-            <div className="bg-neutral-50 border border-neutral-150 p-4 rounded-lg space-y-3">
-              <div className="relative aspect-video bg-neutral-900 rounded overflow-hidden shadow-inner">
-                <img 
-                  src={publishedSuccess.thumbnailUrl || "https://images.unsplash.com/photo-1495020689067-958852a6565d?auto=format&fit=crop&q=80&w=640"}
-                  alt={publishedSuccess.title}
-                  className="w-full h-full object-cover opacity-90"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center transition-all shadow-md">
-                    <Play size={14} fill="currentColor" className="ml-0.5" />
-                  </span>
-                </div>
-                <span className="absolute bottom-2 right-2 bg-black/75 px-1.5 py-0.5 rounded text-[10px] font-bold text-white font-mono">
-                  {publishedSuccess.duration || "0:00"}
-                </span>
-                {publishedSuccess.status && (
-                  <span className={`absolute top-2 left-2 px-2 py-0.5 text-[9px] uppercase font-mono tracking-widest font-black rounded shadow-md ${
-                    publishedSuccess.status === "Published" ? "bg-red-700 text-white" :
-                    publishedSuccess.status === "Scheduled" ? "bg-amber-600 text-white" :
-                    "bg-neutral-600 text-neutral-200"
-                  }`}>
-                    {publishedSuccess.status}
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1">
-                <h5 className="text-xs font-bold text-neutral-950 line-clamp-1">{publishedSuccess.title}</h5>
-                <p className="text-[10px] text-neutral-500 font-mono">
-                  CLASSIFIED: {publishedSuccess.category.toUpperCase()} • BY {publishedSuccess.author}
-                </p>
-              </div>
-            </div>
-
-            {/* Action panel */}
-            <div className="space-y-2 pt-2 select-none">
-              <button
-                type="button"
-                onClick={() => {
-                  const viewUrl = `${window.location.origin}/?video=${publishedSuccess.id}`;
-                  window.open(viewUrl, "_blank");
-                }}
-                className="w-full py-2.5 px-4 bg-red-700 hover:bg-red-800 text-white text-xs tracking-wider uppercase font-extrabold rounded text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-              >
-                <Eye size={13} />
-                View Video Bulletin
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingVideo(publishedSuccess);
-                  setEditTitle(publishedSuccess.title);
-                  setEditDescription(publishedSuccess.description);
-                  setEditCategory(publishedSuccess.category || "general");
-                  setReplaceFile(null);
-                  setPublishedSuccess(null);
-                }}
-                className="w-full py-2.5 px-4 bg-white hover:bg-neutral-50 text-neutral-700 text-xs tracking-wider uppercase font-extrabold rounded border border-neutral-250 text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Edit3 size={13} />
-                Edit Video Bulletin
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPublishedSuccess(null);
-                  setErrorMsg(null);
-                  setSuccessMsg(null);
-                }}
-                className="w-full py-2.5 px-4 bg-neutral-950 hover:bg-neutral-900 text-white text-xs tracking-wider uppercase font-extrabold rounded text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw size={12} />
-                Back To Dashboard
-              </button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmitVideo} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Bulletin Title</label>
-              <input
-                type="text"
-                required
-                disabled={uploading}
-                placeholder="e.g. BREAKING: Major legislative bill passes consensus vote"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-neutral-450 focus:bg-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Description / Briefing Synopsis</label>
-              <textarea
-                required
-                rows={4}
-                disabled={uploading}
-                placeholder="Supply summary highlights for the dynamic coverage briefings player..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-neutral-450 focus:bg-white resize-none"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Category desk</label>
-                <select
-                  disabled={uploading}
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* COLUMN 1: Simple YouTube-style upload form */}
+        <div className="lg:col-span-1 bg-white border border-neutral-200 rounded-lg p-5 shadow-sm space-y-4">
+          
+          {editingVideo ? (
+            // Edit Video Panel
+            <form onSubmit={handleSaveEditsSubmit} className="space-y-4 animate-fadeIn">
+              <div className="flex justify-between items-center border-b border-neutral-100 pb-2.5 mb-2 select-none">
+                <h3 className="text-sm font-bold text-neutral-800 uppercase tracking-wide flex items-center gap-1.5">
+                  <Edit2 size={14} className="text-red-600" />
+                  <span>Edit Video Broadcast</span>
+                </h3>
+                <button 
+                  type="button" 
+                  onClick={() => setEditingVideo(null)} 
+                  className="p-1 hover:bg-neutral-100 rounded text-neutral-400 hover:text-neutral-600"
                 >
-                  {VIDEO_CATEGORIES.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                  ))}
-                </select>
+                  <X size={15} />
+                </button>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Reporting Author</label>
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Video Title</label>
                 <input
                   type="text"
-                  disabled
-                  placeholder="Desk credentials..."
-                  value={author}
-                  className="w-full bg-neutral-100 border border-neutral-200 rounded p-2 text-xs cursor-not-allowed text-neutral-450"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-red-400 focus:bg-white font-medium"
                 />
               </div>
-            </div>
 
-            {/* Source Type selection */}
-            <div className="pt-2">
-              <span className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-2">Video Feed Source</span>
-              <div className="grid grid-cols-2 gap-2 border-b border-neutral-100 pb-3">
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Description</label>
+                <textarea
+                  rows={4}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-red-400 focus:bg-white resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Category desk</label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white"
+                  >
+                    {VIDEO_CATEGORIES.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Publish Status</label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as any)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white"
+                  >
+                    <option value="Published">Published</option>
+                    <option value="Draft">Draft Mode</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Replace Video Optionally */}
+              <div className="border border-neutral-100 p-3 rounded bg-neutral-50 space-y-2">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Replace Video File (Optional)</span>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={handleEditVideoFileChange}
+                  disabled={editVideoUploading}
+                  className="text-xs text-neutral-600 block w-full file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-neutral-200 file:text-neutral-700 hover:file:bg-neutral-300 file:cursor-pointer"
+                />
+                {editVideoUploading && (
+                  <div className="space-y-1 pt-1.5 progress-container">
+                    <div className="flex justify-between text-[9px] font-semibold text-neutral-500">
+                      <span>Uploading Replacement Video...</span>
+                      <span>{editVideoProgress}%</span>
+                    </div>
+                    <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
+                      <div className="bg-red-600 h-full transition-all duration-300" style={{ width: `${editVideoProgress}%` }} />
+                    </div>
+                  </div>
+                )}
+                {editVideoUrl && <p className="text-[9px] text-green-600 font-bold">✓ Replacement video successfully cached.</p>}
+              </div>
+
+              {/* Replace Thumbnail Optionally */}
+              <div className="border border-neutral-100 p-3 rounded bg-neutral-50 space-y-2">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Replace Cover Image (Optional)</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleEditThumbnailChange}
+                  disabled={editThumbUploading}
+                  className="text-xs text-neutral-600 block w-full file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-neutral-200 file:text-neutral-700 hover:file:bg-neutral-300 file:cursor-pointer"
+                />
+                {editThumbUploading && (
+                  <div className="space-y-1 pt-1.5 progress-container">
+                    <div className="flex justify-between text-[9px] font-semibold text-neutral-500">
+                      <span>Uploading Thumbnail...</span>
+                      <span>{editThumbProgress}%</span>
+                    </div>
+                    <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
+                      <div className="bg-red-600 h-full transition-all duration-300" style={{ width: `${editThumbProgress}%` }} />
+                    </div>
+                  </div>
+                )}
+                {editThumbnailUrl && <p className="text-[9px] text-green-600 font-bold">✓ Replacement cover image successfully cached.</p>}
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <button
-                  type="button"
-                  disabled={uploading}
-                  onClick={() => setSourceType("upload")}
-                  className={`py-2 px-3 text-xs font-medium rounded border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    sourceType === "upload" 
-                      ? "bg-neutral-900 border-neutral-900 text-white" 
-                      : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
-                  }`}
+                  type="submit"
+                  disabled={publishing || editVideoUploading || editThumbUploading}
+                  className="flex-1 py-2 px-4 rounded text-xs font-bold bg-neutral-900 border border-neutral-900 text-white hover:bg-neutral-800 transition-all cursor-pointer disabled:opacity-40"
                 >
-                  <Upload size={13} />
-                  Local HD Upload
+                  {publishing ? "Processing..." : "Save Changes"}
                 </button>
                 <button
                   type="button"
-                  disabled={uploading}
-                  onClick={() => setSourceType("url")}
-                  className={`py-2 px-3 text-xs font-medium rounded border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    sourceType === "url" 
-                      ? "bg-neutral-900 border-neutral-900 text-white" 
-                      : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
-                  }`}
+                  onClick={() => setEditingVideo(null)}
+                  className="py-2 px-3 rounded text-xs font-medium bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50 transition-all cursor-pointer"
                 >
-                  <LinkIcon size={13} />
-                  Video Feed URL
+                  Cancel
                 </button>
               </div>
-            </div>
+            </form>
+          ) : (
+            // YouTube-style Video Upload Form
+            <form onSubmit={handlePublishSubmit} className="space-y-4 animate-fadeIn">
+              <div className="border-b border-neutral-150 pb-2 select-none">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-700">YouTube-style Upload Form</h3>
+              </div>
 
-            {sourceType === "upload" ? (
-              <div className="space-y-3 animate-fadeIn">
+              {/* Select Video Input Box (Drag and Drop is fully active) */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Select Video File *</label>
                 <div 
                   onDragEnter={handleDrag}
                   onDragOver={handleDrag}
                   onDragLeave={handleDrag}
                   onDrop={handleDrop}
                   onClick={triggerFileSelect}
-                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-all cursor-pointer select-none ${
+                  className={`border-2 border-dashed rounded-lg p-5 text-center transition-all cursor-pointer select-none ${
                     dragActive 
-                      ? "border-red-500 bg-red-50/30" 
+                      ? "border-red-500 bg-red-50/20" 
                       : selectedFile 
-                        ? "border-green-400 bg-green-50/20" 
-                        : "border-neutral-200 hover:border-neutral-350 bg-neutral-50/40"
+                        ? "border-green-400 bg-green-50/10" 
+                        : "border-neutral-200 hover:border-neutral-300 bg-neutral-50/50"
                   }`}
                 >
                   <input
@@ -1219,209 +771,205 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   />
 
                   {selectedFile ? (
-                    <div className="space-y-1.5 animate-fadeIn">
-                      <FileVideo className="mx-auto text-green-500" size={28} />
+                    <div className="space-y-1.5">
+                      <FileVideo className="mx-auto text-green-500" size={24} />
                       <p className="text-xs font-semibold text-neutral-800 break-all">{selectedFile.name}</p>
-                      <p className="text-[10px] text-neutral-450 font-mono">
-                        {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB • Standard Format Detected
+                      <p className="text-[9px] text-neutral-450 font-mono">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB
                       </p>
-                      <span className="inline-block text-[10px] font-bold bg-neutral-100 text-neutral-650 px-2.5 py-0.5 rounded-full mt-2 hover:bg-neutral-250 cursor-pointer transition-all">
-                        Repoint file
+                      <span className="inline-block text-[9px] font-bold bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded mt-1.5 hover:bg-neutral-200 cursor-pointer">
+                        Change File
                       </span>
                     </div>
                   ) : (
                     <div className="space-y-1 text-neutral-450">
-                      <Upload className="mx-auto text-neutral-400 mb-1" size={24} />
-                      <p className="text-xs font-semibold text-neutral-700">Drag & Drop Broadcast Video, or Browse</p>
-                      <p className="text-[10px]">MP4, MOV, WEBM, MKV, FLV down to 150MB</p>
+                      <Upload className="mx-auto text-neutral-400 mb-0.5" size={20} />
+                      <p className="text-xs font-bold text-neutral-700">Drag & Drop HD Video, or Browse</p>
+                      <p className="text-[9px] font-medium text-neutral-400 font-mono">Any standard HD video clip</p>
                     </div>
                   )}
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-1 animate-fadeIn">
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500">Live Video URL / External Feed</label>
-                <div className="relative">
-                  <input
-                    type="url"
-                    required={sourceType === "url"}
-                    disabled={uploading}
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    value={videoUrl}
-                    onChange={(e) => setVideoUrl(e.target.value)}
-                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2.5 pl-8 text-xs focus:outline-none focus:border-neutral-450 focus:bg-white font-mono"
-                  />
-                  <LinkIcon size={12} className="absolute left-2.5 top-3.5 text-neutral-400" />
-                </div>
-                <p className="text-[10px] text-neutral-450 leading-relaxed font-mono mt-1">
-                  Supports YouTube watch links, stream embeds, or public server video pathways.
-                </p>
-              </div>
-            )}
 
-            {/* Publishing Status & Scheduling parameters */}
-            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-neutral-100 mt-2">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Publish Status</label>
-                <select
-                  disabled={uploading}
-                  value={publishStatus}
-                  onChange={(e) => setPublishStatus(e.target.value as any)}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
-                >
-                  <option value="Published">Immediate (Published)</option>
-                  <option value="Scheduled">Scheduled Release</option>
-                  <option value="Draft">Draft Mode</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Featured Video</label>
-                <select
-                  disabled={uploading}
-                  value={featured ? "Featured" : "Regular"}
-                  onChange={(e) => setFeatured(e.target.value === "Featured")}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
-                >
-                  <option value="Regular">Regular (Normal list)</option>
-                  <option value="Featured">Featured (High priority)</option>
-                </select>
-              </div>
-            </div>
-
-            {publishStatus === "Scheduled" && (
-              <div className="space-y-1 animate-fadeIn">
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500">Scheduled Time (Local)</label>
-                <input
-                  type="datetime-local"
-                  required={publishStatus === "Scheduled"}
-                  disabled={uploading}
-                  value={scheduledTime}
-                  onChange={(e) => setScheduledTime(e.target.value)}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:bg-white font-mono"
-                />
-                <p className="text-[10px] text-neutral-450 leading-normal">
-                  Bulletin will remain hidden from standard public feeds until this local timestamp threshold is reached.
-                </p>
-              </div>
-            )}
-
-            {/* Active Direct Storage Video Upload Progress Bar */}
-            {(() => {
-              const activeJob = backgroundJobs.find(j => j.id === activeUploadJobId);
-              if (activeJob) {
-                return (
-                  <div className="bg-neutral-50 p-3.5 rounded border border-neutral-150 space-y-2 animate-fadeIn font-mono">
+                {/* Instant upload progress block */}
+                {uploading && (
+                  <div className="bg-neutral-50 p-2.5 rounded border border-neutral-150 space-y-1.5 mt-2 animate-fadeIn font-mono">
                     <div className="flex justify-between items-center text-[10px] font-bold text-neutral-600">
-                      <span className="flex items-center gap-1.5 font-bold text-neutral-800">
-                        <RefreshCw size={11} className="animate-spin text-red-600" />
-                        <span>Direct Storage: {activeJob.status}</span>
-                      </span>
-                      <span>{activeJob.progress}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-                      <div 
-                        className="bg-red-600 h-full transition-all duration-350"
-                        style={{ width: `${activeJob.progress}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[9px] text-neutral-500 font-bold">
-                      <div className="flex gap-2">
-                        {activeJob.speedMBs > 0 && (
-                          <span className="text-red-600">{activeJob.speedMBs.toFixed(2)} MB/s</span>
-                        )}
-                        {activeJob.etaSeconds !== null && (
-                          <span className="text-neutral-650">ETA: {activeJob.etaSeconds}s</span>
-                        )}
-                      </div>
-                      <span>{activeJob.duration !== "0:00" ? `Duration: ${activeJob.duration}` : "Preparing duration..."}</span>
-                    </div>
-                    <div className="text-[8.5px] text-neutral-400 truncate">
-                      File: {activeJob.fileName} ({(activeJob.totalBytes / (1024 * 1024)).toFixed(1)} MB)
-                    </div>
-                  </div>
-                );
-              }
-              if (uploading) {
-                return (
-                  <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-2 animate-fadeIn font-mono">
-                    <div className="flex justify-between items-center text-[10px] font-bold text-neutral-600">
-                      <span className="flex items-center gap-1.5">
-                        <RefreshCw size={11} className="animate-spin text-red-600" />
-                        <span>{currentStatusText || "Processing URL..."}</span>
+                      <span className="flex items-center gap-1">
+                        <RefreshCw size={10} className="animate-spin text-red-600" />
+                        <span>Uploading directly...</span>
                       </span>
                       <span>{uploadProgress}%</span>
                     </div>
-                    <div className="w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                    <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
                       <div 
-                        className="bg-red-600 h-full transition-all duration-350"
+                        className="bg-red-600 h-full transition-all duration-300"
                         style={{ width: `${uploadProgress}%` }}
                       />
                     </div>
+                    <div className="flex justify-between text-[8px] text-neutral-500 font-bold font-sans">
+                      {uploadSpeed && <span className="text-red-600 font-bold">{uploadSpeed}</span>}
+                      {uploadEta !== null && <span>ETA: {uploadEta}s</span>}
+                    </div>
                   </div>
-                );
-              }
-              return null;
-            })()}
-
-            {/* Sticky Action Button on Mobile, normal on Desktop */}
-            <div className="pt-2 md:relative fixed bottom-0 left-0 right-0 md:bottom-auto bg-white p-4 md:p-0 border-t border-neutral-200 md:border-t-0 z-40 select-none">
-              <button
-                type="submit"
-                disabled={uploading}
-                className={`w-full py-3 px-4 rounded text-xs tracking-wider uppercase font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md ${
-                  uploading
-                    ? "bg-neutral-300 text-neutral-500 cursor-not-allowed"
-                    : "bg-red-600 hover:bg-red-700 text-white hover:shadow-lg active:scale-[0.985]"
-                }`}
-              >
-                {uploading ? (
-                  <>
-                    <RefreshCw size={13} className="animate-spin" />
-                    <span>Broadcasting Reporting...</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload size={13} />
-                    <span>PUBLISH VIDEO BULLETIN</span>
-                  </>
                 )}
-              </button>
-            </div>
-            {/* Prevent bottom elements clip on mobile due to sticky */}
-            <div className="h-16 md:hidden" />
-          </form>
-        )}
-      </div>
 
-      {/* COLUMN 2/3: Video briefing feed catalog */}
-      <div className="lg:col-span-2 bg-white border border-neutral-200 rounded-lg p-6 shadow-xs flex flex-col justify-between">
-        <div>
-          <div className="border-b border-neutral-100 pb-3 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
-            <h3 className="text-sm font-mono tracking-widest text-neutral-500 uppercase font-bold flex items-center gap-2">
-              <Clock size={16} className="text-neutral-500" />
-              ACTIVE DIGITAL COVERAGE MODULES ({videos.length})
+                {videoUrl && !uploading && (
+                  <div className="bg-green-50 text-green-700 text-[10px] font-bold p-2 rounded border border-green-150 mt-1.5 flex items-center gap-1 animate-fadeIn">
+                    <CheckCircle size={12} className="shrink-0" />
+                    <span>Video file is loaded and ready.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Video Details fields */}
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Video Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Summarize the broadcast title..."
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-red-400 focus:bg-white font-medium"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Description</label>
+                <textarea
+                  rows={3}
+                  placeholder="Details of the reporting incident, transcripts, etc..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none focus:border-red-400 focus:bg-white resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Category desk</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
+                  >
+                    {VIDEO_CATEGORIES.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Author Credit</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={author}
+                    className="w-full bg-neutral-100 border border-neutral-200 rounded p-2 text-xs cursor-not-allowed text-neutral-450 font-medium"
+                  />
+                </div>
+              </div>
+
+              {/* Cover Image Optional Upload */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Thumbnail Upload (Optional)</label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={triggerThumbnailSelect}
+                    disabled={thumbnailUploading}
+                    className="py-1.5 px-3 bg-white border border-neutral-200 hover:bg-neutral-50 rounded text-xs font-semibold text-neutral-600 cursor-pointer flex items-center gap-1 select-none disabled:opacity-45"
+                  >
+                    <ImageIcon size={12} className="text-red-600" />
+                    <span>Upload Thumbnail</span>
+                  </button>
+                  <input
+                    ref={thumbnailInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleThumbnailChange}
+                    disabled={thumbnailUploading}
+                    className="hidden"
+                  />
+                  {thumbnailUploading && (
+                    <div className="text-[10px] text-neutral-500 font-bold flex items-center gap-1 font-mono">
+                      <RefreshCw size={10} className="animate-spin text-red-600" />
+                      <span>{thumbnailProgress}%</span>
+                    </div>
+                  )}
+                  {thumbnailUrl && !thumbnailUploading && (
+                    <div className="text-[10px] text-green-600 font-bold flex items-center gap-1">
+                      <CheckCircle size={10} />
+                      <span>Ready</span>
+                    </div>
+                  )}
+                </div>
+
+                {thumbnailUrl && (
+                  <div className="aspect-video w-32 border border-neutral-200 rounded overflow-hidden mt-1 bg-neutral-50 shadow-xs">
+                    <img src={thumbnailUrl} alt="Cover Preview" className="w-full h-full object-cover" />
+                  </div>
+                )}
+              </div>
+
+              {/* Publish Action Button */}
+              <div className="pt-2 select-none">
+                <button
+                  type="submit"
+                  disabled={publishing || uploading || thumbnailUploading}
+                  className={`w-full py-2.5 px-4 rounded text-xs tracking-wider uppercase font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md ${
+                    publishing || uploading || thumbnailUploading
+                      ? "bg-neutral-200 text-neutral-400 cursor-not-allowed shadow-none"
+                      : "bg-red-600 hover:bg-red-700 text-white hover:shadow-lg active:scale-[0.985]"
+                  }`}
+                >
+                  {publishing ? (
+                    <>
+                      <RefreshCw size={12} className="animate-spin" />
+                      <span>Publishing Broadcast...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={12} />
+                      <span>Publish Video Broadcast</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </form>
+          )}
+
+        </div>
+
+        {/* COLUMN 2 & 3: Uploaded Video Feeds */}
+        <div className="lg:col-span-2 bg-white border border-neutral-200 rounded-lg p-5 shadow-sm space-y-4">
+          
+          <div className="border-b border-neutral-150 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-2">
+              <Video size={14} className="text-red-500" />
+              <span>All Uploaded Videos ({videos.length})</span>
             </h3>
 
-            {/* Quick Filter Section */}
+            {/* Plain Search Inputs */}
             <div className="flex gap-2 items-center">
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Query feeds..."
+                  placeholder="Search videos..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-neutral-50 border border-neutral-200 text-xs rounded py-1 px-2.5 pl-7 focus:outline-none focus:bg-white focus:border-neutral-350 font-mono"
+                  className="bg-neutral-50 border border-neutral-200 text-xs rounded py-1 px-2.5 pl-7 focus:outline-none focus:bg-white font-medium"
                 />
-                <Search size={11} className="absolute left-2 top-2 text-neutral-400" />
+                <Search size={11} className="absolute left-2.5 top-2 text-neutral-400" />
               </div>
 
               <select
                 value={selectedCategoryFilter}
                 onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-                className="bg-neutral-50 border border-neutral-200 text-xs rounded py-1 px-2 cursor-pointer focus:outline-none"
+                className="bg-neutral-50 border border-neutral-200 text-xs rounded py-1 px-2 cursor-pointer focus:outline-none text-neutral-600 font-semibold"
               >
-                <option value="all">All Desks</option>
+                <option value="all">All Category Desks</option>
                 {VIDEO_CATEGORIES.map(category => (
                   <option key={category.id} value={category.id}>{category.name}</option>
                 ))}
@@ -1431,431 +979,137 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
           {loading ? (
             <div className="py-20 text-center animate-pulse flex flex-col items-center justify-center gap-2 text-neutral-450 text-xs font-mono">
-              <RefreshCw className="animate-spin text-neutral-300" size={32} />
-              <span>Resolving digital broadcast feed catalogs...</span>
+              <RefreshCw className="animate-spin text-neutral-400" size={24} />
+              <span>Loading video broadcast catalogs...</span>
             </div>
           ) : filteredVideos.length === 0 ? (
-            <div className="py-24 text-center border-2 border-dashed border-neutral-100 rounded-lg bg-neutral-50/30 select-none flex flex-col items-center justify-center gap-2 text-neutral-450 animate-fadeIn">
-              <Radio size={36} className="text-neutral-200" />
-              <p className="text-xs font-semibold text-neutral-700">No matching news broadcasts listed.</p>
-              <p className="text-[11px] max-w-sm leading-relaxed px-4">
-                Use the column creator to upload high-fidelity bulleting items directly or stream continuous YouTube live urls.
-              </p>
+            <div className="py-20 text-center border border-dashed border-neutral-150 rounded bg-neutral-50/20 select-none flex flex-col items-center justify-center gap-1.5 text-neutral-400">
+              <Video size={32} className="text-neutral-200 mb-1" />
+              <p className="text-xs font-semibold text-neutral-700">No news broadcasts listed.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fadeIn">
+            // Grid of videos
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredVideos.map((vid) => {
                 const categoryObj = VIDEO_CATEGORIES.find(c => c.id === vid.category);
-                const isSelectedForDelete = deleteConfirmId === vid.id;
-
+                
                 return (
                   <div 
-                    key={vid.id}
-                    className="border border-neutral-200 hover:border-neutral-350 rounded-lg overflow-hidden flex flex-col justify-between bg-neutral-50/20 group transition-all"
+                    key={vid.id} 
+                    className={`border border-neutral-200 rounded p-3 flex gap-3 hover:shadow-md transition-all ${
+                      vid.status === "Draft" ? "bg-amber-50/10 border-amber-200/40" : "bg-white"
+                    }`}
                   >
-                    {/* Upper Thumbnail card */}
-                    <div className="relative aspect-video bg-neutral-900 overflow-hidden select-none">
+                    {/* Thumbnail preview inside simple card */}
+                    <div className="aspect-video w-24 shrink-0 rounded overflow-hidden bg-neutral-100 border border-neutral-200/60 relative">
                       <img 
-                        src={vid.thumbnailUrl || "https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640"} 
-                        alt={vid.title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover opacity-85 group-hover:scale-103 transition-all duration-350"
+                        src={vid.thumbnailUrl || "https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=200"} 
+                        alt="" 
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=200";
+                        }}
                       />
-                      
-                      {vid.duration && (
-                        <span className="absolute bottom-2 right-2 bg-neutral-950/85 text-white font-mono text-[9px] px-1.5 py-0.5 rounded font-extrabold shadow-sm">
-                          {vid.duration}
-                        </span>
-                      )}
-
-                      <span className="absolute top-2 left-2 bg-white/90 text-neutral-850 font-mono text-[9px] px-2 py-0.5 rounded font-extrabold select-none shadow-sm capitalize">
-                        {categoryObj?.name || "General Desk"}
+                      <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[8px] px-1 rounded font-mono font-black select-none">
+                        {vid.duration || "0:00"}
                       </span>
-
-                      {/* Display public page link status */}
-                      <div className="absolute top-2 right-2 flex flex-col gap-1 items-end select-none">
-                        <span className={`font-mono text-[9px] px-2 py-0.5 rounded font-extrabold shadow-sm flex items-center gap-1 ${
-                          vid.status === "Published" || vid.published
-                            ? "bg-green-100 text-green-750"
-                            : "bg-amber-100 text-amber-700"
-                        }`}>
-                          {(vid.status === "Published" || vid.published) && (
-                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
-                          )}
-                          {vid.status || (vid.published ? "Published" : "Draft")}
-                        </span>
-                        {vid.featured && (
-                          <span className="bg-red-100 text-red-700 font-mono text-[8px] px-1.5 py-0.5 rounded font-extrabold uppercase shadow-sm">
-                            ★ Featured
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
-                        <a 
-                          href={vid.videoUrl || vid.url} 
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="bg-white/95 text-neutral-900 rounded-full p-2.5 hover:scale-110 shadow transition-all cursor-pointer"
-                        >
-                          <Play size={16} fill="currentColor" className="text-neutral-900 pl-0.5" />
-                        </a>
-                      </div>
                     </div>
 
-                    {/* Metadata body */}
-                    <div className="p-3.5 space-y-1.5 flex-1 flex flex-col justify-between">
+                    {/* Metadata summary */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between">
                       <div>
-                        <h4 className="text-[12.5px] font-bold text-neutral-850 leading-snug group-hover:text-red-655 transition-all line-clamp-1">{vid.title}</h4>
-                        <p className="text-[11px] text-neutral-450 leading-relaxed line-clamp-2 mt-1">{vid.description}</p>
-                      </div>
-
-                      <div className="border-t border-neutral-100 pt-3 mt-3 flex items-center justify-between text-[10px] font-mono font-medium text-neutral-450 select-none">
-                        <span className="flex items-center gap-1 truncate max-w-[130px]">
-                          <User size={11} className="text-neutral-400" />
-                          <span className="truncate">{vid.author || "system-desk"}</span>
-                        </span>
-                        
-                        <span>
-                          {vid.createdAt ? new Date(vid.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : "Active"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Footer Actions */}
-                    <div className="bg-neutral-50 border-t border-neutral-100 py-2.5 px-3.5 flex justify-between items-center select-none">
-                      {isSelectedForDelete ? (
-                        <div className="w-full flex items-center justify-between text-[11px] font-bold animate-fadeIn">
-                          <span className="text-red-700 flex items-center gap-1 font-mono">Confirm deletion?</span>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleDeleteVideoPermanently(vid)}
-                              className="text-red-600 hover:text-red-800 underline uppercase cursor-pointer"
-                            >
-                              Yes
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirmId(null)}
-                              className="text-neutral-500 hover:text-neutral-800 underline uppercase cursor-pointer"
-                            >
-                              Abort
-                            </button>
-                          </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[9px] uppercase font-bold text-red-600 bg-red-50 py-0.5 px-1.5 rounded-sm">
+                            {categoryObj?.name || "General Desk"}
+                          </span>
+                          {vid.status === "Draft" && (
+                            <span className="text-[9px] uppercase font-bold text-amber-600 bg-amber-50 py-0.5 px-1.5 rounded-sm">
+                              Draft
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <>
-                          <div className="flex gap-2 text-[10px] text-neutral-500 font-bold font-mono">
-                            <span className="text-neutral-400">Views:</span>
-                            <span className="text-neutral-700">{vid.views || 0}</span>
-                          </div>
 
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => handleTogglePublish(vid)}
-                              className={`text-[10px] font-bold cursor-pointer transition-all hover:underline ${
-                                vid.status === "Published" || vid.published ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"
-                              }`}
-                            >
-                              {vid.status === "Published" || vid.published ? "Make Draft" : "Publish"}
-                            </button>
+                        <h4 className="text-xs font-bold text-neutral-800 tracking-tight mt-1 line-clamp-1 leading-normal" title={vid.title}>
+                          {vid.title}
+                        </h4>
+                        
+                        <p className="text-[10px] text-neutral-500 line-clamp-1 mt-0.5 leading-normal">
+                          {vid.description || "No description provided."}
+                        </p>
+                      </div>
 
-                            <button
-                              onClick={() => handleToggleFeatured(vid)}
-                              className={`text-[10px] font-bold cursor-pointer transition-all hover:underline ${
-                                vid.featured ? "text-red-700 hover:text-red-900" : "text-neutral-450 hover:text-neutral-600"
-                              }`}
-                            >
-                              {vid.featured ? "Featured ★" : "Feature"}
-                            </button>
+                      {/* Video controllers and quick actions */}
+                      <div className="flex justify-between items-center gap-2 pt-2 border-t border-neutral-100/60 mt-2">
+                        <span className="text-[9px] font-medium text-neutral-400 truncate max-w-[120px]">
+                          By: {vid.author || "Admin"}
+                        </span>
 
-                            <button
-                              onClick={() => {
-                                setEditingVideo(vid);
-                                setEditTitle(vid.title);
-                                setEditDescription(vid.description);
-                                setEditCategory(vid.category || "general");
-                                setEditPublishStatus(vid.status === "Published" || vid.published ? "Published" : "Draft");
-                                setEditFeatured(vid.featured || false);
-                                setReplaceFile(null);
-                              }}
-                              className="text-neutral-500 hover:text-neutral-900 flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-all hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirmId(vid.id)}
-                              className="text-red-500 hover:text-red-700 flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-all hover:underline"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </>
-                      )}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {deleteConfirmId === vid.id ? (
+                            <div className="flex items-center gap-1 animate-fadeIn">
+                              <span className="text-[9px] font-bold text-red-600">Erase?</span>
+                              <button 
+                                onClick={() => handleDeleteConfirm(vid)}
+                                className="text-[8.5px] font-black uppercase text-red-600 hover:bg-red-50 py-0.5 px-1 rounded border border-red-200 cursor-pointer"
+                              >
+                                Yes
+                              </button>
+                              <button 
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="text-[8.5px] font-bold text-neutral-500 hover:bg-neutral-50 py-0.5 px-1 rounded border border-neutral-200 cursor-pointer"
+                              >
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setEditingVideo(vid);
+                                  setEditTitle(vid.title);
+                                  setEditDescription(vid.description);
+                                  setEditCategory(vid.category || "general");
+                                  setEditStatus(vid.status || "Published");
+                                  setEditVideoUrl("");
+                                  setEditThumbnailUrl("");
+                                }}
+                                className="p-1 hover:bg-neutral-100 rounded text-neutral-500 hover:text-neutral-700 cursor-pointer"
+                                title="Edit properties"
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                              
+                              <button
+                                onClick={() => handleTogglePublish(vid)}
+                                className={`text-[9.5px] font-extrabold hover:underline cursor-pointer ${
+                                  vid.status === "Published" ? "text-amber-600" : "text-green-600"
+                                }`}
+                              >
+                                {vid.status === "Published" ? "Draft" : "Publish"}
+                              </button>
+
+                              <button
+                                onClick={() => setDeleteConfirmId(vid.id)}
+                                className="p-1 hover:bg-red-50 hover:text-red-700 rounded text-neutral-400 cursor-pointer"
+                                title="Erase completely"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+
         </div>
 
-        {/* Informative Help Footer */}
-        <div className="mt-8 border-t border-neutral-100 pt-4 text-[10.5px] leading-relaxed text-neutral-450 select-none flex items-start gap-1.5 font-mono">
-          <Info size={14} className="shrink-0 text-red-500 mt-0.5" />
-          <p>
-            Newly added video briefings appear instantly in the <span className="text-neutral-700 font-semibold">"Fast Coverage Bulletins"</span> carousel widget on the public page for real-time news delivery. No publishing queue is required.
-          </p>
-        </div>
       </div>
-
-      {/* EDIT MODAL DIALOG POPUP */}
-      {editingVideo && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950/45 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white border border-neutral-200 rounded-lg p-6 max-w-md w-full shadow-xl space-y-4">
-            <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
-              <h3 className="text-xs font-mono font-bold tracking-widest text-neutral-500 uppercase flex items-center gap-2">
-                <Edit3 size={14} className="text-red-655" />
-                EDIT VIDEO BULLETIN
-              </h3>
-              <button 
-                onClick={() => {
-                  setEditingVideo(null);
-                  setReplaceFile(null);
-                }}
-                disabled={editUploading}
-                className="text-neutral-450 hover:text-neutral-850 cursor-pointer p-0.5 hover:bg-neutral-100 rounded transition-all"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            <form onSubmit={handleEditVideoCommit} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Edit Title</label>
-                <input
-                  type="text"
-                  required
-                  disabled={editUploading}
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none focus:border-neutral-400 focus:bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Edit Synopsis</label>
-                <textarea
-                  required
-                  rows={4}
-                  disabled={editUploading}
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none focus:border-neutral-400 focus:bg-white resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">desk category</label>
-                <select
-                  disabled={editUploading}
-                  value={editCategory}
-                  onChange={(e) => setEditCategory(e.target.value)}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none cursor-pointer focus:bg-white font-medium"
-                >
-                  {VIDEO_CATEGORIES.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Publish Status</label>
-                  <select
-                    disabled={editUploading}
-                    value={editPublishStatus}
-                    onChange={(e) => setEditPublishStatus(e.target.value as any)}
-                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none cursor-pointer focus:bg-white font-medium"
-                  >
-                    <option value="Published">Published</option>
-                    <option value="Draft">Draft</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1 font-mono">Featured Video</label>
-                  <select
-                    disabled={editUploading}
-                    value={editFeatured ? "Featured" : "Regular"}
-                    onChange={(e) => setEditFeatured(e.target.value === "Featured")}
-                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 focus:outline-none cursor-pointer focus:bg-white font-medium"
-                  >
-                    <option value="Regular">Regular</option>
-                    <option value="Featured">Featured</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Replace Video File option (Optional) */}
-              <div className="bg-neutral-50 p-3.5 rounded border border-neutral-155 space-y-1 text-center font-mono select-none">
-                <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-450 mb-1.5">Replace Video File (Optional)</span>
-                
-                <input
-                  type="file"
-                  accept="video/*"
-                  disabled={editUploading}
-                  onChange={handleReplaceFileChange}
-                  className="hidden text-[10px] w-full"
-                  id="replace-file-picker-input-id"
-                />
-
-                {replaceFile ? (
-                  <div className="space-y-1 text-neutral-700 animate-fadeIn">
-                    <FileCheck className="mx-auto text-green-500" size={18} />
-                    <p className="font-semibold text-[10px] text-neutral-800 break-all">{replaceFile.name}</p>
-                    <p className="text-[9px] text-neutral-500">{(replaceFile.size / (1024 * 1024)).toFixed(1)} MB</p>
-                    <button
-                      type="button"
-                      disabled={editUploading}
-                      onClick={() => setReplaceFile(null)}
-                      className="text-red-500 text-[9px] font-bold hover:underline cursor-pointer uppercase mt-1 block mx-auto"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={editUploading}
-                    onClick={() => document.getElementById("replace-file-picker-input-id")?.click()}
-                    className="py-1.5 px-3 bg-white border border-neutral-200 rounded hover:border-neutral-350 text-[10px] text-neutral-600 font-bold transition-all cursor-pointer inline-flex items-center gap-1 hover:bg-neutral-50"
-                  >
-                    <Upload size={10} />
-                    Browse replacement video
-                  </button>
-                )}
-              </div>
-
-              {/* Edit Progress Bar */}
-              {(() => {
-                const editJob = backgroundJobs.find(j => j.id === editUploadJobId);
-                if (editJob) {
-                  return (
-                    <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-1.5 animate-fadeIn font-mono">
-                      <div className="flex justify-between items-center text-[9px] font-bold text-neutral-600">
-                        <span className="flex items-center gap-1 text-red-600 font-bold">
-                          <RefreshCw size={10} className="animate-spin" />
-                          <span>Direct Replace: {editJob.status}</span>
-                        </span>
-                        <span>{editJob.progress}%</span>
-                      </div>
-                      <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-red-600 h-full transition-all duration-350"
-                          style={{ width: `${editJob.progress}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[8px] text-neutral-500 font-bold">
-                        {editJob.speedMBs > 0 && (
-                          <span className="text-red-500">{editJob.speedMBs.toFixed(2)} MB/s</span>
-                        )}
-                        {editJob.etaSeconds !== null && (
-                          <span>ETA: {editJob.etaSeconds}s</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                }
-                if (editUploading) {
-                  return (
-                    <div className="bg-neutral-50 p-3 rounded border border-neutral-150 space-y-1 animate-fadeIn font-mono">
-                      <div className="flex justify-between items-center text-[9px] font-bold text-neutral-600">
-                        <span className="flex items-center gap-1 text-red-600">
-                          <RefreshCw size={10} className="animate-spin" />
-                          Uploading replacements...
-                        </span>
-                        <span>{editProgress}%</span>
-                      </div>
-                      <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-red-600 h-full transition-all duration-350"
-                          style={{ width: `${editProgress}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
-              <div className="flex gap-2 pt-2 border-t border-neutral-100 select-none">
-                <button
-                  type="submit"
-                  disabled={editUploading}
-                  className="flex-1 py-2 bg-neutral-900 text-white font-extrabold hover:bg-black rounded text-[11px] tracking-wider uppercase transition-all cursor-pointer shadow-xs"
-                >
-                  {editUploading ? "Saving..." : "Save changes"}
-                </button>
-                <button
-                  type="button"
-                  disabled={editUploading}
-                  onClick={() => {
-                    setEditingVideo(null);
-                    setReplaceFile(null);
-                  }}
-                  className="flex-1 py-2 bg-neutral-100 border border-neutral-200 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800 rounded text-[11px] tracking-wider uppercase transition-all cursor-pointer font-bold"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Floating Background Status Tray */}
-      {backgroundJobs.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-neutral-900 text-white rounded-lg shadow-2xl p-4 space-y-3 font-mono border border-neutral-800 animate-slideUp select-none">
-          <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
-              <RefreshCw size={11} className="animate-spin text-red-500" />
-              Tasks In Progress ({backgroundJobs.length})
-            </span>
-          </div>
-          <div className="max-h-48 overflow-y-auto space-y-3 pr-1 text-[11px]">
-            {backgroundJobs.map(job => (
-              <div key={job.id} className="space-y-1.5 border-b border-neutral-850 pb-2 last:border-b-0 last:pb-0">
-                <div className="flex justify-between text-[10px] text-neutral-300">
-                  <span className="truncate max-w-[180px] font-semibold">{job.title || job.fileName}</span>
-                  <span className={`${job.status === "Failed" ? "text-red-500" : "text-amber-500"} font-bold`}>
-                    {job.status}
-                  </span>
-                </div>
-                <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-red-500 h-full transition-all duration-350"
-                    style={{ width: `${job.progress}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[8.5px] text-neutral-400 font-mono">
-                  <div className="flex gap-2">
-                    <span>{job.progress}%</span>
-                    {job.speedMBs > 0 && <span className="text-red-400 font-bold">{job.speedMBs.toFixed(2)} MB/s</span>}
-                    {job.etaSeconds !== null && <span className="text-neutral-300">ETA: {job.etaSeconds}s</span>}
-                  </div>
-                  <span>{job.duration !== "0:00" ? `Dur: ${job.duration}` : "Metadata idle"}</span>
-                </div>
-                {job.error && (
-                  <p className="text-[8.5px] text-red-400 leading-normal bg-red-950/40 p-1 rounded-sm border border-red-900/40">
-                    {job.error}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

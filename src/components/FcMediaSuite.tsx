@@ -342,6 +342,8 @@ export default function FcMediaSuite({
             logLocal(`[Server Upload Warning] Managed API post fell back to standard Firebase Storage: ${apiErr.message || apiErr}`);
           }
 
+          // Direct Firebase Storage Upload (Bypassing local server uploads to guarantee cloud persistence)
+          logLocal(`[Firebase Storage] Initiating direct cloud upload for ${label}.`);
           uploadTaskObj = uploadBytesResumable(refObj, blob, meta);
 
           uploadTaskObj.on(
@@ -432,9 +434,16 @@ export default function FcMediaSuite({
       const img = await loadImageInCpu(file);
       logLocal(`Successfully decoded visual bitmap to host RAM in ${Date.now() - decodeTimerStart}ms.`);
       
+      const articleId = article.id || "art_unnamed";
       const timestamp = Date.now();
-      const uuid = generateUUID();
-      const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
+      const randomId = Math.random().toString(36).substring(2, 9);
+      const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_").toLowerCase();
+
+      const filenameGallery = `${randomId}_gallery.webp`;
+      const filename1200 = `${randomId}_1200.webp`;
+      const filename800 = `${randomId}_800.webp`;
+      const filename400 = `${randomId}_400.webp`;
+      const filenameBackup = `backup_${randomId}_${cleanName}`;
 
       // Firebase Storage CDN cache metadata settings
       const metadataHeaders = {
@@ -460,7 +469,7 @@ export default function FcMediaSuite({
           }
         }, 100);
 
-        const webpRef = firebaseRef(storage, `articles/gallery-images/${timestamp}_${uuid}.webp`);
+        const webpRef = firebaseRef(storage, `articles/${articleId}/${timestamp}-${filenameGallery}`);
         
         try {
           const w1200Url = await uploadWithRetry(
@@ -513,7 +522,7 @@ export default function FcMediaSuite({
         }
       }, 80);
 
-      const webpRef1200 = firebaseRef(storage, `articles/featured-images/${timestamp}_${uuid}.webp`);
+      const webpRef1200 = firebaseRef(storage, `articles/${articleId}/${timestamp}-${filename1200}`);
 
       try {
         // We block only on the main lightweight primary WebP image to ensure instant UI responsiveness!
@@ -544,9 +553,9 @@ export default function FcMediaSuite({
         uploadedSignatures.current.add(`${file.name}-${file.size}-${target}`);
 
         // Silently queue supporting resolutions and raw storage backups in background thread
-        const webpRef800 = firebaseRef(storage, `articles/featured-images/${timestamp}_${uuid}_800.webp`);
-        const webpRef400 = firebaseRef(storage, `articles/thumbnails/${timestamp}_${uuid}.webp`);
-        const rawBackupRef = firebaseRef(storage, `articles/featured-images/${timestamp}_${uuid}_backup_${cleanName}`);
+        const webpRef800 = firebaseRef(storage, `articles/${articleId}/${timestamp}-${filename800}`);
+        const webpRef400 = firebaseRef(storage, `articles/${articleId}/${timestamp}-${filename400}`);
+        const rawBackupRef = firebaseRef(storage, `articles/${articleId}/${timestamp}-${filenameBackup}`);
 
         logLocal("Kicking off secondary supporting scales in background queue.");
         Promise.all([
@@ -570,7 +579,7 @@ export default function FcMediaSuite({
       }
 
     } catch (e: any) {
-      console.error(e);
+      console.error("Firebase Storage image upload failed:", e);
       updateStatus("error", 0, e.message || "Execution exception occurred during task lifecycle.");
       logLocal(`[CRITICAL TRACE] Task aborted: ${e.message}`);
     }

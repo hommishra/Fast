@@ -104,20 +104,19 @@ export default function FCLayout({
               className="group cursor-pointer flex flex-col justify-between bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 hover:border-slate-300"
             >
               <div className="space-y-3">
-                {art.featuredImage && (
-                  <div className="aspect-[16/10] w-full overflow-hidden rounded-lg bg-slate-100 relative">
-                    <img
-                      src={art.featuredImage}
-                      alt={art.title}
-                      className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
-                      }}
-                    />
-                  </div>
-                )}
+                <div className="aspect-[16/10] w-full overflow-hidden rounded-lg bg-slate-100 relative">
+                  <img
+                    src={art.featuredImage || getFallbackImage(art.title, art.categoryId)}
+                    alt={art.title}
+                    className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
+                    }}
+                  />
+                </div>
                 <div>
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans">
                     {art.categoryId}
@@ -162,10 +161,11 @@ export default function FCLayout({
         >
           <div className="overflow-hidden bg-slate-100 rounded-xl aspect-[16/9] border border-slate-200 relative">
             <img
-              src={featuredHero.featuredImage}
+              src={featuredHero.featuredImage || getFallbackImage(featuredHero.title, featuredHero.categoryId)}
               alt={featuredHero.title}
               className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
               referrerPolicy="no-referrer"
+              loading="lazy"
               onError={(e) => {
                 e.currentTarget.onerror = null;
                 e.currentTarget.src = getFallbackImage(featuredHero.title, featuredHero.categoryId);
@@ -251,20 +251,19 @@ export default function FCLayout({
                 className="group cursor-pointer bg-white border border-slate-200 p-3.5 rounded-xl shadow-xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between hover:border-slate-300"
               >
                 <div className="space-y-2">
-                  {art.featuredImage && (
-                    <div className="aspect-[16/10] w-full overflow-hidden bg-slate-50 rounded-lg border border-slate-150 image-box relative">
-                      <img
-                        src={art.featuredImage}
-                        alt={art.title}
-                        className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          e.currentTarget.onerror = null;
-                          e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
-                        }}
-                      />
-                    </div>
-                  )}
+                  <div className="aspect-[16/10] w-full overflow-hidden bg-slate-50 rounded-lg border border-slate-150 image-box relative">
+                    <img
+                      src={art.featuredImage || getFallbackImage(art.title, art.categoryId)}
+                      alt={art.title}
+                      className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
+                      referrerPolicy="no-referrer"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
+                      }}
+                    />
+                  </div>
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans block">
                     {art.categoryId}
                   </span>
