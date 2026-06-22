@@ -124,13 +124,17 @@ export interface VideoItem {
   updatedAt?: string; // ISO format
   publishedAt?: string; // published timestamp
   author?: string; // publisher author email or name
-  status?: "Draft" | "Published"; // published/draft status
+  status?: "Draft" | "Processing" | "Published" | "Archived"; // published/draft/processing/archived status
   published?: boolean;
   featured?: boolean;
   views: number;
   isLive?: boolean; // Live video badge
   isScheduled?: boolean; // Scheduled video option
   scheduledTime?: string; // Scheduled date/time string
+  storageVerifiedAt?: string;
+  storageStatus?: string;
+  playbackStatus?: string;
+  brokenWarning?: string;
 }
 
 export interface CoverageZone {

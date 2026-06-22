@@ -8,6 +8,8 @@ interface SmartVideoPlayerProps {
   className?: string;
   thumbnailUrl?: string; // Optional permanent thumbnail URL
   status?: string;       // e.g., "Processing" or "Published"
+  videoId?: string;      // Used for self-healing
+  fallbackFileName?: string; // Used for self-healing
 }
 
 const SATELLITE_FALLBACK_URL = "https://assets.mixkit.co/videos/preview/mixkit-world-map-background-with-connections-34115-large.mp4";
@@ -17,7 +19,9 @@ export default function SmartVideoPlayer({
   title = "Live News Bulletin", 
   className = "", 
   thumbnailUrl,
-  status
+  status,
+  videoId,
+  fallbackFileName
 }: SmartVideoPlayerProps) {
   const [resolvedSrc, setResolvedSrc] = useState<string>("");
   const [isUsingFallback, setIsUsingFallback] = useState(false);
@@ -113,7 +117,22 @@ export default function SmartVideoPlayer({
     };
   }, [src]);
 
-  const handleVideoError = () => {
+  const handleVideoError = async () => {
+    if (fallbackFileName && resolvedSrc !== `/uploads/${fallbackFileName}`) {
+      console.log(`Video playback failed, attempting self-healing recovery via backend reconstruction for: ${fallbackFileName}`);
+      try {
+        const recoveryUrl = `/uploads/${fallbackFileName}`;
+        const res = await fetch(recoveryUrl, { method: 'HEAD' });
+        if (res.ok) {
+          console.log(`Self-healing succeeded, recovered video is now available!`);
+          setResolvedSrc(recoveryUrl);
+          return;
+        }
+      } catch (err) {
+        console.error("Self-healing query failed:", err);
+      }
+    }
+
     if (resolvedSrc !== SATELLITE_FALLBACK_URL) {
       console.warn(`Video failed to stream smoothly from "${src}". Activating Satellite Feed Standby.`);
       setResolvedSrc(SATELLITE_FALLBACK_URL);

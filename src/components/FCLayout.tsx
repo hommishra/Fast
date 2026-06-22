@@ -383,6 +383,8 @@ export default function FCLayout({
                         className="rounded-lg"
                         status={vid.status}
                         thumbnailUrl={vid.thumbnailUrl}
+                        videoId={vid.id}
+                        fallbackFileName={vid.url && vid.url.includes("/uploads/") ? vid.url.split("/uploads/")[1].split(/[?#]/)[0] : ""}
                       />
                     </div>
 

@@ -101,7 +101,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editCategory, setEditCategory] = useState("general");
-  const [editStatus, setEditStatus] = useState<"Draft" | "Published">("Published");
+  const [editStatus, setEditStatus] = useState<"Draft" | "Published" | "Processing" | "Archived">("Published");
   const [editVideoUrl, setEditVideoUrl] = useState("");
   const [editThumbnailUrl, setEditThumbnailUrl] = useState("");
   const [editVideoProgress, setEditVideoProgress] = useState(0);
@@ -240,7 +240,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [currentUploadId, setCurrentUploadId] = useState("");
   const [editUploadId, setEditUploadId] = useState("");
   const [editSelectedFile, setEditSelectedFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<"Published" | "Draft">("Published");
+  const [status, setStatus] = useState<"Draft" | "Published" | "Processing" | "Archived">("Published");
 
   const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB chunks
 
@@ -913,7 +913,12 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   // Toggle status mode between Published and Draft instantly
   const handleTogglePublish = async (vid: VideoItem) => {
     try {
-      const newStatus = vid.status === "Published" ? "Draft" : "Published";
+      let newStatus: "Draft" | "Processing" | "Published" | "Archived" = "Published";
+      if (vid.status === "Draft") newStatus = "Processing";
+      else if (vid.status === "Processing") newStatus = "Published";
+      else if (vid.status === "Published") newStatus = "Archived";
+      else if (vid.status === "Archived") newStatus = "Draft";
+
       const updatedFields = {
         status: newStatus,
         published: newStatus === "Published",
@@ -922,7 +927,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       await updateDoc(doc(db, "videoBulletins", vid.id), updatedFields);
       await setDoc(doc(db, "videos", vid.id), updatedFields, { merge: true });
     } catch (err: any) {
-      console.error("Failed toggling published state:", err);
+      console.error("Failed cycling published state:", err);
       setErrorMsg("Permission denied or database connection offline.");
     }
   };
@@ -933,44 +938,29 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     setSuccessMsg(null);
 
     try {
-      // 1. Delete from Firestore databases
-      await deleteDoc(doc(db, "videoBulletins", vid.id));
-      try {
-        await deleteDoc(doc(db, "videos", vid.id));
-      } catch (e) {
-        // Safe skip legacy record delete if already cleared
-      }
+      const response = await fetch("/api/admin/delete-video", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + adminToken,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          id: vid.id,
+          videoUrl: vid.videoUrl || vid.url,
+          thumbnailUrl: vid.thumbnailUrl
+        })
+      });
 
-      // 2. Perform safe cleanup of files inside Firebase Storage
-      const mainPath = vid.videoUrl || vid.url;
-      if (mainPath && mainPath.includes("firebasestorage.googleapis.com")) {
-        try {
-          const pathDecoded = decodeURIComponent(mainPath.split("/o/")[1]?.split("?")[0] || "");
-          if (pathDecoded) {
-            await deleteObject(ref(storage, pathDecoded));
-          }
-        } catch (stErr) {
-          console.warn("Storage video cleanup skipped or missing:", stErr);
-        }
-      }
-
-      const thumbPath = vid.thumbnailUrl;
-      if (thumbPath && thumbPath.includes("firebasestorage.googleapis.com")) {
-        try {
-          const thumbDecoded = decodeURIComponent(thumbPath.split("/o/")[1]?.split("?")[0] || "");
-          if (thumbDecoded) {
-            await deleteObject(ref(storage, thumbDecoded));
-          }
-        } catch (tErr) {
-          console.warn("Storage thumbnail cleanup skipped or missing:", tErr);
-        }
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || `Erasing error: ${response.status}`);
       }
 
       setSuccessMsg(`✓ Broadcast record and its files have been permanently erased.`);
       setDeleteConfirmId(null);
     } catch (err: any) {
       console.error("Permanent erase operation failed: ", err);
-      setErrorMsg("Error: Failed to clear video or associated storage files.");
+      setErrorMsg("Error: Failed to clear video or associated storage files: " + err.message);
     }
   };
 
@@ -1091,6 +1081,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   >
                     <option value="Published">Published</option>
                     <option value="Draft">Draft Mode</option>
+                    <option value="Processing">Processing</option>
+                    <option value="Archived">Archived</option>
                   </select>
                 </div>
               </div>
@@ -1286,6 +1278,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   >
                     <option value="Published">Published</option>
                     <option value="Draft">Draft Mode</option>
+                    <option value="Processing">Processing</option>
+                    <option value="Archived">Archived</option>
                   </select>
                 </div>
               </div>
@@ -1390,7 +1384,6 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
               <p className="text-xs font-semibold text-neutral-700">No news broadcasts listed.</p>
             </div>
           ) : (
-            // Grid of videos
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredVideos.map((vid) => {
                 const categoryObj = VIDEO_CATEGORIES.find(c => c.id === vid.category);
@@ -1399,7 +1392,9 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   <div 
                     key={vid.id} 
                     className={`border border-neutral-200 rounded p-3 flex gap-3 hover:shadow-md transition-all ${
-                      vid.status === "Draft" ? "bg-amber-50/10 border-amber-200/40" : "bg-white"
+                      vid.status === "Draft" ? "bg-amber-50/10 border-amber-200/40" :
+                      vid.status === "Processing" ? "bg-blue-50/10 border-blue-200/40 animate-pulse" :
+                      vid.status === "Archived" ? "bg-neutral-50/20 border-neutral-300 opacity-60" : "bg-white"
                     }`}
                   >
                     {/* Thumbnail preview inside simple card */}
@@ -1418,15 +1413,30 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                     </div>
 
                     {/* Metadata summary */}
-                    <div className="flex-1 min-w-0 flex flex-col justify-between">
+                    <div className="flex-1 min-w-0 flex flex-col justify-between text-neutral-800">
                       <div>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-[9px] uppercase font-bold text-red-600 bg-red-50 py-0.5 px-1.5 rounded-sm">
                             {categoryObj?.name || "General Desk"}
                           </span>
                           {vid.status === "Draft" && (
-                            <span className="text-[9px] uppercase font-bold text-amber-600 bg-amber-50 py-0.5 px-1.5 rounded-sm">
+                            <span className="text-[9px] uppercase font-black text-amber-600 bg-amber-50/80 border border-amber-200/60 py-0.5 px-1.5 rounded-sm">
                               Draft
+                            </span>
+                          )}
+                          {vid.status === "Processing" && (
+                            <span className="text-[9px] uppercase font-black text-blue-600 bg-blue-50/80 border border-blue-200/40 py-0.5 px-1.5 rounded-sm animate-pulse">
+                              Processing
+                            </span>
+                          )}
+                          {vid.status === "Published" && (
+                            <span className="text-[9px] uppercase font-black text-green-600 bg-green-50/80 border border-green-200/40 py-0.5 px-1.5 rounded-sm">
+                              Published
+                            </span>
+                          )}
+                          {vid.status === "Archived" && (
+                            <span className="text-[9px] uppercase font-black text-neutral-600 bg-neutral-100 border border-neutral-300 py-0.5 px-1.5 rounded-sm">
+                              Archived
                             </span>
                           )}
                         </div>
@@ -1438,73 +1448,109 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                         <p className="text-[10px] text-neutral-500 line-clamp-1 mt-0.5 leading-normal">
                           {vid.description || "No description provided."}
                         </p>
-                      </div>
 
-                      {/* Video controllers and quick actions */}
-                      <div className="flex justify-between items-center gap-2 pt-2 border-t border-neutral-100/60 mt-2">
-                        <span className="text-[9px] font-medium text-neutral-400 truncate max-w-[120px]">
-                          By: {vid.author || "Admin"}
-                        </span>
+                        {/* Automated safety & self-healing health check indicators */}
+                        <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-dashed border-neutral-100/80 flex-wrap">
+                          <div className="flex items-center gap-1 text-[8px] font-mono">
+                            <span className="text-neutral-500 font-bold uppercase">Store:</span>
+                            {vid.storageStatus === "Secure" ? (
+                              <span className="text-green-600 font-black bg-green-50 px-1 py-0.2 rounded border border-green-200">✓ SECURE</span>
+                            ) : vid.storageStatus === "Defective" ? (
+                              <span className="text-red-600 font-black bg-red-50 px-1 py-0.2 rounded border border-red-200">✗ DEFECTIVE</span>
+                            ) : (
+                              <span className="text-neutral-500 font-bold bg-neutral-105 px-1 py-0.2 rounded border border-neutral-200">🔍 UNKNOWN</span>
+                            )}
+                          </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {deleteConfirmId === vid.id ? (
-                            <div className="flex items-center gap-1 animate-fadeIn">
-                              <span className="text-[9px] font-bold text-red-600">Erase?</span>
-                              <button 
-                                onClick={() => handleDeleteConfirm(vid)}
-                                className="text-[8.5px] font-black uppercase text-red-600 hover:bg-red-50 py-0.5 px-1 rounded border border-red-200 cursor-pointer"
-                              >
-                                Yes
-                              </button>
-                              <button 
-                                onClick={() => setDeleteConfirmId(null)}
-                                className="text-[8.5px] font-bold text-neutral-500 hover:bg-neutral-50 py-0.5 px-1 rounded border border-neutral-200 cursor-pointer"
-                              >
-                                No
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setEditingVideo(vid);
-                                  setEditTitle(vid.title);
-                                  setEditDescription(vid.description);
-                                  setEditCategory(vid.category || "general");
-                                  setEditStatus(vid.status || "Published");
-                                  setEditVideoUrl("");
-                                  setEditThumbnailUrl("");
-                                }}
-                                className="p-1 hover:bg-neutral-100 rounded text-neutral-500 hover:text-neutral-700 cursor-pointer"
-                                title="Edit properties"
-                              >
-                                <Edit2 size={12} />
-                              </button>
-                              
-                              <button
-                                onClick={() => handleTogglePublish(vid)}
-                                className={`text-[9.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded border transition-all cursor-pointer select-none active:scale-95 ${
-                                  vid.status === "Published"
-                                    ? "bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
-                                    : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
-                                }`}
-                                title={vid.status === "Published" ? "Click to change to Draft" : "Click to Publish"}
-                              >
-                                {vid.status === "Published" ? "Published" : "Draft"}
-                              </button>
-
-                              <button
-                                onClick={() => setDeleteConfirmId(vid.id)}
-                                className="p-1 hover:bg-red-50 hover:text-red-700 rounded text-neutral-400 cursor-pointer"
-                                title="Erase completely"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </>
-                          )}
+                          <div className="flex items-center gap-1 text-[8px] font-mono">
+                            <span className="text-neutral-500 font-bold uppercase">Playback:</span>
+                            {vid.playbackStatus === "Operational" ? (
+                              <span className="text-green-655 font-black bg-green-50 px-1 py-0.2 rounded border border-green-200">⚡ OPERATIONAL</span>
+                            ) : vid.playbackStatus === "Failed" ? (
+                              <span className="text-red-705 font-black bg-red-50 px-1 py-0.2 rounded border border-red-200">⚠️ FAILED</span>
+                            ) : (
+                              <span className="text-neutral-500 font-bold bg-neutral-105 px-1 py-0.2 rounded border border-neutral-200">🔍 UNKNOWN</span>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
+                        {/* Highly prominent broken link callout */}
+                        {vid.brokenWarning && (
+                          <div className="mt-1.5 p-1 rounded bg-red-50 border border-red-250 text-red-600 font-black flex items-center gap-1 text-[8px] tracking-tight leading-none animate-bounce">
+                            <AlertTriangle size={10} className="shrink-0" />
+                            <span>[BROKEN LINK CALIBRATING REPAIR]</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Video controllers and quick actions */}
+                    <div className="flex justify-between items-center gap-2 pt-2 border-t border-neutral-100/60 mt-2">
+                      <span className="text-[9px] font-medium text-neutral-400 truncate max-w-[120px]">
+                        By: {vid.author || "Admin"}
+                      </span>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {deleteConfirmId === vid.id ? (
+                          <div className="flex items-center gap-1 animate-fadeIn">
+                            <span className="text-[9px] font-bold text-red-600">Erase?</span>
+                            <button 
+                              onClick={() => handleDeleteConfirm(vid)}
+                              className="text-[8.5px] font-black uppercase text-red-600 hover:bg-red-50 py-0.5 px-1 rounded border border-red-200 cursor-pointer"
+                            >
+                              Yes
+                            </button>
+                            <button 
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="text-[8.5px] font-bold text-neutral-500 hover:bg-neutral-50 py-0.5 px-1 rounded border border-neutral-200 cursor-pointer"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                setEditingVideo(vid);
+                                setEditTitle(vid.title);
+                                setEditDescription(vid.description);
+                                setEditCategory(vid.category || "general");
+                                setEditStatus(vid.status || "Published");
+                                setEditVideoUrl("");
+                                setEditThumbnailUrl("");
+                              }}
+                              className="p-1 hover:bg-neutral-100 rounded text-neutral-500 hover:text-neutral-700 cursor-pointer"
+                              title="Edit properties"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                            
+                            <button
+                              onClick={() => handleTogglePublish(vid)}
+                              className={`text-[9.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded border transition-all cursor-pointer select-none active:scale-95 ${
+                                vid.status === "Published"
+                                  ? "bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
+                                  : vid.status === "Draft"
+                                  ? "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
+                                  : vid.status === "Processing"
+                                  ? "bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+                                  : "bg-neutral-50 hover:bg-neutral-100 text-neutral-700 border-neutral-200"
+                              }`}
+                              title="Click to cycle: Draft -> Processing -> Published -> Archived"
+                            >
+                              {vid.status || "Published"}
+                            </button>
+
+                            <button
+                              onClick={() => setDeleteConfirmId(vid.id)}
+                              className="p-1 hover:bg-red-50 hover:text-red-700 rounded text-neutral-400 cursor-pointer"
+                              title="Erase completely"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

@@ -7,7 +7,7 @@ import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, deleteDoc, getDocs } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // Firebase Config for Server-Side durable upload replication
@@ -533,6 +533,39 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
       } catch (err) {
         console.error(`[Durable Store Warning] Fail recovering ${safeName} from Firestore collection:`, err);
       }
+
+      // Also check and restore from chunked big files
+      if (!fs.existsSync(targetPath)) {
+        try {
+          const fileDocRef = doc(db, "durable_video_files", safeName);
+          const fileSnap = await getDoc(fileDocRef);
+          if (fileSnap.exists()) {
+            const fileMeta = fileSnap.data();
+            if (fileMeta && fileMeta.totalChunks) {
+              const totalChunks = fileMeta.totalChunks;
+              const chunks: Buffer[] = [];
+              console.log(`[Durable Store Recovering Chunked] ${safeName} has ${totalChunks} chunks in Firestore durable_video_files_chunks. Restoring...`);
+              for (let i = 0; i < totalChunks; i++) {
+                const chunkDocRef = doc(db, "durable_video_files_chunks", `${safeName}_chunk_${i}`);
+                const chunkSnap = await getDoc(chunkDocRef);
+                if (chunkSnap.exists()) {
+                  const chunkData = chunkSnap.data();
+                  if (chunkData && chunkData.fileData) {
+                    chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                  }
+                } else {
+                  throw new Error(`Missing chunk ${i} for ${safeName}`);
+                }
+              }
+              const fullBuffer = Buffer.concat(chunks);
+              fs.writeFileSync(targetPath, fullBuffer);
+              console.log(`[Durable Store Recovered Chunked] Successfully restored ${safeName} (${fullBuffer.length} bytes) to ephemeral server local node from chunked Firestore!`);
+            }
+          }
+        } catch (cErr) {
+          console.error(`[Durable Store Warning] Fail recovering chunked ${safeName} from Firestore collection:`, cErr);
+        }
+      }
     }
 
     if (fs.existsSync(targetPath)) {
@@ -768,6 +801,48 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
     }
   });
 
+  // Helper function to replicate uploaded big files (like videos) durably to Firestore in chunks
+  async function saveFileToDurableFirestore(filePath: string, safeName: string) {
+    try {
+      if (!fs.existsSync(filePath)) return;
+      const stats = fs.statSync(filePath);
+      const totalSize = stats.size;
+      const CHUNK_SIZE = 800 * 1024; // 800KB chunk size to be well within Firestore 1MB document limit
+      const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
+
+      console.log(`[Durable Firestore Chunking] Writing ${safeName} (${totalSize} bytes) to Firestore in ${totalChunks} chunks...`);
+
+      const fileBuffer = fs.readFileSync(filePath);
+
+      // Save File Metadata Registration
+      await setDoc(doc(db, "durable_video_files", safeName), {
+        fileName: safeName,
+        fileSize: totalSize,
+        totalChunks: totalChunks,
+        contentType: "video/mp4",
+        createdAt: new Date().toISOString()
+      });
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, totalSize);
+        const chunkBuffer = fileBuffer.subarray(start, end);
+        const chunkBase64 = chunkBuffer.toString("base64");
+
+        await setDoc(doc(db, "durable_video_files_chunks", `${safeName}_chunk_${i}`), {
+          uploadId: safeName,
+          chunkIndex: i,
+          fileData: chunkBase64,
+          uploadedAt: new Date().toISOString()
+        });
+      }
+
+      console.log(`[Durable Firestore Chunking Done] Finished writing all ${totalChunks} chunks for ${safeName}`);
+    } catch (err) {
+      console.error(`[Durable Firestore Chunking Failed] Error storing chunks for ${safeName}:`, err);
+    }
+  }
+
   // 4f. Assemble chunks & trigger background permanent Firebase Storage upload
   app.post("/api/admin/video-upload/complete", authenticateJWT, async (req: Request, res: Response) => {
     try {
@@ -820,6 +895,11 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
         chunkBuffers.push(fs.readFileSync(chunkPath));
       }
       fs.writeFileSync(assembledPath, Buffer.concat(chunkBuffers));
+
+      // Verify file exists and is indeed stored before publishing
+      if (!fs.existsSync(assembledPath) || fs.statSync(assembledPath).size === 0) {
+        throw new Error("Local compiled video file assembly failure: Target file missing or empty.");
+      }
 
       const localPlayUrl = `/uploads/${assembledFileName}`;
       const timestampISO = new Date().toISOString();
@@ -910,6 +990,9 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
 
           console.log(`[Background cloud transfer] Database updated to status: ${finalStatus}. Doing disk cleanup...`);
 
+          // Back up durably to Firestore chunks before unlinking local file
+          await saveFileToDurableFirestore(assembledPath, assembledFileName);
+
           // Clean up assembled file and chunk session folders
           try {
             if (fs.existsSync(assembledPath)) {
@@ -923,6 +1006,10 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
           }
         } catch (stErr: any) {
           console.log(`[Background local fallback] High-performance container storage active. Serving local stream from: /uploads/${assembledFileName}`);
+          
+          // Back up durably to Firestore chunks as a reliable restore-point for ephemeral container restarts
+          await saveFileToDurableFirestore(assembledPath, assembledFileName);
+
           const finalStatus = status || "Published";
           const errUpdate = {
             status: finalStatus,
@@ -951,6 +1038,79 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
     } catch (assemblyErr: any) {
       console.error("Direct failure assembling uploaded blocks:", assemblyErr);
       return res.status(500).json({ error: "Failed assembling chunk parts: " + assemblyErr.message });
+    }
+  });
+
+  // 4g. Admin Permanent Video Delete API (deletes from Firestore, unlinks filesystem, and clears durable chunks)
+  app.post("/api/admin/delete-video", authenticateJWT, async (req: Request, res: Response) => {
+    try {
+      const { id, videoUrl, thumbnailUrl } = req.body;
+      if (!id) {
+        return res.status(400).json({ error: "Missing video id verification parameter." });
+      }
+
+      console.log(`[Delete System] Handing deletion request for video: ${id}`);
+
+      // 1. Delete from Firestore bullet feeds
+      try {
+        await deleteDoc(doc(db, "videoBulletins", id));
+        await deleteDoc(doc(db, "videos", id));
+        console.log(`[Delete System] Cleaned up video documents: ${id}`);
+      } catch (dbErr) {
+        console.error("[Delete System DB Warning] Failed deleting database docs:", dbErr);
+      }
+
+      // 2. Unlink local file on filesystem
+      if (videoUrl) {
+        try {
+          const videoName = path.basename(videoUrl.split(/[?#]/)[0]);
+          const videoPath = path.join(uploadsDir, videoName);
+          if (fs.existsSync(videoPath)) {
+            fs.unlinkSync(videoPath);
+            console.log(`[Delete System] Unlinked local raw video file: ${videoPath}`);
+          }
+        } catch (fErr) {
+          console.warn("[Delete System File warning] Failed cleaning local file:", fErr);
+        }
+      }
+
+      if (thumbnailUrl) {
+        try {
+          const thumbName = path.basename(thumbnailUrl.split(/[?#]/)[0]);
+          const thumbPath = path.join(uploadsDir, thumbName);
+          if (fs.existsSync(thumbPath)) {
+            fs.unlinkSync(thumbPath);
+            console.log(`[Delete System] Unlinked local raw thumbnail file: ${thumbPath}`);
+          }
+        } catch (fErr) {
+          console.warn("[Delete System File warning] Failed cleaning local thumbnail:", fErr);
+        }
+      }
+
+      // 3. Clear all durable chunks associated with this file name from database
+      if (videoUrl) {
+        try {
+          const safeName = path.basename(videoUrl.split(/[?#]/)[0]);
+          const fileDocRef = doc(db, "durable_video_files", safeName);
+          const fileSnap = await getDoc(fileDocRef);
+          if (fileSnap.exists()) {
+            const fileMeta = fileSnap.data();
+            const totalChunks = fileMeta?.totalChunks || 0;
+            await deleteDoc(fileDocRef);
+            for (let i = 0; i < totalChunks; i++) {
+              await deleteDoc(doc(db, "durable_video_files_chunks", `${safeName}_chunk_${i}`));
+            }
+            console.log(`[Delete System] Cleaned all durable backup chunks for ${safeName} successfully.`);
+          }
+        } catch (dkErr) {
+          console.error("[Delete System Chunk warning] Failed cleaning chunk documents:", dkErr);
+        }
+      }
+
+      return res.json({ success: true, message: "Broadcast item and associated files completely purged." });
+    } catch (err: any) {
+      console.error("Critical failure during delete process:", err);
+      return res.status(500).json({ error: "Failed to erase video resource: " + err.message });
     }
   });
 
@@ -1055,6 +1215,172 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
     });
     app.use(vite.middlewares);
   }
+
+  // 8. Automated Hourly Safety & Recovery System
+  async function runHourlyVideoSafetyCheck() {
+    console.log("[Monitoring] Starting hourly video security & self-healing health check...");
+    try {
+      const bulletinsCollRef = collection(db, "videoBulletins");
+      const querySnapshot = await getDocs(bulletinsCollRef);
+
+      for (const docSnap of querySnapshot.docs) {
+        const vidData = docSnap.data();
+        const docId = docSnap.id;
+        const rawUrl = vidData.videoUrl || vidData.url || "";
+        const isLocal = rawUrl.startsWith("/uploads/") || rawUrl.includes("/uploads/");
+
+        let isPlayable = false;
+        let targetLocalFilename = "";
+
+        if (isLocal) {
+          const parts = rawUrl.split("/uploads/");
+          targetLocalFilename = parts[parts.length - 1];
+          const targetPath = path.join(uploadsDir, targetLocalFilename);
+
+          if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
+            isPlayable = true;
+            console.log(`[Monitoring-OK] Local file exists and is active: ${targetLocalFilename}`);
+          } else {
+            console.warn(`[Monitoring-WARN] Local file missing: ${targetLocalFilename}. Attempting self-healing recovery...`);
+            try {
+              const fileDocRef = doc(db, "durable_video_files", targetLocalFilename);
+              const fileDocSnap = await getDoc(fileDocRef);
+              if (fileDocSnap.exists()) {
+                const fileMeta = fileDocSnap.data();
+                if (fileMeta && fileMeta.totalChunks) {
+                  const totalChunks = fileMeta.totalChunks;
+                  const chunks: Buffer[] = [];
+                  for (let i = 0; i < totalChunks; i++) {
+                    const chunkDocRef = doc(db, "durable_video_files_chunks", `${targetLocalFilename}_chunk_${i}`);
+                    const chunkSnap = await getDoc(chunkDocRef);
+                    if (chunkSnap.exists()) {
+                      const chunkData = chunkSnap.data();
+                      if (chunkData && chunkData.fileData) {
+                        chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                      }
+                    } else {
+                      throw new Error(`Missing chunk ${i}`);
+                    }
+                  }
+                  const fullBuffer = Buffer.concat(chunks);
+                  fs.writeFileSync(targetPath, fullBuffer);
+                  isPlayable = true;
+                  console.log(`[Monitoring-HEALED] Restored video ${targetLocalFilename} successfully from database base64 chunks!`);
+                }
+              } else {
+                console.error(`[Monitoring-FAIL] No durable chunks backup configured for ${targetLocalFilename}`);
+              }
+            } catch (healErr) {
+              console.error(`[Monitoring-FAIL] Attempt to heal ${targetLocalFilename} failed:`, healErr);
+            }
+          }
+        } else if (rawUrl.startsWith("http")) {
+          // External URL validation check
+          try {
+            const res = await fetch(rawUrl, { method: "HEAD" });
+            if (res.ok || res.status === 200 || res.status === 206) {
+              isPlayable = true;
+              console.log(`[Monitoring-OK] External url is active: ${rawUrl}`);
+            } else {
+              console.warn(`[Monitoring-WARN] External url returned error status ${res.status}: ${rawUrl}`);
+            }
+          } catch (fetchErr) {
+            console.warn(`[Monitoring-WARN] External url fetch failed for: ${rawUrl}`);
+          }
+
+          // If it fails, check if we have a durable chunks backup matching docId or standard naming, and heal it
+          if (!isPlayable) {
+            const ext = rawUrl.split(/[#?]/)[0].split('.').pop() || "mp4";
+            const safeNameGuess = `assembled-upload-${docId}.${ext}`;
+            const safeNameGuess2 = `assembled-${docId}.${ext}`;
+            
+            let solvedSafeName = "";
+            let solvedDoc = null;
+
+            for (const guess of [safeNameGuess, safeNameGuess2]) {
+              const guessDoc = await getDoc(doc(db, "durable_video_files", guess));
+              if (guessDoc.exists()) {
+                solvedSafeName = guess;
+                solvedDoc = guessDoc;
+                break;
+              }
+            }
+
+            if (solvedSafeName && solvedDoc) {
+              try {
+                const fileMeta = solvedDoc.data();
+                if (fileMeta && fileMeta.totalChunks) {
+                  const totalChunks = fileMeta.totalChunks;
+                  const chunks: Buffer[] = [];
+                  const targetPath = path.join(uploadsDir, solvedSafeName);
+                  for (let i = 0; i < totalChunks; i++) {
+                    const chunkDocRef = doc(db, "durable_video_files_chunks", `${solvedSafeName}_chunk_${i}`);
+                    const chunkSnap = await getDoc(chunkDocRef);
+                    if (chunkSnap.exists()) {
+                      const chunkData = chunkSnap.data();
+                      if (chunkData && chunkData.fileData) {
+                        chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                      }
+                    }
+                  }
+                  const fullBuffer = Buffer.concat(chunks);
+                  fs.writeFileSync(targetPath, fullBuffer);
+                  
+                  const healUrl = `/uploads/${solvedSafeName}`;
+                  await updateDoc(doc(db, "videoBulletins", docId), {
+                    url: healUrl,
+                    videoUrl: healUrl,
+                    status: "Published",
+                    publishStatus: "Published",
+                    published: true
+                  });
+                  await setDoc(doc(db, "videos", docId), {
+                    url: healUrl,
+                    videoUrl: healUrl,
+                    status: "Published",
+                    publishStatus: "Published",
+                    published: true
+                  }, { merge: true });
+
+                  isPlayable = true;
+                  console.log(`[Monitoring-HEALED-EXTERNAL] Defective URL reclaimed to restored local chunked file: ${healUrl}`);
+                }
+              } catch (extHealErr) {
+                console.error("[Monitoring-FAIL] Failed to heal broken external link:", extHealErr);
+              }
+            }
+          }
+        }
+
+        // Write verification outcomes back onto database document so the Admin panel knows!
+        const safetyStatus = {
+          storageVerifiedAt: new Date().toISOString(),
+          storageStatus: isPlayable ? "Secure" : "Defective",
+          playbackStatus: isPlayable ? "Operational" : "Failed",
+          brokenWarning: isPlayable ? "" : "Playback check warning: target file is inaccessible or missing on serving nodes."
+        };
+
+        try {
+          await updateDoc(doc(db, "videoBulletins", docId), safetyStatus);
+          await setDoc(doc(db, "videos", docId), safetyStatus, { merge: true });
+        } catch (_) {}
+      }
+    } catch (globalMonErr) {
+      console.error("[Monitoring-CRITICAL] Global hourly monitoring scheduler failed:", globalMonErr);
+    }
+  }
+
+  // Run immediate safety validation + self-healing recovery on boat startup
+  runHourlyVideoSafetyCheck().catch((unhandled) => {
+    console.error("[Monitoring-BOOT] Immediate self-healing recovery threw error:", unhandled);
+  });
+
+  // Schedule background hourly checks
+  setInterval(() => {
+    runHourlyVideoSafetyCheck().catch((unhandled) => {
+      console.error("[Monitoring-INTERVAL] Hourly safety loop check error:", unhandled);
+    });
+  }, 60 * 60 * 1000);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Fast Coverage Platform Backend Server] running smoothly on http://localhost:${PORT}`);
