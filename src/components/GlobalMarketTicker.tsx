@@ -160,52 +160,60 @@ export default function GlobalMarketTicker() {
   // Ticker layout toggle: "cnn-cable" (CNN TV scroll ticker) or "dashboard-grid" (interactive tiles)
   const [tickerView, setTickerView] = useState<"cnn-cable" | "dashboard-grid">("cnn-cable");
 
-  // Dynamic interval to simulate live feed ticking fluctuations (similar to real quote updates)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * markets.length);
-      const target = markets[randomIndex];
+  // Real-world integration states
+  const feedMode = "Real-World";
+  const [isFetching, setIsFetching] = useState<boolean>(false);
 
-      const isUp = Math.random() > 0.45; // balanced updates
-      const changeMagnitude = (Math.random() * 0.15 + 0.02) / 100; // 0.02% - 0.17% shift
-      const multiplier = isUp ? 1 + changeMagnitude : 1 - changeMagnitude;
+  const fetchLiveQuotes = async () => {
+    setIsFetching(true);
+    try {
+      const response = await fetch("/api/market/live-quotes");
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const res = await response.json();
+      if (res.success && Array.isArray(res.data)) {
+        const liveMap = new Map<string, any>();
+        res.data.forEach((item: any) => {
+          liveMap.set(item.symbol, item);
+        });
 
-      const newValue = target.value * multiplier;
-      const originalValue = target.value;
-      const diff = newValue - originalValue;
+        setMarkets((prev) =>
+          prev.map((m) => {
+            const liveItem = liveMap.get(m.symbol);
+            if (!liveItem) return m;
 
-      setMarkets((prev) =>
-        prev.map((m, idx) => {
-          if (idx === randomIndex) {
-            const updatedChange = m.change + diff;
-            const percentageFromBase = (updatedChange / (m.value - m.change)) * 100;
-            const newSparkline = [...m.sparkline.slice(1), parseFloat(newValue.toFixed(4))];
-
-            const decimals = m.symbol.includes("USD") && !m.symbol.includes("BTC") && !m.symbol.includes("ETH") ? 4 : 2;
-
+            const newSparkline = [...m.sparkline.slice(1), liveItem.price];
+            
             return {
               ...m,
-              value: parseFloat(newValue.toFixed(decimals)),
-              change: parseFloat(updatedChange.toFixed(decimals)),
-              changePercent: parseFloat(percentageFromBase.toFixed(2)),
-              sparkline: newSparkline,
-              high: parseFloat(Math.max(m.high, newValue).toFixed(decimals)),
-              low: parseFloat(Math.min(m.low, newValue).toFixed(decimals)),
+              value: liveItem.price,
+              change: liveItem.change,
+              changePercent: liveItem.changePercent,
+              volume: liveItem.volume,
+              high: Math.max(m.high, liveItem.high, liveItem.price),
+              low: m.low === m.value ? liveItem.low : Math.min(m.low, liveItem.low, liveItem.price),
+              sparkline: newSparkline
             };
-          }
-          return m;
-        })
-      );
+          })
+        );
+      }
+    } catch (err) {
+      console.warn("Real-world asset integration offline:", err);
+    } finally {
+      setIsFetching(false);
+    }
+  };
 
-      // Trigger visual flash feedback
-      setTickingItem({ symbol: target.symbol, direction: isUp ? "up" : "down" });
-      const flashTimeout = setTimeout(() => setTickingItem(null), 1500);
-      return () => clearTimeout(flashTimeout);
+  // Fetch immediately on mount, and then poll every 20 seconds
+  useEffect(() => {
+    fetchLiveQuotes();
+  }, []);
 
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, [markets]);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchLiveQuotes();
+    }, 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   const filteredMarkets = markets.filter(m => activeTab === "All" || m.category === activeTab);
 
@@ -422,11 +430,24 @@ export default function GlobalMarketTicker() {
 
             <span className="text-neutral-750 hidden md:inline">|</span>
 
-            {/* Simulated Live update heartbeat display */}
-            <div className="flex items-center gap-1 text-[9px] text-neutral-500">
-              <RefreshCw size={9} className="animate-spin" style={{ animationDuration: "6s" }} />
-              <span className="hidden sm:inline">TICK DIRECTORY: ACTIVE</span>
-            </div>
+            {/* Real-World vs Synthetic Switcher */}
+            <button
+              onClick={() => {
+                fetchLiveQuotes();
+              }}
+              disabled={isFetching}
+              className="flex items-center gap-1.5 p-1 px-2.5 rounded border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-850 hover:border-neutral-700 transition text-[9px] font-black cursor-pointer uppercase tracking-wider"
+              title="Refresh Yahoo Finance live stock feeds"
+            >
+              <div className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              </div>
+              <span className="text-emerald-400 font-bold">
+                REAL LIVE (YFIN)
+              </span>
+              {isFetching && <RefreshCw size={8} className="animate-spin shrink-0 text-neutral-400 ml-1" />}
+            </button>
           </div>
 
         </div>

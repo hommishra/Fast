@@ -76,6 +76,111 @@ async function startServer() {
     res.json({ status: "healthy", timestamp: new Date().toISOString() });
   });
 
+  // Real-World Live Market Quotes Proxy API (utilizing Yahoo Finance quotes)
+  let cachedQuotes: any[] | null = null;
+  let lastQuotesFetch = 0;
+  const QUOTES_TTL = 15000; // 15 seconds cache TTL
+
+  const SYMBOL_MAPPING: Record<string, { symbol: string, name: string, category: string }> = {
+    "^GSPC": { symbol: "SPX", name: "S&P 500 Index", category: "Indices" },
+    "^DJI": { symbol: "DJI", name: "Dow Jones Industrial", category: "Indices" },
+    "^IXIC": { symbol: "IXIC", name: "Nasdaq Composite", category: "Indices" },
+    "^RUT": { symbol: "RUT", name: "Russell 2000 Index", category: "Indices" },
+    "NVDA": { symbol: "NVDA", name: "NVIDIA Corporation", category: "US Stocks" },
+    "AAPL": { symbol: "AAPL", name: "Apple Inc.", category: "US Stocks" },
+    "TSLA": { symbol: "TSLA", name: "Tesla Inc.", category: "US Stocks" },
+    "GOOGL": { symbol: "GOOGL", name: "Alphabet Inc. Cl A", category: "US Stocks" },
+    "MSFT": { symbol: "MSFT", name: "Microsoft Corporation", category: "US Stocks" },
+    "BTC-USD": { symbol: "BTC", name: "Bitcoin / USD", category: "Crypto" },
+    "ETH-USD": { symbol: "ETH", name: "Ethereum / USD", category: "Crypto" },
+    "GC=F": { symbol: "XAU", name: "Gold Spot", category: "Commodities" },
+    "CL=F": { symbol: "CL", name: "Crude Oil WTI", category: "Commodities" },
+    "^N225": { symbol: "N225", name: "Nikkei 225", category: "Indices" },
+    "EURUSD=X": { symbol: "EURUSD", name: "EUR / USD", category: "Forex" },
+    "GBPUSD=X": { symbol: "GBPUSD", name: "GBP / USD", category: "Forex" }
+  };
+
+  app.get("/api/market/live-quotes", async (req: Request, res: Response) => {
+    const now = Date.now();
+    if (cachedQuotes && (now - lastQuotesFetch < QUOTES_TTL)) {
+      return res.json({ success: true, source: "cache", data: cachedQuotes });
+    }
+
+    const formatVolume = (vol: number | undefined): string => {
+      if (!vol) return "N/A";
+      if (vol >= 1e9) return (vol / 1e9).toFixed(1) + "B";
+      if (vol >= 1e6) return (vol / 1e6).toFixed(1) + "M";
+      if (vol >= 1e3) return (vol / 1e3).toFixed(0) + "K";
+      return vol.toString();
+    };
+
+    try {
+      const rawQuotes = await Promise.all(
+        Object.entries(SYMBOL_MAPPING).map(async ([yahooSymbol, config]) => {
+          try {
+            const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1d`;
+            const response = await fetch(chartUrl, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+              }
+            });
+
+            if (!response.ok) {
+              console.warn(`[Real-World Live Market API Error] Symbol ${yahooSymbol} returned ${response.status}`);
+              return null;
+            }
+
+            const rawData: any = await response.json();
+            const meta = rawData?.chart?.result?.[0]?.meta;
+            if (!meta) {
+              return null;
+            }
+
+            const price = meta.regularMarketPrice ?? meta.currentPrice ?? 0;
+            const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
+            const change = price - prevClose;
+            const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+            const volumeVal = meta.regularMarketVolume ?? meta.volume;
+
+            return {
+              symbol: config.symbol,
+              name: config.name,
+              price,
+              change,
+              changePercent,
+              volume: formatVolume(volumeVal),
+              prevClose,
+              open: meta.regularMarketOpen ?? meta.open ?? price,
+              high: meta.high ?? price,
+              low: meta.low ?? price,
+              category: config.category
+            };
+          } catch (e: any) {
+            console.error(`Error fetching symbol ${yahooSymbol} from Yahoo chart API:`, e.message);
+            return null;
+          }
+        })
+      );
+
+      const mappedQuotes = rawQuotes.filter(Boolean);
+
+      if (mappedQuotes.length === 0) {
+        throw new Error("All live quote endpoints returned empty or failed.");
+      }
+
+      cachedQuotes = mappedQuotes;
+      lastQuotesFetch = now;
+
+      return res.json({ success: true, source: "api", data: mappedQuotes });
+    } catch (err: any) {
+      console.warn("[Real-World Live Market API Error] Falling back to existing cached values or error report:", err.message);
+      if (cachedQuotes) {
+        return res.json({ success: true, source: "fallback-cache", data: cachedQuotes, warning: err.message });
+      }
+      return res.status(502).json({ success: false, error: "Failed to download live market assets: " + err.message });
+    }
+  });
+
   // Middleware to authenticate JWT for administrative API links
   const authenticateJWT = (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;

@@ -250,8 +250,58 @@ export default function MarketDashboard() {
   const [chartPeriod, setChartPeriod] = useState<"1D" | "5D" | "1M" | "1Y">("1D");
   const [sectors, setSectors] = useState<SectorItem[]>(INITIAL_SECTORS);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isTickActive, setIsTickActive] = useState(true);
-  const [lastTickMessage, setLastTickMessage] = useState("");
+
+  const feedMode = "Real-World";
+  const [isFetching, setIsFetching] = useState(false);
+
+  const fetchLiveQuotes = async () => {
+    setIsFetching(true);
+    try {
+      const response = await fetch("/api/market/live-quotes");
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const res = await response.json();
+      if (res.success && Array.isArray(res.data)) {
+        const liveMap = new Map<string, any>();
+        res.data.forEach((item: any) => {
+          liveMap.set(item.symbol, item);
+        });
+
+        setStocks((prev) =>
+          prev.map((s) => {
+            const liveItem = liveMap.get(s.symbol);
+            if (!liveItem) return s;
+
+            return {
+              ...s,
+              price: liveItem.price,
+              change: liveItem.change,
+              changePercent: liveItem.changePercent,
+              volume: liveItem.volume,
+              open: liveItem.open,
+              high: Math.max(s.high, liveItem.high, liveItem.price),
+              low: s.low === s.price ? liveItem.low : Math.min(s.low, liveItem.low, liveItem.price),
+              prevClose: liveItem.prevClose
+            };
+          })
+        );
+      }
+    } catch (err) {
+      console.warn("Real-world stock desk offline:", err);
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLiveQuotes();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchLiveQuotes();
+    }, 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   const activeStock = useMemo(() => {
     return stocks.find((s) => s.symbol === selectedSymbol) || stocks[0];
@@ -329,60 +379,6 @@ export default function MarketDashboard() {
     return data;
   }, [activeStock, chartPeriod]);
 
-  // Fluctuations simulations
-  useEffect(() => {
-    if (!isTickActive) return;
-
-    const interval = setInterval(() => {
-      const luckyIndex = Math.floor(Math.random() * stocks.length);
-      const stock = stocks[luckyIndex];
-
-      const isPositive = Math.random() > 0.46; // slight positive bias like standard indices
-      const deltaPercentage = (Math.random() * 0.12 + 0.01) / 100; // tiny realistic movements (0.01% - 0.13%)
-      
-      const multiplier = isPositive ? 1 + deltaPercentage : 1 - deltaPercentage;
-      const newPrice = stock.price * multiplier;
-      const diff = newPrice - stock.price;
-
-      setStocks((prev) => 
-        prev.map((s, idx) => {
-          if (idx === luckyIndex) {
-            const upChange = s.change + diff;
-            const percentageFromBase = (upChange / (newPrice - upChange)) * 100;
-            const dec = s.symbol.includes("USD") && !s.symbol.includes("BTC") && !s.symbol.includes("ETH") ? 4 : 2;
-            
-            return {
-              ...s,
-              price: parseFloat(newPrice.toFixed(dec)),
-              change: parseFloat(upChange.toFixed(dec)),
-              changePercent: parseFloat(percentageFromBase.toFixed(2)),
-              high: parseFloat(Math.max(s.high, newPrice).toFixed(dec)),
-              low: parseFloat(Math.min(s.low, newPrice).toFixed(dec))
-            };
-          }
-          return s;
-        })
-      );
-
-      // Randomize sector performance slightly too
-      if (Math.random() > 0.7) {
-        setSectors(prev => prev.map(sec => {
-          const shift = (Math.random() * 0.1 - 0.05);
-          return {
-            ...sec,
-            performance: parseFloat((sec.performance + shift).toFixed(2))
-          };
-        }));
-      }
-
-      setLastTickMessage(`TICK SUCCESS: [${stock.symbol}] adjusted to $${newPrice.toLocaleString(undefined, { minimumFractionDigits: stock.symbol.includes("USD") ? 4 : 2 })}`);
-
-      setTimeout(() => setLastTickMessage(""), 2000);
-    }, 2800);
-
-    return () => clearInterval(interval);
-  }, [isTickActive, stocks]);
-
   const filteredStocks = stocks.filter((s) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -429,26 +425,19 @@ export default function MarketDashboard() {
 
         {/* Global actions */}
         <div className="flex flex-wrap items-center gap-3 shrink-0 relative z-10 w-full md:w-auto">
-          {/* Tick Switcher */}
+          {/* Real-World Live quotes refresh button */}
           <button
-            onClick={() => setIsTickActive(!isTickActive)}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border text-xs font-bold transition duration-200 cursor-pointer ${
-              isTickActive 
-                ? "bg-emerald-950/40 border-emerald-800 text-emerald-400" 
-                : "bg-neutral-800/40 border-neutral-700 text-neutral-400 hover:text-white"
-            }`}
+            onClick={() => fetchLiveQuotes()}
+            disabled={isFetching}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border text-xs font-semibold bg-emerald-950/40 border-emerald-800 text-emerald-400 hover:bg-emerald-900/40 transition duration-200 cursor-pointer disabled:opacity-50"
+            title="Refresh Yahoo Finance live stock feeds"
           >
-            {isTickActive ? (
-              <>
-                <Pause size={13} className="animate-pulse" />
-                <span>PAUSE TICKER</span>
-              </>
-            ) : (
-              <>
-                <Play size={13} />
-                <span>RESUME TICKER</span>
-              </>
-            )}
+            <div className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+            </div>
+            <span>REFRESH REAL LIVE (YFIN)</span>
+            {isFetching && <RefreshCw size={11} className="animate-spin shrink-0 text-slate-400 ml-1" />}
           </button>
 
           {/* Quick info text indicator */}
@@ -726,13 +715,14 @@ export default function MarketDashboard() {
           {/* Mini active update logs visual queue */}
           <div className="bg-slate-50 border border-slate-150 p-3 rounded-xl flex items-center justify-between text-[11px] h-[34px] overflow-hidden select-none">
             <span className="text-slate-450 font-mono text-[9px] uppercase tracking-wider font-extrabold shrink-0">Quote stream</span>
-            {lastTickMessage ? (
-              <span className="text-emerald-500 font-mono text-[10px] truncate ml-3 font-bold animate-pulse">
-                {lastTickMessage}
+            {isFetching ? (
+              <span className="text-emerald-500 font-mono text-[10px] truncate ml-3 font-bold animate-pulse flex items-center gap-1">
+                <RefreshCw size={8} className="animate-spin" />
+                Syncing exchange quotes...
               </span>
             ) : (
-              <span className="text-slate-400 font-mono ml-3 truncate italic animate-pulse">
-                Ticking updates listening...
+              <span className="text-slate-400 font-mono ml-3 truncate text-[10px] font-bold">
+                Connected: Live exchange polling active (20s)
               </span>
             )}
           </div>
@@ -741,11 +731,11 @@ export default function MarketDashboard() {
 
       </div>
 
-      {/* LOWER LEVEL: SECTOR STRENGTHS BAR GRAPH & FINANCIAL NEWS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* LOWER LEVEL: SECTOR STRENGTHS BAR GRAPH */}
+      <div className="grid grid-cols-1 gap-8">
         
         {/* Sector Strength bars Recharts display */}
-        <div className="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm" id="sectors_dashboard_stage">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm" id="sectors_dashboard_stage">
           <div className="border-b border-slate-100 pb-3 mb-4">
             <h3 className="text-xs font-bold text-slate-900 tracking-wider uppercase flex items-center gap-2 select-none font-sans">
               <Briefcase size={14} className="text-red-700" />
@@ -794,66 +784,6 @@ export default function MarketDashboard() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Global Market News Coverage cards */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between" id="business_headlines_stage">
-          <div className="border-b border-slate-100 pb-3 mb-4">
-            <h3 className="text-xs font-bold text-slate-900 tracking-wider uppercase flex items-center gap-2 select-none font-sans">
-              <Globe size={14} className="text-blue-500" />
-              Live Corporate Bulletin & Market Analysis
-            </h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1 bg-red-50/10 hover:bg-red-50/30 border border-slate-200 p-4 rounded-xl transition duration-150 cursor-pointer group">
-              <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans">
-                Financial Report
-              </span>
-              <h4 className="font-extrabold text-sm text-slate-850 group-hover:text-blue-600 transition-colors leading-snug line-clamp-2">
-                Federal Reserve holds high interest rates citing moderate wage pressure index metrics.
-              </h4>
-              <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed pt-1 select-none">
-                Federal Open Market Committee officials retain base rates targeting stable long-term indicators amidst strong jobs stats.
-              </p>
-            </div>
-
-            <div className="space-y-1 bg-red-50/10 hover:bg-red-50/30 border border-slate-200 p-4 rounded-xl transition duration-150 cursor-pointer group">
-              <span className="text-[9px] uppercase tracking-wider text-blue-600 font-extrabold font-sans">
-                Corporate Movers
-              </span>
-              <h4 className="font-extrabold text-sm text-slate-850 group-hover:text-blue-600 transition-colors leading-snug line-clamp-2">
-                Tech indices soar as chipmakers claim record AI compute demand forecasts worldwide.
-              </h4>
-              <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed pt-1 select-none">
-                Nvidia and semiconductor cohorts surge. Wall street predicts prolonged hardware capital expenditure expansions across enterprise.
-              </p>
-            </div>
-
-            <div className="space-y-1 bg-red-50/10 hover:bg-red-50/30 border border-slate-200 p-4 rounded-xl transition duration-150 cursor-pointer group">
-              <span className="text-[9px] uppercase tracking-wider text-amber-600 font-extrabold font-sans">
-                Commodities Outlook
-              </span>
-              <h4 className="font-extrabold text-sm text-slate-850 group-hover:text-blue-600 transition-colors leading-snug line-clamp-2">
-                Gold spot touches critical support bands as global safe-haven flows stabilize.
-              </h4>
-              <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed pt-1 select-none">
-                Precious metals trade tight. Energy index edges higher tracking Brent spot supply updates following Middle East logistics reviews.
-              </p>
-            </div>
-
-            <div className="space-y-1 bg-red-50/10 hover:bg-red-50/30 border border-slate-200 p-4 rounded-xl transition duration-150 cursor-pointer group">
-              <span className="text-[9px] uppercase tracking-wider text-emerald-600 font-extrabold font-sans">
-                Digital Crypto Futures
-              </span>
-              <h4 className="font-extrabold text-sm text-slate-850 group-hover:text-blue-600 transition-colors leading-snug line-clamp-2">
-                Liquidity injections fuel Bitcoin volatile spikes ahead of options settlement desks.
-              </h4>
-              <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed pt-1 select-none">
-                DeFi contracts scale new heights while regulators demand audit trails on exchange balance custody proofs.
-              </p>
-            </div>
           </div>
         </div>
 
