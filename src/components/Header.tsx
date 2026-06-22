@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Category } from "../types";
 import { Search, Globe, ChevronDown, ShieldAlert, BookOpen } from "lucide-react";
+import { useLanguage, SUPPORTED_LANGUAGES } from "../utils/LanguageContext";
 
 interface HeaderProps {
   categories: Category[];
@@ -28,6 +29,7 @@ export default function Header({
   onSignOut,
 }: HeaderProps) {
   const [currentUtc, setCurrentUtc] = useState("");
+  const { currentLang, setLanguage, t } = useLanguage();
 
   useEffect(() => {
     const updateTime = () => {
@@ -44,17 +46,37 @@ export default function Header({
   return (
     <header className="bg-white border-b border-slate-200" id="main_website_header">
       {/* Top Utility Bar */}
-      <div className="bg-slate-900 text-slate-400 border-b border-slate-950 text-[10px] font-sans font-bold tracking-wider py-2 px-6 flex flex-col sm:flex-row justify-between items-center gap-2 select-none uppercase">
+      <div className="bg-slate-905 text-slate-400 border-b border-slate-950 text-[10px] font-sans font-bold tracking-wider py-2 px-6 flex flex-col sm:flex-row justify-between items-center gap-2 select-none uppercase" style={{ backgroundColor: "#0f172a" }}>
         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
           <span className="flex items-center gap-1.5 text-slate-300">
             <Globe className="text-blue-500 animate-spin" size={12} style={{ animationDuration: "12s" }} />
-            Fast Coverage Network Log
+            {t("Fast Coverage Network Log")}
           </span>
+          <span className="text-slate-705">|</span>
+          
+          {/* Language Selector Dropdown */}
+          <div className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-[10px] uppercase font-sans font-extrabold tracking-wider px-2 py-0.5 rounded cursor-pointer select-none relative group transition-colors">
+            <span>{currentLang.flag} {currentLang.name}</span>
+            <ChevronDown size={11} className="text-slate-400 group-hover:text-white transition-colors" />
+            <select
+              value={currentLang.code}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              aria-label="Language Selector"
+            >
+              {SUPPORTED_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code} className="text-slate-900 bg-white">
+                  {lang.flag} {lang.nativeName} ({lang.name})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <span className="text-slate-700 hidden sm:inline">|</span>
           <span className="hover:text-white text-slate-400 transition-colors cursor-pointer flex items-center gap-1" onClick={() => {
             window.location.hash = "admin-portal";
           }}>
-            🔐 Secure Control Room
+            🔐 {t("Secure Control Room")}
           </span>
         </div>
         
@@ -68,11 +90,11 @@ export default function Header({
                 className="hover:text-white text-blue-400 transition-colors cursor-pointer flex items-center gap-1"
                 title="Saved Bookmarks Board"
               >
-                🔖 Bookmarks
+                🔖 {t("Bookmarks")}
               </button>
               <span className="text-slate-700 font-normal">|</span>
               <span className="text-slate-300 font-semibold normal-case">
-                {currentUser.displayName || "Subscriber"}
+                {currentUser.displayName || t("Subscriber")}
               </span>
               <span className="text-slate-700 font-normal">|</span>
               <button
@@ -80,7 +102,7 @@ export default function Header({
                 onClick={onSignOut}
                 className="hover:text-red-400 text-slate-400 transition-colors cursor-pointer font-bold"
               >
-                Sign Out
+                {t("Sign Out")}
               </button>
             </div>
           ) : (
@@ -89,7 +111,7 @@ export default function Header({
               onClick={onOpenAuth}
               className="hover:text-white text-red-405 transition-colors cursor-pointer flex items-center gap-1 font-extrabold"
             >
-              👤 Reader Sign In
+              👤 {t("Reader Sign In")}
             </button>
           )}
           <span className="text-slate-705 hidden sm:inline">|</span>
@@ -119,7 +141,7 @@ export default function Header({
           </div>
           <input
             type="text"
-            placeholder="Search news database..."
+            placeholder={t("Search news database...")}
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full bg-slate-100/70 border border-slate-200 rounded-lg py-1.5 pl-9 pr-4 text-xs text-slate-900 focus:outline-none focus:border-blue-600 focus:bg-white transition-all placeholder-slate-450 font-sans"
@@ -139,7 +161,7 @@ export default function Header({
                   : "text-slate-650 hover:bg-slate-200 hover:text-slate-900"
               }`}
             >
-              Top Stories
+              {t("Top Stories")}
             </button>
             <button
               onClick={() => onSelectCategory("markets")}
@@ -149,7 +171,7 @@ export default function Header({
                   : "text-red-700 bg-red-50/50 hover:bg-red-100/50 border-red-200/50"
               }`}
             >
-              📈 Live Markets
+              📈 {t("Live Markets")}
             </button>
             {parentCategories.map((cat) => {
               const isActive = selectedCategoryId === cat.id;
@@ -161,7 +183,7 @@ export default function Header({
                     isActive ? "bg-slate-900 text-white shadow-xs" : "text-slate-650 hover:bg-slate-200 hover:text-slate-900"
                   }`}
                 >
-                  {cat.name}
+                  {t(cat.name)}
                 </button>
               );
             })}
@@ -169,5 +191,7 @@ export default function Header({
         </div>
       </div>
     </header>
+  );
+}   </header>
   );
 }

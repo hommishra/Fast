@@ -4,7 +4,7 @@ import dns from "dns";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import fs from "fs";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, deleteDoc, getDocs } from "firebase/firestore";
@@ -577,8 +577,277 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
     }
   });
 
+  // 3b. Multilingual AI Translation System Endpoints
+  const textTranslationCache = new Map<string, string>();
+
+  app.post("/api/translate/batch", async (req: Request, res: Response) => {
+    const { texts, targetLangCode, targetLangName } = req.body;
+
+    if (!texts || !Array.isArray(texts) || !targetLangCode) {
+      return res.status(400).json({ error: "Missing required texts array or targetLangCode." });
+    }
+
+    if (texts.length === 0) {
+      return res.json({ translations: [] });
+    }
+
+    const api_key = process.env.GEMINI_API_KEY;
+    if (!api_key) {
+      return res.json({ translations: texts });
+    }
+
+    try {
+      const results: string[] = [];
+      const textsToTranslate: { text: string; index: number }[] = [];
+
+      texts.forEach((text, i) => {
+        const cacheKey = `${targetLangCode}_${text}`;
+        if (textTranslationCache.has(cacheKey)) {
+          results[i] = textTranslationCache.get(cacheKey)!;
+        } else if (!text || text.trim() === "") {
+          results[i] = text;
+        } else {
+          results[i] = text; // temporary placeholder
+          textsToTranslate.push({ text, index: i });
+        }
+      });
+
+      if (textsToTranslate.length === 0) {
+        return res.json({ translations: results });
+      }
+
+      const ai = new GoogleGenAI({ apiKey: api_key });
+
+      const prompt = `You are an expert multilingual editor. Translate this list of labels, buttons, errors, menu items, or titles into ${targetLangName || "target language"} (${targetLangCode}).
+Preserve all spacing, variables like %s, braces, casing, HTML/markdown tags, and typography.
+Do not elaborate or discuss; return exactly a JSON array inside a "translations" key mapped identically to input order.
+
+Original array of texts to translate:
+${JSON.stringify(textsToTranslate.map(t => t.text))}`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [prompt],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              translations: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ["translations"]
+          }
+        }
+      });
+
+      const responseText = response.text || "";
+      let parsed;
+      try {
+        parsed = JSON.parse(responseText);
+      } catch (e) {
+        const match = responseText.match(/\[[\s\S]*\]/);
+        if (match) {
+          parsed = { translations: JSON.parse(match[0]) };
+        } else {
+          throw e;
+        }
+      }
+
+      const translatedArray = parsed.translations || [];
+
+      textsToTranslate.forEach((item, idx) => {
+        const translatedVal = translatedArray[idx] || item.text;
+        results[item.index] = translatedVal;
+        const cacheKey = `${targetLangCode}_${item.text}`;
+        textTranslationCache.set(cacheKey, translatedVal);
+      });
+
+      return res.json({ translations: results });
+    } catch (err: any) {
+      console.error("Batch translation failure:", err);
+      return res.json({ translations: texts });
+    }
+  });
+
+  app.post("/api/translate/article", async (req: Request, res: Response) => {
+    const { articleId, targetLangCode, targetLangName } = req.body;
+
+    if (!articleId || !targetLangCode || !targetLangName) {
+      return res.status(400).json({ error: "Missing articleId, targetLangCode or targetLangName." });
+    }
+
+    try {
+      const transDocId = `${articleId}_${targetLangCode}`;
+      const transDocRef = doc(db, "article_translations", transDocId);
+      const transSnap = await getDoc(transDocRef);
+
+      if (transSnap.exists()) {
+        return res.json(transSnap.data());
+      }
+
+      const articleRef = doc(db, "articles", articleId);
+      const articleSnap = await getDoc(articleRef);
+
+      if (!articleSnap.exists()) {
+        return res.status(404).json({ error: "Original article not found." });
+      }
+
+      const originalArticle = articleSnap.data();
+      const api_key = process.env.GEMINI_API_KEY;
+
+      if (!api_key) {
+        return res.json({
+          title: originalArticle.title,
+          subtitle: originalArticle.subtitle || "",
+          content: originalArticle.content,
+          excerpt: originalArticle.excerpt || "",
+          imageCaption: originalArticle.imageCaption || "",
+          seoKeywords: originalArticle.seoKeywords || ""
+        });
+      }
+
+      const ai = new GoogleGenAI({ apiKey: api_key });
+
+      const prompt = `You are a professional news translator for Fast Coverage. Translate this breaking news article into ${targetLangName} (${targetLangCode}).
+You must preserve paragraph structure, line breaks, markdown headers, bold texts, lists, links, image links, and HTML tags exactly.
+Maintain highly professional, editorial, journalistic language appropriate for high-quality press broadcasts.
+
+Details:
+- Title: "${originalArticle.title}"
+- Subtitle: "${originalArticle.subtitle || ""}"
+- Excerpt: "${originalArticle.excerpt || ""}"
+- Image Caption: "${originalArticle.imageCaption || ""}"
+- SEO Keywords: "${originalArticle.seoKeywords || ""}"
+
+Article Body Content:
+${originalArticle.content}
+
+Return exactly a JSON object matching this structure:
+{
+  "title": "translated title",
+  "subtitle": "translated subtitle",
+  "excerpt": "translated excerpt",
+  "imageCaption": "translated image caption",
+  "seoKeywords": "translated keywords",
+  "content": "translated full body content"
+}`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [prompt],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              subtitle: { type: Type.STRING },
+              excerpt: { type: Type.STRING },
+              imageCaption: { type: Type.STRING },
+              seoKeywords: { type: Type.STRING },
+              content: { type: Type.STRING }
+            },
+            required: ["title", "content", "excerpt"]
+          }
+        }
+      });
+
+      const responseText = response.text || "";
+      const translatedData = JSON.parse(responseText);
+
+      const newTranslation = {
+        title: translatedData.title || originalArticle.title,
+        subtitle: translatedData.subtitle || originalArticle.subtitle || "",
+        excerpt: translatedData.excerpt || originalArticle.excerpt || "",
+        imageCaption: translatedData.imageCaption || originalArticle.imageCaption || "",
+        seoKeywords: translatedData.seoKeywords || originalArticle.seoKeywords || "",
+        content: translatedData.content || originalArticle.content,
+        articleId,
+        languageCode: targetLangCode,
+        translatedAt: new Date().toISOString()
+      };
+
+      await setDoc(transDocRef, newTranslation).catch(e => console.error("Firestore cache write failed:", e));
+
+      return res.json(newTranslation);
+    } catch (err: any) {
+      console.error("Article translation failure:", err);
+      return res.status(500).json({ error: "Failed to translate article." });
+    }
+  });
+
+  app.post("/api/translate/video", async (req: Request, res: Response) => {
+    const { videoId, targetLangCode, targetLangName, title, description } = req.body;
+
+    if (!videoId || !targetLangCode || !targetLangName) {
+      return res.status(400).json({ error: "Missing videoId, targetLangCode or targetLangName." });
+    }
+
+    try {
+      const transDocId = `${videoId}_${targetLangCode}`;
+      const transDocRef = doc(db, "video_translations", transDocId);
+      const transSnap = await getDoc(transDocRef);
+
+      if (transSnap.exists()) {
+        return res.json(transSnap.data());
+      }
+
+      const api_key = process.env.GEMINI_API_KEY;
+      if (!api_key) {
+        return res.json({ title: title || "", description: description || "" });
+      }
+
+      const ai = new GoogleGenAI({ apiKey: api_key });
+
+      const prompt = `Translate the following TV News Video labels into ${targetLangName} (${targetLangCode}) accurately:
+- Title: "${title || ""}"
+- Description: "${description || ""}"
+
+Return as a JSON object with keys:
+- title: translated title
+- description: translated description`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [prompt],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              description: { type: Type.STRING }
+            },
+            required: ["title", "description"]
+          }
+        }
+      });
+
+      const responseText = response.text || "";
+      const translatedData = JSON.parse(responseText);
+
+      const cacheObj = {
+        title: translatedData.title || title || "",
+        description: translatedData.description || description || "",
+        videoId,
+        languageCode: targetLangCode,
+        translatedAt: new Date().toISOString()
+      };
+
+      await setDoc(transDocRef, cacheObj).catch(e => console.error("Firestore video cache write failed:", e));
+
+      return res.json(translatedData);
+    } catch (err: any) {
+      console.error("Video translation failure:", err);
+      return res.json({ title: title || "", description: description || "" });
+    }
+  });
+
   // Secure endpoint to search and fetch 10 high-quality direct Unsplash image URLs
-  app.get("/api/admin/search-images", authenticateJWT, async (req: Request, res: Response) => {
+  app.get("/api/admin/search-images", authenticateJWT, async (req: Request, res: Response) =>>,TargetContent: {
     const query = (req.query.query as string || "journalism").trim();
     const limit = parseInt(req.query.limit as string) || 10;
     

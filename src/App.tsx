@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, limit, doc, getDoc, updateDoc, where, se
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { db, auth } from "./firebase";
 import { Article, Category, WebSettings, VideoItem, CoverageZone, Bookmark } from "./types";
+import { useLanguage } from "./utils/LanguageContext";
 import { seedDatabaseIfEmpty } from "./seedData";
 
 import Header from "./components/Header";
