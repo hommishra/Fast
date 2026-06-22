@@ -370,12 +370,19 @@ export default function FCLayout({
                           SCHEDULED
                         </span>
                       )}
+
+                      {vid.duration && vid.duration !== "0:00" && (
+                        <span className="absolute bottom-2 right-2 bg-black/85 backdrop-blur-[2px] text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shadow z-15 select-none pointer-events-none">
+                          {vid.duration}
+                        </span>
+                      )}
                       
                       <SmartVideoPlayer
                         src={vid.url}
                         title={vid.title}
                         className="rounded-lg"
                         status={vid.status}
+                        thumbnailUrl={vid.thumbnailUrl}
                       />
                     </div>
 

@@ -77,9 +77,13 @@ export default function SmartVideoPlayer({
       }
 
       // If our source has local mock server route we try local indexedDB first
-      if (src.startsWith("/uploads/")) {
+      if (src.startsWith("/uploads/") || src.includes("/uploads/")) {
         try {
-          const cachedBlob = await getVideoFile(src);
+          const normalizedKey = src.includes("/uploads/")
+            ? "/uploads/" + src.split("/uploads/")[1]
+            : src;
+
+          const cachedBlob = await getVideoFile(normalizedKey);
           if (cachedBlob && active) {
             const cacheObjUrl = URL.createObjectURL(cachedBlob);
             objectUrlRef.current = cacheObjUrl;
@@ -162,8 +166,11 @@ export default function SmartVideoPlayer({
     );
   }
 
-  // If a thumbnail is supplied and user has NOT started playing, show beautiful preview placard
-  if (thumbnailUrl && !isPlaying) {
+  const defaultThumb = "https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640";
+  const activeThumb = thumbnailUrl || defaultThumb;
+
+  // Render a preview placard until user starts playback
+  if (!isPlaying) {
     return (
       <div 
         onClick={() => setIsPlaying(true)}
@@ -171,13 +178,12 @@ export default function SmartVideoPlayer({
         id={`smart_player_thumbnail_${src.slice(-10)}`}
       >
         <img
-          src={thumbnailUrl}
+          src={activeThumb}
           alt={title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           referrerPolicy="no-referrer"
           onError={(e) => {
-            // If permanent thumbnail somehow fails, hide image
-            (e.target as HTMLImageElement).style.display = 'none';
+            (e.target as HTMLImageElement).src = defaultThumb;
           }}
         />
         
@@ -186,7 +192,7 @@ export default function SmartVideoPlayer({
 
         {/* Pulse center Play Button */}
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="p-4 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transform transition-all duration-300 group-hover:scale-110 active:scale-95 z-10 flex items-center justify-center">
+          <div className="p-4 bg-red-650 hover:bg-red-700 text-white rounded-full shadow-lg transform transition-all duration-300 group-hover:scale-110 active:scale-95 z-10 flex items-center justify-center">
             <Play size={24} className="fill-current text-white translate-x-0.5" />
           </div>
         </div>

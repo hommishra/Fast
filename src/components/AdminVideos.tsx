@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { VideoItem } from "../types";
+import { saveVideoFile } from "../indexedDB";
 import { 
   Video, 
   Trash2, 
@@ -62,6 +63,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [thumbnailProgress, setThumbnailProgress] = useState(0);
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [duration, setDuration] = useState("0:00");
+  const [editDuration, setEditDuration] = useState("0:00");
 
   // Local operation indicators 
   const [publishing, setPublishing] = useState(false);
@@ -73,6 +76,21 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const activeUploadPromiseRef = useRef<Promise<{ uploadId: string; localUrl: string }> | null>(null);
+
+  // Helper to log errors to admin panel activity logs (activity_logs collection)
+  const logPublishError = async (errorText: string) => {
+    try {
+      await addDoc(collection(db, "activity_logs"), {
+        userEmail: adminSession?.email || "admin@fastcoverage.news",
+        timestamp: new Date().toISOString(),
+        action: `[Video Publish Error] ${errorText}`,
+        ip: adminSession?.ip || "127.0.0.1"
+      });
+    } catch (e) {
+      console.error("Failed to write error log to activity_logs:", e);
+    }
+  };
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -187,7 +205,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     if (file && file.type.startsWith("video/")) {
       console.log("File selected: " + file.name);
       setSelectedFile(file);
-      startVideoUpload(file);
+      activeUploadPromiseRef.current = startVideoUpload(file);
     } else {
       setErrorMsg("Please select a valid HD video file.");
     }
@@ -199,7 +217,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
     console.log("File selected: " + file.name);
     setSelectedFile(file);
-    startVideoUpload(file);
+    activeUploadPromiseRef.current = startVideoUpload(file);
   };
 
   const triggerFileSelect = () => {
@@ -219,8 +237,308 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     thumbnailInputRef.current?.click();
   };
 
-  // IMMEDIATE DIRECT STORAGE UPLOADING & PROGRESS INDICATOR
-  const startVideoUpload = (file: File) => {
+  const [currentUploadId, setCurrentUploadId] = useState("");
+  const [editUploadId, setEditUploadId] = useState("");
+  const [editSelectedFile, setEditSelectedFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<"Published" | "Draft">("Published");
+
+  const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB chunks
+
+  // Parse file extension safely
+  const pathExt = (name: string) => {
+    const parts = name.split(".");
+    return parts.length > 1 ? `.${parts.pop()}` : "";
+  };
+
+  // Video format, integrity validation and duration extraction
+  const validateAndGetVideoMetadata = (file: File): Promise<{ duration: string; durationSeconds: number }> => {
+    return new Promise((resolve, reject) => {
+      // 1. Verify file format extension & MIME type representation
+      const validExtensions = [".mp4", ".webm", ".mov", ".avi"];
+      const ext = pathExt(file.name).toLowerCase();
+      
+      if (!validExtensions.includes(ext) && !file.type.startsWith("video/")) {
+        reject(new Error("Unsupported video format. Highly authorized formats include MP4, WebM, MOV, and AVI."));
+        return;
+      }
+      
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      
+      let objectUrl: string | null = null;
+      try {
+        objectUrl = URL.createObjectURL(file);
+        video.src = objectUrl;
+      } catch (e) {
+        reject(new Error("Invalid or corrupted video file. Please test and choose another file."));
+        return;
+      }
+      
+      const timeoutSecs = 12000; // 12 seconds protection
+      const loadTimeout = setTimeout(() => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        reject(new Error("File validation timeout. This file may be corrupt, DRM-protected, or encoded in an unsupported container format."));
+      }, timeoutSecs);
+      
+      video.onloadedmetadata = () => {
+        clearTimeout(loadTimeout);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        
+        const seconds = video.duration;
+        if (isNaN(seconds) || seconds === Infinity || seconds <= 0) {
+          reject(new Error("File format integrity failed: zero-duration or corrupted/empty audio/video stream."));
+          return;
+        }
+        
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        const durationStr = `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+        
+        resolve({
+          duration: durationStr,
+          durationSeconds: seconds
+        });
+      };
+      
+      video.onerror = () => {
+        clearTimeout(loadTimeout);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        reject(new Error("Corrupt or invalid video format. This file failed native HTML5 decoding check."));
+      };
+    });
+  };
+
+  // Convert canvas base64 DataURL to Blob
+  const dataURLtoBlob = (dataurl: string) => {
+    try {
+      const arr = dataurl.split(",");
+      const mimeMatch = arr[0].match(/:(.*?);/);
+      if (!mimeMatch) return null;
+      const mime = mimeMatch[1];
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      return new Blob([u8arr], { type: mime });
+    } catch (e) {
+      console.error("Failed converting dataurl to blob:", e);
+      return null;
+    }
+  };
+
+  // Automatic Thumbnail extraction via HTML5 Video element canvas drawing
+  const generateAutomaticThumbnail = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      try {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
+        
+        const videoUrl = URL.createObjectURL(file);
+        video.src = videoUrl;
+        
+        video.onloadedmetadata = () => {
+          video.currentTime = Math.min(1.5, video.duration / 2);
+        };
+        
+        video.onseeked = async () => {
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 640;
+            canvas.height = 360;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL("image/jpeg", 0.75));
+            } else {
+              resolve("");
+            }
+          } catch (e) {
+            console.error("Frame draw failure:", e);
+            resolve("");
+          } finally {
+            URL.revokeObjectURL(videoUrl);
+          }
+        };
+        
+        video.onerror = () => {
+          URL.revokeObjectURL(videoUrl);
+          resolve("");
+        };
+      } catch (err) {
+        console.error("Thumbnail capture setup failed:", err);
+        resolve("");
+      }
+    });
+  };
+
+  // Split and upload bytes in chunks in parallel (Requirement 1)
+  const uploadFileInChunks = async (
+    file: File,
+    onProgress: (progress: number, speed: string, eta: number) => void
+  ): Promise<{ uploadId: string; localUrl: string }> => {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    
+    // Read the entire file as an ArrayBuffer immediately while the reference/permission is 100% active and fresh!
+    let fileBuffer: ArrayBuffer | null = null;
+    try {
+      fileBuffer = await file.arrayBuffer();
+    } catch (bufErr: any) {
+      console.warn("Direct file.arrayBuffer() load failed under current context, falling back to slow slicing stream:", bufErr);
+    }
+
+    // 1. Initialize chunked transfer on express
+    const initRes = await fetch("/api/admin/video-upload/init", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileSize: file.size,
+        totalChunks
+      })
+    });
+
+    if (!initRes.ok) {
+      const errData = await initRes.json().catch(() => ({ error: "Server Initialization Failed" }));
+      throw new Error(errData.error || `Initialization HTTP Error ${initRes.status}`);
+    }
+
+    const { uploadId } = await initRes.json();
+    let uploadedChunksCount = 0;
+    const startTime = Date.now();
+
+    // Chunk helper to convert Blob to Base64 safely
+    const readBlobAsBase64 = async (blob: Blob): Promise<string> => {
+      try {
+        if (typeof blob.arrayBuffer === "function") {
+          const buffer = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          const len = bytes.byteLength;
+          
+          // Ultra-fast chunked array-to-string conversion with zero stack-overflow risk
+          const chunkOfChars: string[] = [];
+          const batchSize = 16384; 
+          for (let i = 0; i < len; i += batchSize) {
+            const chunkBytes = bytes.subarray(i, i + batchSize);
+            const charArray = Array.from(chunkBytes);
+            chunkOfChars.push(String.fromCharCode.apply(null, charArray));
+          }
+          return btoa(chunkOfChars.join(""));
+        }
+      } catch (abErr: any) {
+        console.warn("ArrayBuffer conversion failed, falling back to FileReader:", abErr);
+      }
+
+      // Reliable FileReader recovery fallback
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64 = result.split(",")[1] || result;
+          resolve(base64);
+        };
+        reader.onerror = () => {
+          console.error("FileReader failure:", reader.error);
+          reject(new Error("FileReader error: " + (reader.error?.message || "Unknown error")));
+        };
+        reader.readAsDataURL(blob);
+      });
+    };
+
+    // Fast in-memory Base64 conversion from Uint8Array
+    const encodeUint8ArrayToBase64 = (bytes: Uint8Array): string => {
+      const len = bytes.byteLength;
+      const chunkOfChars: string[] = [];
+      const batchSize = 16384; 
+      for (let i = 0; i < len; i += batchSize) {
+        const chunkBytes = bytes.subarray(i, i + batchSize);
+        const charArray = Array.from(chunkBytes);
+        chunkOfChars.push(String.fromCharCode.apply(null, charArray));
+      }
+      return btoa(chunkOfChars.join(""));
+    };
+
+    // Chunk upload function with automatic retry logic (Requirement 6) and Base64 JSON transmission
+    const uploadChunkWithRetry = async (chunkIndex: number, retriesLeft = 5): Promise<void> => {
+      const start = chunkIndex * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+
+      try {
+        let base64Data = "";
+        if (fileBuffer) {
+          const chunkBytes = new Uint8Array(fileBuffer, start, end - start);
+          base64Data = encodeUint8ArrayToBase64(chunkBytes);
+        } else {
+          const chunkBlob = file.slice(start, end);
+          base64Data = await readBlobAsBase64(chunkBlob);
+        }
+
+        const res = await fetch("/api/admin/video-upload/chunk", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${adminToken}`,
+            "x-upload-id": uploadId,
+            "x-chunk-index": chunkIndex.toString()
+          },
+          body: JSON.stringify({ chunkData: base64Data })
+        });
+
+        if (!res.ok) {
+          throw new Error(`Chunk ${chunkIndex} upload failed with HTTP status ${res.status}`);
+        }
+      } catch (err: any) {
+        if (retriesLeft > 0) {
+          const delay = (6 - retriesLeft) * 1500;
+          console.warn(`[Auto-Retry] Dynamic chunk upload failed. Retrying chunk-${chunkIndex} in ${delay}ms... (${retriesLeft} retries remaining)`);
+          await new Promise(r => setTimeout(r, delay));
+          return uploadChunkWithRetry(chunkIndex, retriesLeft - 1);
+        }
+        throw new Error(`Upload aborted: Chunk ${chunkIndex} failed persistently after retries. ${err.message || err}`);
+      }
+    };
+
+    // Queue (Requirement 1: Chunk processing in parallel with dual worker threads)
+    const chunkQueue = Array.from({ length: totalChunks }, (_, i) => i);
+    const workerCount = Math.min(2, totalChunks); // Dual workers for robust parallel transmission without proxy choke!
+
+    const runWorker = async () => {
+      while (chunkQueue.length > 0) {
+        const index = chunkQueue.shift();
+        if (index === undefined) break;
+
+        await uploadChunkWithRetry(index);
+        uploadedChunksCount++;
+
+        // Calculate metrics
+        const progress = Math.round((uploadedChunksCount / totalChunks) * 100);
+        const elapsed = (Date.now() - startTime) / 1000;
+        const bytesLoaded = uploadedChunksCount * CHUNK_SIZE;
+        const speedBps = elapsed > 0.1 ? bytesLoaded / elapsed : 0;
+        const speedMBs = speedBps / (1024 * 1024);
+        const speedStr = speedMBs > 0.01 ? `${speedMBs.toFixed(2)} MB/s` : "Calculating...";
+        const eta = speedBps > 0 ? Math.max(0, Math.round((file.size - bytesLoaded) / speedBps)) : 0;
+
+        onProgress(progress, speedStr, eta);
+      }
+    };
+
+    const workers = Array.from({ length: workerCount }, () => runWorker());
+    await Promise.all(workers);
+
+    return { uploadId, localUrl: `/uploads/assembled-${uploadId}${pathExt(file.name)}` };
+  };
+
+  // Immediate start of chunk upload & automatic thumbnail derivation
+  const startVideoUpload = async (file: File) => {
     setErrorMsg(null);
     setSuccessMsg(null);
     setVideoUrl("");
@@ -229,56 +547,51 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     setUploadEta(null);
     setUploading(true);
 
-    console.log("Upload started");
-    const startTime = Date.now();
-    const storageRef = ref(storage, `videoBulletins/videos/${Date.now()}_${file.name}`);
-    const uploadTask = uploadBytesResumable(storageRef, file);
+    try {
+      console.log("Validating video file format and integrity...");
+      const meta = await validateAndGetVideoMetadata(file);
+      setDuration(meta.duration);
+      console.log(`Video duration validated: ${meta.duration}`);
 
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        const bytesTransferred = snapshot.bytesTransferred;
-        const totalBytes = snapshot.totalBytes;
-        const progress = totalBytes > 0 ? Math.round((bytesTransferred / totalBytes) * 100) : 0;
-        
-        setUploadProgress(progress);
-        console.log(`Upload progress: ${progress}%`);
-
-        const now = Date.now();
-        const elapsedSeconds = (now - startTime) / 1000;
-        if (elapsedSeconds > 0.1) {
-          const speedBps = bytesTransferred / elapsedSeconds;
-          const speedMBs = speedBps / (1024 * 1024);
-          setUploadSpeed(speedMBs.toFixed(2) + " MB/s");
-          if (speedBps > 0) {
-            const eta = Math.max(0, Math.round((totalBytes - bytesTransferred) / speedBps));
-            setUploadEta(eta);
+      console.log("Extracting automatic thumbnail frame...");
+      generateAutomaticThumbnail(file).then(async (dataUrl) => {
+        if (dataUrl) {
+          const blob = dataURLtoBlob(dataUrl);
+          if (blob) {
+            const thumbFile = new File([blob], `auto-cover-${Date.now()}.jpg`, { type: "image/jpeg" });
+            console.log("Cover drawn, starting permanent Firebase Storage upload...");
+            startThumbnailUpload(thumbFile);
           }
         }
-      },
-      (error) => {
-        console.error("Direct Video Storage upload failed:", error);
-        setErrorMsg("Direct Video upload failed: " + error.message);
-        setUploading(false);
-      },
-      async () => {
-        try {
-          console.log("Upload completed");
-          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-          console.log("Download URL created: " + downloadUrl);
-          setVideoUrl(downloadUrl);
-          setUploading(false);
-          setSuccessMsg("✓ HD Video successfully uploaded! Fill in Title and click Publish.");
-        } catch (err: any) {
-          console.error("Failed to fetch Video download URL:", err);
-          setErrorMsg("Failed to resolve dynamic URL: " + err.message);
-          setUploading(false);
+      });
+
+      console.log("Initiating multi-parallel chunk transfer...");
+      const { uploadId, localUrl } = await uploadFileInChunks(
+        file,
+        (progress, speed, eta) => {
+          setUploadProgress(progress);
+          setUploadSpeed(speed);
+          setUploadEta(eta);
         }
-      }
-    );
+      );
+
+      setVideoUrl(localUrl);
+      setCurrentUploadId(uploadId);
+      setUploading(false);
+      setSuccessMsg("✓ HD Video successfully uploaded! Fill in details below and click Publish.");
+      return { uploadId, localUrl };
+    } catch (err: any) {
+      console.error("Video registration and upload aborted:", err);
+      const errMsg = "Video validation or upload failed: " + (err.message || String(err));
+      setErrorMsg(errMsg);
+      setUploading(false);
+      setSelectedFile(null);
+      await logPublishError(`[Upload Stream Aborted] File Name: ${file.name} - Reason: ${err.message || String(err)}`);
+      throw err;
+    }
   };
 
-  // Optional Custom Thumbnail Immediate Upload Action
+  // Permanent cloud cover thumbnail upload Action
   const startThumbnailUpload = (file: File) => {
     setThumbnailUrl("");
     setThumbnailProgress(0);
@@ -311,15 +624,25 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     );
   };
 
-  // Submit flow to register completely with Firestore db
+  // Submit flow: calls Express completion endpoint which merges & uploads durably in background
   const handlePublishSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Explicit validation checks
+    if (!selectedFile) {
+      setErrorMsg("Validation Error: Please select an HD video file to publish.");
+      return;
+    }
     if (!title.trim()) {
       setErrorMsg("Validation Error: Please enter a descriptive Video Title.");
       return;
     }
-    if (!videoUrl) {
-      setErrorMsg("Validation Error: No broadcast video path uploaded yet. Select a video first.");
+    if (!category) {
+      setErrorMsg("Validation Error: Please select an active Category Desk.");
+      return;
+    }
+    if (!status) {
+      setErrorMsg("Validation Error: Please select a valid Publish Status.");
       return;
     }
 
@@ -327,42 +650,73 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     setErrorMsg(null);
     setSuccessMsg(null);
 
+    let activeUploadId = currentUploadId;
+    let activeVideoUrl = videoUrl;
+
+    // 2. Await in-progress upload streams smoothly so the user can hit Publish immediately after selecting
+    if (uploading || !activeVideoUrl || !activeUploadId) {
+      if (activeUploadPromiseRef.current) {
+        setSuccessMsg("Uploading video in progress (please wait for data bytes to complete)...");
+        try {
+          const res = await activeUploadPromiseRef.current;
+          activeUploadId = res.uploadId;
+          activeVideoUrl = res.localUrl;
+        } catch (err: any) {
+          const errMsg = "Publish failed: Video upload failed. Please try again. " + (err.message || String(err));
+          setErrorMsg(errMsg);
+          setPublishing(false);
+          await logPublishError(`[Submit Failure - Upload Error] File: ${selectedFile.name} - Title: ${title.trim()} - Reason: ${err.message || String(err)}`);
+          return;
+        }
+      } else {
+        setErrorMsg("Validation Error: No broadcast video path uploaded. Please select a video file first.");
+        setPublishing(false);
+        return;
+      }
+    }
+
     try {
-      const timestampISO = new Date().toISOString();
-      const defaultThumb = "https://images.unsplash.com/photo-1546256811-99075add3074?auto=format&fit=crop&q=80&w=640";
+      const response = await fetch("/api/admin/video-upload/complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          uploadId: activeUploadId,
+          title: title.trim(),
+          description: description.trim(),
+          category,
+          author: author || "admin@fastcoverage.news",
+          status: status, // published or draft as set initially
+          thumbnailUrl,
+          duration, // <-- Include dynamic video duration!
+          isScheduled: false,
+          scheduledTime: ""
+        })
+      });
 
-      const docData = {
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        url: videoUrl,
-        videoUrl: videoUrl,
-        thumbnailUrl: thumbnailUrl || defaultThumb,
-        duration: "0:00",
-        createdAt: timestampISO,
-        updatedAt: timestampISO,
-        publishedAt: timestampISO,
-        author: author || "admin@fastcoverage.news",
-        status: "Published",
-        published: true,
-        featured: false,
-        views: 0,
-        isLive: false,
-        isScheduled: false,
-        scheduledTime: ""
-      };
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: "Assembly endpoint failed" }));
+        throw new Error(errData.error || `HTTP complete status ${response.status}`);
+      }
 
-      // Add clean item to primary collection
-      const docRef = await addDoc(collection(db, "videoBulletins"), docData);
-      console.log("Firestore saved");
+      const resData = await response.json().catch(() => ({}));
+      const finalLocalVideoUrl = resData.videoUrl || activeVideoUrl;
 
-      // Set item to legacy videos mirroring system
-      await setDoc(doc(db, "videos", docRef.id), { ...docData, id: docRef.id });
-      console.log("Publish completed");
+      // Preserves the video file blob in client's IndexedDB cache linked to its server virtual path
+      if (finalLocalVideoUrl && selectedFile) {
+        try {
+          await saveVideoFile(finalLocalVideoUrl, selectedFile);
+          console.log(`[IndexedDB Fallback Cache] Saved video file locally: ${finalLocalVideoUrl}`);
+        } catch (cErr) {
+          console.error("Failed to save to local IndexedDB cache:", cErr);
+        }
+      }
 
-      setSuccessMsg(`✓ Broadcast Published Successfully: "${title.trim()}" is now live.`);
+      setSuccessMsg(`✓ Video Published Successfully! "${title.trim()}" is now live on the homepage.`);
 
-      // Reset standard fields
+      // Reset standard field properties
       setTitle("");
       setDescription("");
       setCategory("general");
@@ -370,49 +724,71 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       setThumbnailFile(null);
       setVideoUrl("");
       setThumbnailUrl("");
+      setDuration("0:00");
       setUploadProgress(0);
       setThumbnailProgress(0);
+      setCurrentUploadId("");
+      activeUploadPromiseRef.current = null;
     } catch (err: any) {
       console.error("Publishing video bulletin failed:", err);
-      setErrorMsg("Publish failed: " + (err.message || String(err)));
+      const errMsg = "Publish failed: " + (err.message || String(err));
+      setErrorMsg(errMsg);
+      await logPublishError(`[Submit Failure - Complete Endpoint] Title: ${title.trim()} - Reason: ${err.message || String(err)}`);
     } finally {
       setPublishing(false);
     }
   };
 
-  // Edit form file replacement triggers
-  const handleEditVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Edit replacing handlers: supports chunks & parallel workers cleanly
+  const handleEditVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setEditVideoProgress(0);
     setEditVideoUploading(true);
+    setEditSelectedFile(file);
+    setErrorMsg(null);
 
-    const storageRef = ref(storage, `videoBulletins/videos/edit_${Date.now()}_${file.name}`);
-    const uploadTask = uploadBytesResumable(storageRef, file);
+    try {
+      console.log("Validating replacement video and extracting duration...");
+      const meta = await validateAndGetVideoMetadata(file);
+      setEditDuration(meta.duration);
+      console.log(`Replacement video duration validated: ${meta.duration}`);
 
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        const progress = snapshot.totalBytes > 0 ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) : 0;
-        setEditVideoProgress(progress);
-      },
-      (error) => {
-        console.error("Edit video upload failed:", error);
-        setErrorMsg("Failed uploading replacement video: " + error.message);
-        setEditVideoUploading(false);
-      },
-      async () => {
-        try {
-          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-          setEditVideoUrl(downloadUrl);
-          setEditVideoUploading(false);
-        } catch (err: any) {
-          console.error("Failed obtaining output URL:", err);
-          setEditVideoUploading(false);
+      generateAutomaticThumbnail(file).then(async (dataUrl) => {
+        if (dataUrl) {
+          const blob = dataURLtoBlob(dataUrl);
+          if (blob) {
+            const thumbFile = new File([blob], `auto-thumb-edit-${Date.now()}.jpg`, { type: "image/jpeg" });
+            console.log("Automatic edit cover extraction completed.");
+            
+            const storageRef = ref(storage, `videoBulletins/thumbnails/edit_${Date.now()}_${thumbFile.name}`);
+            const uploadTask = uploadBytesResumable(storageRef, thumbFile);
+            uploadTask.on("state_changed", null, null, async () => {
+              const url = await getDownloadURL(uploadTask.snapshot.ref);
+              setEditThumbnailUrl(url);
+            });
+          }
         }
-      }
-    );
+      });
+
+      const { uploadId, localUrl } = await uploadFileInChunks(
+        file,
+        (progress) => {
+          setEditVideoProgress(progress);
+        }
+      );
+
+      setEditVideoUrl(localUrl);
+      setEditUploadId(uploadId);
+      setEditVideoUploading(false);
+      setSuccessMsg("✓ Replacement video successfully cached. Click Save Changes to complete.");
+    } catch (error: any) {
+      console.error("Replacement video validation or upload failed:", error);
+      setErrorMsg("Replacement check or upload failed: " + error.message);
+      setEditVideoUploading(false);
+      setEditSelectedFile(null);
+    }
   };
 
   const handleEditThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -448,7 +824,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     );
   };
 
-  // Apply edits to existing video bulletin securely
+  // Submit edited properties
   const handleSaveEditsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingVideo) return;
@@ -462,23 +838,70 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
     try {
       const timestampISO = new Date().toISOString();
-      const updatedData = {
-        title: editTitle.trim(),
-        description: editDescription.trim(),
-        category: editCategory,
-        status: editStatus,
-        published: editStatus === "Published",
-        url: editVideoUrl || editingVideo.url,
-        videoUrl: editVideoUrl || editingVideo.videoUrl || editingVideo.url,
-        thumbnailUrl: editThumbnailUrl || editingVideo.thumbnailUrl,
-        updatedAt: timestampISO
-      };
 
-      await updateDoc(doc(db, "videoBulletins", editingVideo.id), updatedData);
-      await setDoc(doc(db, "videos", editingVideo.id), updatedData, { merge: true });
+      if (editVideoUrl && editUploadId) {
+        // Replacement video uploaded in chunks, trigger background assembly & Storage transfer
+        const response = await fetch("/api/admin/video-upload/complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({
+            uploadId: editUploadId,
+            title: editTitle.trim(),
+            description: editDescription.trim(),
+            category: editCategory,
+            author: editingVideo.author || author || "admin@fastcoverage.news",
+            status: editStatus,
+            thumbnailUrl: editThumbnailUrl || editingVideo.thumbnailUrl,
+            duration: editDuration, // <-- Include new parsed duration!
+            editVideoId: editingVideo.id
+          })
+        });
 
-      setSuccessMsg(`✓ Video updated: "${editTitle}" has been saved.`);
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({ error: "Assembly endpoint failed" }));
+          throw new Error(errData.error || `HTTP complete status ${response.status}`);
+        }
+
+        const resData = await response.json().catch(() => ({}));
+        const finalLocalUrl = resData.videoUrl || editVideoUrl;
+
+        // Persist video file blob inside local IndexedDB cache matched by its server virtual path
+        if (finalLocalUrl && editSelectedFile) {
+          try {
+            await saveVideoFile(finalLocalUrl, editSelectedFile);
+            console.log(`[IndexedDB Cache Fallback] Saved replacement video locally: ${finalLocalUrl}`);
+          } catch (cErr) {
+            console.error("Failed saving video to IndexedDB cache:", cErr);
+          }
+        }
+
+        setSuccessMsg(`✓ Broadcast updated and is processing in the background: "${editTitle}"`);
+      } else {
+        // Simple property edit: update Firestore records directly
+        const updatedData = {
+          title: editTitle.trim(),
+          description: editDescription.trim(),
+          category: editCategory,
+          status: editStatus,
+          published: editStatus === "Published",
+          thumbnailUrl: editThumbnailUrl || editingVideo.thumbnailUrl,
+          updatedAt: timestampISO
+        };
+
+        await updateDoc(doc(db, "videoBulletins", editingVideo.id), updatedData);
+        await setDoc(doc(db, "videos", editingVideo.id), updatedData, { merge: true });
+
+        setSuccessMsg(`✓ Broadcast updated: "${editTitle}" has been saved.`);
+      }
+
       setEditingVideo(null);
+      setEditUploadId("");
+      setEditVideoUrl("");
+      setEditSelectedFile(null);
+      setEditDuration("0:00");
     } catch (err: any) {
       console.error("Failed saving video document edits:", err);
       setErrorMsg("Failed updating broadcast payload: " + err.message);
@@ -696,29 +1119,14 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                 {editVideoUrl && <p className="text-[9px] text-green-600 font-bold">✓ Replacement video successfully cached.</p>}
               </div>
 
-              {/* Replace Thumbnail Optionally */}
-              <div className="border border-neutral-100 p-3 rounded bg-neutral-50 space-y-2">
-                <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Replace Cover Image (Optional)</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleEditThumbnailChange}
-                  disabled={editThumbUploading}
-                  className="text-xs text-neutral-600 block w-full file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-neutral-200 file:text-neutral-700 hover:file:bg-neutral-300 file:cursor-pointer"
-                />
-                {editThumbUploading && (
-                  <div className="space-y-1 pt-1.5 progress-container">
-                    <div className="flex justify-between text-[9px] font-semibold text-neutral-500">
-                      <span>Uploading Thumbnail...</span>
-                      <span>{editThumbProgress}%</span>
-                    </div>
-                    <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
-                      <div className="bg-red-600 h-full transition-all duration-300" style={{ width: `${editThumbProgress}%` }} />
-                    </div>
+              {editThumbnailUrl && (
+                <div className="space-y-1.5 pt-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Generated Cover Thumbnail</label>
+                  <div className="aspect-video w-32 border border-neutral-200 rounded overflow-hidden mt-1 bg-neutral-50 shadow-xs">
+                    <img src={editThumbnailUrl} alt="Cover Preview" className="w-full h-full object-cover" />
                   </div>
-                )}
-                {editThumbnailUrl && <p className="text-[9px] text-green-600 font-bold">✓ Replacement cover image successfully cached.</p>}
-              </div>
+                </div>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button
@@ -845,7 +1253,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Category desk</label>
                   <select
@@ -865,60 +1273,54 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                     type="text"
                     disabled
                     value={author}
-                    className="w-full bg-neutral-100 border border-neutral-200 rounded p-2 text-xs cursor-not-allowed text-neutral-450 font-medium"
+                    className="w-full bg-neutral-105 border border-neutral-200 rounded p-2 text-xs cursor-not-allowed text-neutral-455 font-medium"
                   />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Publish status</label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as any)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs focus:outline-none cursor-pointer focus:bg-white font-medium"
+                  >
+                    <option value="Published">Published</option>
+                    <option value="Draft">Draft Mode</option>
+                  </select>
                 </div>
               </div>
 
-              {/* Cover Image Optional Upload */}
-              <div className="space-y-1.5 pt-1">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Thumbnail Upload (Optional)</label>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={triggerThumbnailSelect}
-                    disabled={thumbnailUploading}
-                    className="py-1.5 px-3 bg-white border border-neutral-200 hover:bg-neutral-50 rounded text-xs font-semibold text-neutral-600 cursor-pointer flex items-center gap-1 select-none disabled:opacity-45"
-                  >
-                    <ImageIcon size={12} className="text-red-600" />
-                    <span>Upload Thumbnail</span>
-                  </button>
-                  <input
-                    ref={thumbnailInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleThumbnailChange}
-                    disabled={thumbnailUploading}
-                    className="hidden"
-                  />
-                  {thumbnailUploading && (
-                    <div className="text-[10px] text-neutral-500 font-bold flex items-center gap-1 font-mono">
-                      <RefreshCw size={10} className="animate-spin text-red-600" />
-                      <span>{thumbnailProgress}%</span>
-                    </div>
-                  )}
-                  {thumbnailUrl && !thumbnailUploading && (
-                    <div className="text-[10px] text-green-600 font-bold flex items-center gap-1">
-                      <CheckCircle size={10} />
-                      <span>Ready</span>
-                    </div>
-                  )}
-                </div>
-
-                {thumbnailUrl && (
+              {/* Auto Cover Image Preview */}
+              {thumbnailUrl && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center gap-3">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Generated Cover Thumbnail</label>
+                    {thumbnailUploading && (
+                      <div className="text-[10px] text-neutral-500 font-bold flex items-center gap-1 font-mono">
+                        <RefreshCw size={10} className="animate-spin text-red-600" />
+                        <span>{thumbnailProgress}%</span>
+                      </div>
+                    )}
+                    {thumbnailUrl && !thumbnailUploading && (
+                      <div className="text-[10px] text-green-600 font-bold flex items-center gap-1">
+                        <CheckCircle size={10} />
+                        <span>Ready</span>
+                      </div>
+                    )}
+                  </div>
                   <div className="aspect-video w-32 border border-neutral-200 rounded overflow-hidden mt-1 bg-neutral-50 shadow-xs">
                     <img src={thumbnailUrl} alt="Cover Preview" className="w-full h-full object-cover" />
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Publish Action Button */}
               <div className="pt-2 select-none">
                 <button
                   type="submit"
-                  disabled={publishing || uploading || thumbnailUploading}
+                  disabled={publishing}
                   className={`w-full py-2.5 px-4 rounded text-xs tracking-wider uppercase font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md ${
-                    publishing || uploading || thumbnailUploading
+                    publishing
                       ? "bg-neutral-200 text-neutral-400 cursor-not-allowed shadow-none"
                       : "bg-red-600 hover:bg-red-700 text-white hover:shadow-lg active:scale-[0.985]"
                   }`}
@@ -926,7 +1328,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   {publishing ? (
                     <>
                       <RefreshCw size={12} className="animate-spin" />
-                      <span>Publishing Broadcast...</span>
+                      <span>{uploading ? "Uploading & Assembling..." : "Publishing Broadcast..."}</span>
                     </>
                   ) : (
                     <>
@@ -1081,11 +1483,14 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                               
                               <button
                                 onClick={() => handleTogglePublish(vid)}
-                                className={`text-[9.5px] font-extrabold hover:underline cursor-pointer ${
-                                  vid.status === "Published" ? "text-amber-600" : "text-green-600"
+                                className={`text-[9.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded border transition-all cursor-pointer select-none active:scale-95 ${
+                                  vid.status === "Published"
+                                    ? "bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
+                                    : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
                                 }`}
+                                title={vid.status === "Published" ? "Click to change to Draft" : "Click to Publish"}
                               >
-                                {vid.status === "Published" ? "Draft" : "Publish"}
+                                {vid.status === "Published" ? "Published" : "Draft"}
                               </button>
 
                               <button
