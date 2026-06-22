@@ -647,24 +647,36 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
           if (fileSnap.exists()) {
             const fileMeta = fileSnap.data();
             if (fileMeta && fileMeta.totalChunks) {
-              const totalChunks = fileMeta.totalChunks;
-              const chunks: Buffer[] = [];
-              console.log(`[Durable Store Recovering Chunked] ${safeName} has ${totalChunks} chunks in Firestore durable_video_files_chunks. Restoring...`);
-              for (let i = 0; i < totalChunks; i++) {
-                const chunkDocRef = doc(db, "durable_video_files_chunks", `${safeName}_chunk_${i}`);
-                const chunkSnap = await getDoc(chunkDocRef);
-                if (chunkSnap.exists()) {
-                  const chunkData = chunkSnap.data();
-                  if (chunkData && chunkData.fileData) {
-                    chunks.push(Buffer.from(chunkData.fileData, "base64"));
+              if (fileMeta.isFullyUploaded === false) {
+                console.log(`[Durable Store Check] ${safeName} is still being processed and uploaded in background. Skipping immediate chunk restoration.`);
+              } else if (fileMeta.isCorrupted === true) {
+                console.log(`[Durable Store Check] ${safeName} is marked as corrupted/incomplete. Skipping chunk restoration.`);
+              } else {
+                const totalChunks = fileMeta.totalChunks;
+                const chunks: Buffer[] = [];
+                console.log(`[Durable Store Recovering Chunked] ${safeName} has ${totalChunks} chunks in Firestore durable_video_files_chunks. Restoring...`);
+                let restoreBroken = false;
+                for (let i = 0; i < totalChunks; i++) {
+                  const chunkDocRef = doc(db, "durable_video_files_chunks", `${safeName}_chunk_${i}`);
+                  const chunkSnap = await getDoc(chunkDocRef);
+                  if (chunkSnap.exists()) {
+                    const chunkData = chunkSnap.data();
+                    if (chunkData && chunkData.fileData) {
+                      chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                    }
+                  } else {
+                    restoreBroken = true;
+                    // Mark as corrupted immediately so we never spam the log during subsequent requests
+                    await updateDoc(doc(db, "durable_video_files", safeName), { isCorrupted: true }).catch(() => {});
+                    throw new Error(`Missing chunk ${i} for ${safeName}`);
                   }
-                } else {
-                  throw new Error(`Missing chunk ${i} for ${safeName}`);
+                }
+                if (!restoreBroken) {
+                  const fullBuffer = Buffer.concat(chunks);
+                  fs.writeFileSync(targetPath, fullBuffer);
+                  console.log(`[Durable Store Recovered Chunked] Successfully restored ${safeName} (${fullBuffer.length} bytes) to ephemeral server local node from chunked Firestore!`);
                 }
               }
-              const fullBuffer = Buffer.concat(chunks);
-              fs.writeFileSync(targetPath, fullBuffer);
-              console.log(`[Durable Store Recovered Chunked] Successfully restored ${safeName} (${fullBuffer.length} bytes) to ephemeral server local node from chunked Firestore!`);
             }
           }
         } catch (cErr) {
@@ -912,20 +924,21 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
       if (!fs.existsSync(filePath)) return;
       const stats = fs.statSync(filePath);
       const totalSize = stats.size;
-      const CHUNK_SIZE = 800 * 1024; // 800KB chunk size to be well within Firestore 1MB document limit
+      const CHUNK_SIZE = 500 * 1024; // 500KB chunk size to safely stay below Firestore 1MB document limit after base64 expansion
       const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
 
       console.log(`[Durable Firestore Chunking] Writing ${safeName} (${totalSize} bytes) to Firestore in ${totalChunks} chunks...`);
 
       const fileBuffer = fs.readFileSync(filePath);
 
-      // Save File Metadata Registration
+      // Save File Metadata Registration (Marked as NOT fully uploaded initially)
       await setDoc(doc(db, "durable_video_files", safeName), {
         fileName: safeName,
         fileSize: totalSize,
         totalChunks: totalChunks,
         contentType: "video/mp4",
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isFullyUploaded: false
       });
 
       for (let i = 0; i < totalChunks; i++) {
@@ -941,6 +954,13 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
           uploadedAt: new Date().toISOString()
         });
       }
+
+      // Mark the metadata document as fully uploaded once all chunks are complete
+      await setDoc(
+        doc(db, "durable_video_files", safeName),
+        { isFullyUploaded: true },
+        { merge: true }
+      );
 
       console.log(`[Durable Firestore Chunking Done] Finished writing all ${totalChunks} chunks for ${safeName}`);
     } catch (err) {
@@ -1353,24 +1373,35 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
               if (fileDocSnap.exists()) {
                 const fileMeta = fileDocSnap.data();
                 if (fileMeta && fileMeta.totalChunks) {
-                  const totalChunks = fileMeta.totalChunks;
-                  const chunks: Buffer[] = [];
-                  for (let i = 0; i < totalChunks; i++) {
-                    const chunkDocRef = doc(db, "durable_video_files_chunks", `${targetLocalFilename}_chunk_${i}`);
-                    const chunkSnap = await getDoc(chunkDocRef);
-                    if (chunkSnap.exists()) {
-                      const chunkData = chunkSnap.data();
-                      if (chunkData && chunkData.fileData) {
-                        chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                  if (fileMeta.isFullyUploaded === false) {
+                    console.log(`[Monitoring-SKIP] Video ${targetLocalFilename} is still uploading to Firestore chunks. Healing deferred.`);
+                  } else if (fileMeta.isCorrupted === true) {
+                    console.log(`[Monitoring-SKIP] Video ${targetLocalFilename} is marked corrupted/incomplete. Healing skipped.`);
+                  } else {
+                    const totalChunks = fileMeta.totalChunks;
+                    const chunks: Buffer[] = [];
+                    let brokenRestore = false;
+                    for (let i = 0; i < totalChunks; i++) {
+                      const chunkDocRef = doc(db, "durable_video_files_chunks", `${targetLocalFilename}_chunk_${i}`);
+                      const chunkSnap = await getDoc(chunkDocRef);
+                      if (chunkSnap.exists()) {
+                        const chunkData = chunkSnap.data();
+                        if (chunkData && chunkData.fileData) {
+                          chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                        }
+                      } else {
+                        brokenRestore = true;
+                        await updateDoc(doc(db, "durable_video_files", targetLocalFilename), { isCorrupted: true }).catch(() => {});
+                        throw new Error(`Missing chunk ${i}`);
                       }
-                    } else {
-                      throw new Error(`Missing chunk ${i}`);
+                    }
+                    if (!brokenRestore) {
+                      const fullBuffer = Buffer.concat(chunks);
+                      fs.writeFileSync(targetPath, fullBuffer);
+                      isPlayable = true;
+                      console.log(`[Monitoring-HEALED] Restored video ${targetLocalFilename} successfully from database base64 chunks!`);
                     }
                   }
-                  const fullBuffer = Buffer.concat(chunks);
-                  fs.writeFileSync(targetPath, fullBuffer);
-                  isPlayable = true;
-                  console.log(`[Monitoring-HEALED] Restored video ${targetLocalFilename} successfully from database base64 chunks!`);
                 }
               } else {
                 console.error(`[Monitoring-FAIL] No durable chunks backup configured for ${targetLocalFilename}`);
@@ -1415,40 +1446,53 @@ Do NOT output any markdown tags like \`\`\`json. Just output clean, raw, valid J
               try {
                 const fileMeta = solvedDoc.data();
                 if (fileMeta && fileMeta.totalChunks) {
-                  const totalChunks = fileMeta.totalChunks;
-                  const chunks: Buffer[] = [];
-                  const targetPath = path.join(uploadsDir, solvedSafeName);
-                  for (let i = 0; i < totalChunks; i++) {
-                    const chunkDocRef = doc(db, "durable_video_files_chunks", `${solvedSafeName}_chunk_${i}`);
-                    const chunkSnap = await getDoc(chunkDocRef);
-                    if (chunkSnap.exists()) {
-                      const chunkData = chunkSnap.data();
-                      if (chunkData && chunkData.fileData) {
-                        chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                  if (fileMeta.isFullyUploaded === false) {
+                    console.log(`[Monitoring-SKIP] Guessed video ${solvedSafeName} is still uploading to Firestore chunks. Healing deferred.`);
+                  } else if (fileMeta.isCorrupted === true) {
+                    console.log(`[Monitoring-SKIP] Guessed video ${solvedSafeName} is marked corrupted/incomplete. Healing bypassed.`);
+                  } else {
+                    const totalChunks = fileMeta.totalChunks;
+                    const chunks: Buffer[] = [];
+                    const targetPath = path.join(uploadsDir, solvedSafeName);
+                    let brokenRestore = false;
+                    for (let i = 0; i < totalChunks; i++) {
+                      const chunkDocRef = doc(db, "durable_video_files_chunks", `${solvedSafeName}_chunk_${i}`);
+                      const chunkSnap = await getDoc(chunkDocRef);
+                      if (chunkSnap.exists()) {
+                        const chunkData = chunkSnap.data();
+                        if (chunkData && chunkData.fileData) {
+                          chunks.push(Buffer.from(chunkData.fileData, "base64"));
+                        }
+                      } else {
+                        brokenRestore = true;
+                        await updateDoc(doc(db, "durable_video_files", solvedSafeName), { isCorrupted: true }).catch(() => {});
+                        break;
                       }
                     }
-                  }
-                  const fullBuffer = Buffer.concat(chunks);
-                  fs.writeFileSync(targetPath, fullBuffer);
-                  
-                  const healUrl = `/uploads/${solvedSafeName}`;
-                  await updateDoc(doc(db, "videoBulletins", docId), {
-                    url: healUrl,
-                    videoUrl: healUrl,
-                    status: "Published",
-                    publishStatus: "Published",
-                    published: true
-                  });
-                  await setDoc(doc(db, "videos", docId), {
-                    url: healUrl,
-                    videoUrl: healUrl,
-                    status: "Published",
-                    publishStatus: "Published",
-                    published: true
-                  }, { merge: true });
+                    if (!brokenRestore) {
+                      const fullBuffer = Buffer.concat(chunks);
+                      fs.writeFileSync(targetPath, fullBuffer);
+                      
+                      const healUrl = `/uploads/${solvedSafeName}`;
+                      await updateDoc(doc(db, "videoBulletins", docId), {
+                        url: healUrl,
+                        videoUrl: healUrl,
+                        status: "Published",
+                        publishStatus: "Published",
+                        published: true
+                      });
+                      await setDoc(doc(db, "videos", docId), {
+                        url: healUrl,
+                        videoUrl: healUrl,
+                        status: "Published",
+                        publishStatus: "Published",
+                        published: true
+                      }, { merge: true });
 
-                  isPlayable = true;
-                  console.log(`[Monitoring-HEALED-EXTERNAL] Defective URL reclaimed to restored local chunked file: ${healUrl}`);
+                      isPlayable = true;
+                      console.log(`[Monitoring-HEALED-EXTERNAL] Defective URL reclaimed to restored local chunked file: ${healUrl}`);
+                    }
+                  }
                 }
               } catch (extHealErr) {
                 console.error("[Monitoring-FAIL] Failed to heal broken external link:", extHealErr);
