@@ -1,6 +1,6 @@
 import React from "react";
 import { Article, Category, VideoItem, CoverageZone } from "../types";
-import { Clock, Eye, TrendingUp, Tv, Camera } from "lucide-react";
+import { Clock, Eye, TrendingUp, Tv, Camera, ChevronLeft, ChevronRight } from "lucide-react";
 import ActiveSectionsMap from "./ActiveSectionsMap";
 import SmartVideoPlayer from "./SmartVideoPlayer";
 import { getFallbackImage } from "../utils/imageHelpers";
@@ -70,6 +70,19 @@ export default function FCLayout({
   const publishedArticles = articles.filter(
     (art) => art.status === "Published" && new Date(art.publishDate).getTime() <= Date.now()
   );
+
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  const scrollVideos = (direction: "left" | "right") => {
+    if (scrollContainerRef.current) {
+      const { scrollLeft, clientWidth } = scrollContainerRef.current;
+      const scrollAmount = clientWidth * 0.85;
+      scrollContainerRef.current.scrollTo({
+        left: direction === "left" ? scrollLeft - scrollAmount : scrollLeft + scrollAmount,
+        behavior: "smooth",
+      });
+    }
+  };
 
   // Apply filters based on Category & Search
   const filteredArticles = publishedArticles.filter((art) => {
@@ -342,18 +355,42 @@ export default function FCLayout({
                 </span>
               </div>
             </div>
-            <span className="text-xs bg-neutral-800 border border-neutral-700 px-3 py-1 rounded-full text-neutral-300 font-mono self-start sm:self-center select-none font-bold">
-              ● {videos.length} BRIEFINGS LIVE
-            </span>
+            
+            <div className="flex items-center gap-3">
+              <span className="text-xs bg-neutral-800 border border-neutral-700 px-3 py-1 rounded-full text-neutral-300 font-mono select-none font-bold">
+                ● {videos.length} BRIEFINGS LIVE
+              </span>
+              {videos.length > 1 && (
+                <div className="flex items-center gap-2 select-none">
+                  <button
+                    onClick={() => scrollVideos("left")}
+                    className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 active:scale-95 text-white border border-neutral-700 transition duration-200 cursor-pointer flex items-center justify-center"
+                    title="Previous Slide"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    onClick={() => scrollVideos("right")}
+                    className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 active:scale-95 text-white border border-neutral-700 transition duration-200 cursor-pointer flex items-center justify-center"
+                    title="Next Slide"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {videos.slice(0, 6).map((vid) => {
+          <div 
+            ref={scrollContainerRef}
+            className="flex overflow-x-auto scroll-smooth snap-x snap-mandatory gap-6 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          >
+            {videos.map((vid) => {
               const matchesYoutube = vid.url.includes("youtube.com") || vid.url.includes("youtu.be") || vid.url.includes("embed");
               return (
                 <div 
                   key={vid.id}
-                  className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 rounded-xl overflow-hidden p-4 flex flex-col justify-between transition-all duration-300 hover:shadow-lg group shadow-sm"
+                  className="w-[280px] sm:w-[340px] md:w-[370px] shrink-0 snap-start bg-neutral-950 border border-neutral-800 hover:border-neutral-700 rounded-xl overflow-hidden p-4 flex flex-col justify-between transition-all duration-300 hover:shadow-lg group shadow-sm"
                 >
                   <div className="space-y-3.5">
                     {/* Embedded preview engine */}
