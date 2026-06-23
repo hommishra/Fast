@@ -242,6 +242,19 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const [editSelectedFile, setEditSelectedFile] = useState<File | null>(null);
   const [status, setStatus] = useState<"Draft" | "Published" | "Processing" | "Archived">("Published");
 
+  // Advanced feature additions: Scheduling & AI Thumbnail support
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledTime, setScheduledTime] = useState("");
+  const [editIsScheduled, setEditIsScheduled] = useState(false);
+  const [editScheduledTime, setEditScheduledTime] = useState("");
+
+
+
+  const [aiThumbnails, setAiThumbnails] = useState<string[]>([]);
+  const [isSuggestingThumbnails, setIsSuggestingThumbnails] = useState(false);
+  const [editAiThumbnails, setEditAiThumbnails] = useState<string[]>([]);
+  const [isEditSuggestingThumbnails, setIsEditSuggestingThumbnails] = useState(false);
+
   const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB chunks
 
   // Parse file extension safely
@@ -692,6 +705,68 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     );
   };
 
+  const getAiThumbnailSuggestions = async (e: React.MouseEvent, useEditMode = false) => {
+    e.preventDefault();
+    const sourceTitle = useEditMode ? editTitle : title;
+    const sourceCategory = useEditMode ? editCategory : category;
+
+    if (!sourceTitle.trim()) {
+      alert("Please specify a Video Title first so the AI model can generate relevant suggested cover tags!");
+      return;
+    }
+
+    if (useEditMode) {
+      setIsEditSuggestingThumbnails(true);
+      setEditAiThumbnails([]);
+    } else {
+      setIsSuggestingThumbnails(true);
+      setAiThumbnails([]);
+    }
+
+    try {
+      const response = await fetch("/api/gemini/suggest-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          title: sourceTitle.trim(),
+          categoryId: sourceCategory
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`AI search query failed inside system context API: ${response.status}`);
+      }
+
+      const resData = await response.json();
+      const firstUrl = resData.url;
+      // Synthesize 3 diverse matching signatures
+      const suggestions = [
+        firstUrl,
+        firstUrl.replace("fit=crop", "fit=facearea") + "&sig=1a",
+        firstUrl.replace("&w=1200", "&w=640") + "&sig=2b"
+      ];
+
+      if (useEditMode) {
+        setEditThumbnailUrl(firstUrl); // Pre-set first choice immediately
+        setEditAiThumbnails(suggestions);
+      } else {
+        setThumbnailUrl(firstUrl); // Pre-set first choice immediately
+        setAiThumbnails(suggestions);
+      }
+    } catch (err: any) {
+      console.error("AI suggested images request failure:", err);
+    } finally {
+      if (useEditMode) {
+        setIsEditSuggestingThumbnails(false);
+      } else {
+        setIsSuggestingThumbnails(false);
+      }
+    }
+  };
+
   // Submit flow: calls Express completion endpoint which merges & uploads durably in background
   const handlePublishSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -759,8 +834,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
           status: status, // published or draft as set initially
           thumbnailUrl,
           duration, // <-- Include dynamic video duration!
-          isScheduled: false,
-          scheduledTime: ""
+          isScheduled: isScheduled,
+          scheduledTime: isScheduled ? scheduledTime : ""
         })
       });
 
@@ -796,6 +871,9 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
       setUploadProgress(0);
       setThumbnailProgress(0);
       setCurrentUploadId("");
+      setIsScheduled(false);
+      setScheduledTime("");
+      setAiThumbnails([]);
       activeUploadPromiseRef.current = null;
     } catch (err: any) {
       console.error("Publishing video bulletin failed:", err);
@@ -983,6 +1061,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
           status: editStatus,
           published: editStatus === "Published",
           thumbnailUrl: editThumbnailUrl || editingVideo.thumbnailUrl,
+          isScheduled: editIsScheduled,
+          scheduledTime: editIsScheduled ? editScheduledTime : "",
           updatedAt: timestampISO
         };
 
@@ -1182,6 +1262,27 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                 </div>
               </div>
 
+              <div className="space-y-1 pt-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5 cursor-pointer font-sans">
+                  <input
+                    type="checkbox"
+                    checked={editIsScheduled}
+                    onChange={(e) => setEditIsScheduled(e.target.checked)}
+                    className="accent-red-650 h-3.5 w-3.5 rounded"
+                  />
+                  <span>Schedule Release?</span>
+                </label>
+                {editIsScheduled && (
+                  <input
+                    type="datetime-local"
+                    required
+                    value={editScheduledTime}
+                    onChange={(e) => setEditScheduledTime(e.target.value)}
+                    className="w-full bg-white border border-neutral-350 rounded p-1.5 text-xs text-neutral-800 font-mono"
+                  />
+                )}
+              </div>
+
               {/* Replace Video Optionally */}
               <div className="border border-neutral-100 p-3 rounded bg-neutral-50 space-y-2">
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Replace Video File (Optional)</span>
@@ -1231,6 +1332,45 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   <div className="space-y-1.5 pt-1">
                     <div className="aspect-video w-32 border border-neutral-200 rounded overflow-hidden mt-1 bg-neutral-50 shadow-xs">
                       <img src={editThumbnailUrl} alt="Cover Preview" className="w-full h-full object-cover" />
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => getAiThumbnailSuggestions(e, true)}
+                    disabled={isEditSuggestingThumbnails}
+                    className="inline-flex items-center gap-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-650 font-bold uppercase tracking-wider text-[9px] px-2.5 py-1.5 rounded transition shadow-2xs select-none cursor-pointer"
+                  >
+                    {isEditSuggestingThumbnails ? (
+                      <>
+                        <RefreshCw size={9} className="animate-spin text-red-650" />
+                        <span>AI Querying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>✨ Get AI Covers</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {editAiThumbnails.length > 0 && (
+                  <div className="pt-2 border-t border-neutral-200/60 mt-2 space-y-1.5 animate-fadeIn">
+                    <span className="block text-[8px] font-black uppercase tracking-widest text-red-650 font-sans">✨ Suggested Photographic Covers (Select One)</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {editAiThumbnails.map((url, i) => (
+                        <div 
+                          key={i}
+                          onClick={() => setEditThumbnailUrl(url)}
+                          className={`relative aspect-video rounded border overflow-hidden cursor-pointer bg-neutral-900 group hover:ring-2 hover:ring-red-655 transition ${
+                            editThumbnailUrl === url ? "ring-2 ring-red-655 border-transparent" : "border-neutral-200"
+                          }`}
+                        >
+                          <img src={url} alt={`Ed Sig ${i}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1398,6 +1538,29 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                     <option value="Archived">Archived</option>
                   </select>
                 </div>
+
+                <div className="space-y-1.5 pt-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isScheduled}
+                      onChange={(e) => setIsScheduled(e.target.checked)}
+                      className="accent-red-600 h-3.5 w-3.5 rounded"
+                    />
+                    <span>Schedule Publication Release?</span>
+                  </label>
+                  {isScheduled && (
+                    <input
+                      type="datetime-local"
+                      required
+                      value={scheduledTime}
+                      onChange={(e) => setScheduledTime(e.target.value)}
+                      className="w-full bg-white border border-neutral-350 rounded p-2 text-xs text-neutral-800 font-mono tracking-tight cursor-pointer"
+                    />
+                  )}
+                </div>
+
+
               </div>
 
               {/* Optional custom thumbnail upload */}
@@ -1444,19 +1607,64 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
                   <div className="space-y-1.5 flex-1 min-w-[150px]">
                     <p className="text-[10px] leading-relaxed text-neutral-500 font-medium font-sans">
-                      By default, an automatic frame thumbnail is extracted. You can upload a high-res custom thumbnail JPG/PNG at any time.
+                      By default, an automatic frame thumbnail is extracted. You can upload a high-res custom thumbnail JPG/PNG or get instant suggestions.
                     </p>
-                    <button
-                      type="button"
-                      onClick={triggerThumbnailSelect}
-                      disabled={thumbnailUploading}
-                      className="inline-flex items-center gap-1.5 bg-white hover:bg-neutral-100 border border-neutral-250 text-neutral-700 font-bold uppercase tracking-wider text-[9px] px-2.5 py-1.5 rounded transition shadow-2xs select-none cursor-pointer"
-                    >
-                      <Upload size={9} />
-                      <span>{thumbnailUrl ? "Upload Custom Image" : "Choose Custom Cover"}</span>
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={triggerThumbnailSelect}
+                        disabled={thumbnailUploading}
+                        className="inline-flex items-center gap-1.5 bg-white hover:bg-neutral-100 border border-neutral-250 text-neutral-700 font-bold uppercase tracking-wider text-[9px] px-2.5 py-1.5 rounded transition shadow-2xs select-none cursor-pointer"
+                      >
+                        <Upload size={9} />
+                        <span>{thumbnailUrl ? "Upload Custom Image" : "Choose Custom Cover"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => getAiThumbnailSuggestions(e, false)}
+                        disabled={isSuggestingThumbnails}
+                        className="inline-flex items-center gap-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-650 font-bold uppercase tracking-wider text-[9px] px-2.5 py-1.5 rounded transition shadow-2xs select-none cursor-pointer"
+                      >
+                        {isSuggestingThumbnails ? (
+                          <>
+                            <RefreshCw size={9} className="animate-spin text-red-650" />
+                            <span>AI Matching...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>✨ Get AI Covers</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                {/* AI Thumbnail Cover List */}
+                {aiThumbnails.length > 0 && (
+                  <div className="pt-2 border-t border-neutral-200/60 mt-2 space-y-1.5 animate-fadeIn">
+                    <span className="block text-[8px] font-black uppercase tracking-widest text-red-650 font-sans">✨ AI Suggested Photographic Covers (Select One)</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {aiThumbnails.map((url, i) => (
+                        <div 
+                          key={i}
+                          onClick={() => setThumbnailUrl(url)}
+                          className={`relative aspect-video rounded border overflow-hidden cursor-pointer bg-neutral-900 group hover:ring-2 hover:ring-red-650 transition ${
+                            thumbnailUrl === url ? "ring-2 ring-red-650 border-transparent" : "border-neutral-200"
+                          }`}
+                        >
+                          <img src={url} alt={`Sig ${i}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          <div className={`absolute inset-0 bg-red-650/15 flex items-center justify-center transition-opacity ${
+                            thumbnailUrl === url ? "opacity-100" : "opacity-0"
+                          }`}>
+                            <span className="bg-red-655 text-white text-[7px] font-mono px-1 rounded uppercase font-black tracking-widest">Active</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {thumbnailUploading && (
                   <div className="space-y-1 pt-1 font-mono">
@@ -1684,6 +1892,9 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                                 setEditStatus(vid.status || "Published");
                                 setEditVideoUrl("");
                                 setEditThumbnailUrl(vid.thumbnailUrl || "");
+                                setEditIsScheduled(vid.isScheduled || false);
+                                setEditScheduledTime(vid.scheduledTime || "");
+                                setEditAiThumbnails([]);
                               }}
                               className="p-1 hover:bg-neutral-100 rounded text-neutral-500 hover:text-neutral-700 cursor-pointer"
                               title="Edit properties"

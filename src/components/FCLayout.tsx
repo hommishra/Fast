@@ -4,6 +4,7 @@ import { Clock, Eye, TrendingUp, Tv, Camera, ChevronLeft, ChevronRight } from "l
 import ActiveSectionsMap from "./ActiveSectionsMap";
 import SmartVideoPlayer from "./SmartVideoPlayer";
 import { getFallbackImage } from "../utils/imageHelpers";
+import { useLanguage } from "../utils/LanguageContext";
 
 const getArticleThumb = (art: Article) => {
   if (art.images && art.images.length > 0) {
@@ -66,6 +67,8 @@ export default function FCLayout({
   selectedCategory,
   searchTerm,
 }: FCLayoutProps) {
+  const { t } = useLanguage();
+
   // Filter active and published records
   const publishedArticles = articles.filter(
     (art) => art.status === "Published" && new Date(art.publishDate).getTime() <= Date.now()
@@ -111,9 +114,9 @@ export default function FCLayout({
   if (filteredArticles.length === 0) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center select-none" id="empty_headlines_grid">
-        <h3 className="text-2xl font-bold text-neutral-800">No Headlines Matching Search</h3>
+        <h3 className="text-2xl font-bold text-neutral-800">{t("No Headlines Matching Search")}</h3>
         <p className="text-neutral-500 mt-2 text-sm max-w-md mx-auto">
-          We couldn't locate any stories with that query. Try broadening your keywords or browse individual category sheets.
+          {t("We couldn't locate any stories with that query. Try broadening your keywords or browse individual category sheets.")}
         </p>
       </div>
     );
@@ -121,13 +124,18 @@ export default function FCLayout({
 
   // If filtered by category or search, render simple structured grid list
   if (selectedCategory || searchTerm) {
+    const matchedCategoryName = selectedCategory 
+      ? categories.find(c => c.id === selectedCategory)?.name 
+      : "";
+    const headingText = selectedCategory 
+      ? t(matchedCategoryName || "") 
+      : `${t("Search Results:")} "${searchTerm}"`;
+
     return (
       <div className="max-w-7xl mx-auto px-6 py-8" id="filtered_grid_layout">
         <h2 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tight border-b border-slate-200 pb-2.5 flex items-center gap-2">
-          <span className="bg-red-600 text-white px-2 py-0.5 text-[10px] tracking-widest font-mono rounded">LIVE</span>
-          {selectedCategory 
-            ? categories.find(c => c.id === selectedCategory)?.name 
-            : `Search Results: "${searchTerm}"`}
+          <span className="bg-red-600 text-white px-2 py-0.5 text-[10px] tracking-widest font-mono rounded">{t("LIVE")}</span>
+          {headingText}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {filteredArticles.map((art) => (
@@ -140,7 +148,7 @@ export default function FCLayout({
                 <div className="aspect-[16/10] w-full overflow-hidden rounded-lg bg-slate-100 relative">
                   <img
                     src={getArticleThumb(art)}
-                    alt={art.title}
+                    alt={t(art.title)}
                     className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
                     referrerPolicy="no-referrer"
                     loading="lazy"
@@ -152,19 +160,19 @@ export default function FCLayout({
                   {getArticleImagesCount(art) > 1 && (
                     <span className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[9px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded shadow z-10 flex items-center gap-1">
                       <Camera size={11} className="text-blue-400" />
-                      {getArticleImagesCount(art)} Photos
+                      {getArticleImagesCount(art)} {t("Photos")}
                     </span>
                   )}
                 </div>
                 <div>
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans">
-                    {art.categoryId}
+                    {t(art.categoryId)}
                   </span>
                   <h3 className="font-extrabold text-sm text-slate-900 group-hover:text-blue-600 transition-colors leading-snug line-clamp-3">
-                    {art.title}
+                    {t(art.title)}
                   </h3>
                   <p className="text-slate-500 text-xs mt-1.5 leading-relaxed line-clamp-3 font-sans">
-                    {art.excerpt}
+                    {t(art.excerpt)}
                   </p>
                 </div>
               </div>
@@ -174,7 +182,7 @@ export default function FCLayout({
                   {formatDate(art.publishDate)}
                 </span>
                 <span className="flex items-center gap-1 font-bold text-red-600">
-                  <Eye size={11} /> {art.views} reads
+                  <Eye size={11} /> {art.views} {t("reads")}
                 </span>
               </div>
             </div>
@@ -201,7 +209,7 @@ export default function FCLayout({
           <div className="overflow-hidden bg-slate-100 rounded-xl aspect-[16/9] border border-slate-200 relative">
             <img
               src={getArticleThumb(featuredHero)}
-              alt={featuredHero.title}
+              alt={t(featuredHero.title)}
               className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
               referrerPolicy="no-referrer"
               loading="lazy"
@@ -213,40 +221,40 @@ export default function FCLayout({
             {getArticleImagesCount(featuredHero) > 1 && (
               <span className="absolute bottom-4 right-4 bg-black/75 backdrop-blur-xs text-white text-[10px] font-mono uppercase tracking-wider font-bold px-3 py-1 rounded shadow z-10 flex items-center gap-1.5 md:hidden">
                 <Camera size={12} className="text-blue-400" />
-                {getArticleImagesCount(featuredHero)} Photos
+                {getArticleImagesCount(featuredHero)} {t("Photos")}
               </span>
             )}
             {getArticleImagesCount(featuredHero) > 1 && (
               <span className="absolute top-4 left-4 bg-slate-900/95 backdrop-blur-xs text-white text-[10px] font-mono uppercase tracking-wider font-bold px-3 py-1 rounded shadow z-10 flex items-center gap-1.5 hidden md:flex border border-white/10">
                 <Camera size={12} className="text-blue-400" />
-                Gallery: {getArticleImagesCount(featuredHero)} Photos
+                {t("Gallery:")} {getArticleImagesCount(featuredHero)} {t("Photos")}
               </span>
             )}
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/90 to-transparent p-6 text-white pt-24 hidden md:block">
               <span className="bg-red-600 text-white text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded">
-                Spotlight Bulletin
+                {t("Spotlight Bulletin")}
               </span>
               <h2 className="text-xl md:text-3xl font-black tracking-tight leading-snug mt-3">
-                {featuredHero.title}
+                {t(featuredHero.title)}
               </h2>
             </div>
           </div>
 
           <div className="md:hidden space-y-1.5">
             <span className="text-[9px] font-mono tracking-widest uppercase text-red-600 select-none">
-              Spotlight Bulletin
+              {t("Spotlight Bulletin")}
             </span>
             <h2 className="text-xl font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors">
-              {featuredHero.title}
+              {t(featuredHero.title)}
             </h2>
           </div>
 
           <p className="text-slate-600 text-xs md:text-sm leading-relaxed line-clamp-2">
-            {featuredHero.excerpt}
+            {t(featuredHero.excerpt)}
           </p>
 
           <div className="flex items-center gap-3 text-[10px] font-mono text-slate-400">
-            <span className="font-bold text-slate-800">By {featuredHero.authorName}</span>
+            <span className="font-bold text-slate-800">{t("By")} {featuredHero.authorName}</span>
             <span>&bull;</span>
             <span>{formatDate(featuredHero.publishDate)}</span>
           </div>
@@ -256,7 +264,7 @@ export default function FCLayout({
         <div className="space-y-4">
           <h3 className="text-[11px] font-bold tracking-wider uppercase text-slate-900 border-l-3 border-blue-600 pl-2.5 flex items-center gap-1.5 font-sans select-none">
             <TrendingUp size={13} className="text-blue-600" />
-            Bulletins & Analysis
+            {t("Bulletins & Analysis")}
           </h3>
           <div className="divide-y divide-slate-200">
             {sidebarStories.map((art) => (
@@ -267,22 +275,22 @@ export default function FCLayout({
               >
                 <div className="flex justify-between items-baseline gap-2">
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans">
-                    {art.categoryId}
+                    {t(art.categoryId)}
                   </span>
                   <span className="text-[9px] text-slate-400 font-mono shrink-0">
                     {formatDate(art.publishDate)}
                   </span>
                 </div>
                 <h4 className="font-extrabold text-slate-900 text-xs leading-snug group-hover:text-blue-600 transition-colors">
-                  {art.title}
+                  {t(art.title)}
                 </h4>
                 <p className="text-slate-500 text-[11px] line-clamp-1 leading-relaxed">
-                  {art.excerpt}
+                  {t(art.excerpt)}
                 </p>
               </div>
             ))}
             {sidebarStories.length === 0 && (
-              <p className="text-slate-400 text-xs italic py-4">Updates pending. Connect server to sync.</p>
+              <p className="text-slate-400 text-xs italic py-4">{t("Updates pending. Connect server to sync.")}</p>
             )}
           </div>
         </div>
@@ -292,7 +300,7 @@ export default function FCLayout({
       {coreFlow.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-xs font-bold text-slate-550 tracking-wider uppercase border-b border-slate-200 pb-2 select-none font-sans">
-            Latest Daily Coverage
+            {t("Latest Daily Coverage")}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {coreFlow.map((art) => (
@@ -305,7 +313,7 @@ export default function FCLayout({
                   <div className="aspect-[16/10] w-full overflow-hidden bg-slate-50 rounded-lg border border-slate-150 image-box relative">
                     <img
                       src={getArticleThumb(art)}
-                      alt={art.title}
+                      alt={t(art.title)}
                       className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
                       referrerPolicy="no-referrer"
                       loading="lazy"
@@ -317,20 +325,20 @@ export default function FCLayout({
                     {getArticleImagesCount(art) > 1 && (
                       <span className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[9px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded shadow z-10 flex items-center gap-1">
                         <Camera size={11} className="text-blue-400" />
-                        {getArticleImagesCount(art)} Photos
+                        {getArticleImagesCount(art)} {t("Photos")}
                       </span>
                     )}
                   </div>
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans block">
-                    {art.categoryId}
+                    {t(art.categoryId)}
                   </span>
                   <h4 className="font-extrabold text-slate-900 text-xs leading-snug group-hover:text-blue-600 transition-colors line-clamp-2">
-                    {art.title}
+                    {t(art.title)}
                   </h4>
                 </div>
                 <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 mt-3 pt-2.5 border-t border-slate-100">
                   <span>{formatDate(art.publishDate)}</span>
-                  <span className="font-bold text-red-650">{art.views} reads</span>
+                  <span className="font-bold text-red-655">{art.views} {t("reads")}</span>
                 </div>
               </div>
             ))}
@@ -348,31 +356,31 @@ export default function FCLayout({
               </span>
               <div>
                 <h2 className="text-lg md:text-xl font-extrabold tracking-tight text-white font-sans">
-                  FAST COVERAGE VIDEO BULLETINS
+                  {t("FAST COVERAGE VIDEO BULLETINS")}
                 </h2>
                 <span className="text-[10px] font-mono uppercase text-neutral-400 mt-0.5 tracking-wider block">
-                  Media Releases, Editorial Descripts & Video Ground Reports
+                  {t("Media Releases, Editorial Descripts & Video Ground Reports")}
                 </span>
               </div>
             </div>
             
             <div className="flex items-center gap-3">
               <span className="text-xs bg-neutral-800 border border-neutral-700 px-3 py-1 rounded-full text-neutral-300 font-mono select-none font-bold">
-                ● {videos.length} BRIEFINGS LIVE
+                ● {videos.length} {t("BRIEFINGS LIVE")}
               </span>
               {videos.length > 1 && (
                 <div className="flex items-center gap-2 select-none">
                   <button
                     onClick={() => scrollVideos("left")}
                     className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 active:scale-95 text-white border border-neutral-700 transition duration-200 cursor-pointer flex items-center justify-center"
-                    title="Previous Slide"
+                    title={t("Previous Slide")}
                   >
                     <ChevronLeft size={16} />
                   </button>
                   <button
                     onClick={() => scrollVideos("right")}
                     className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 active:scale-95 text-white border border-neutral-700 transition duration-200 cursor-pointer flex items-center justify-center"
-                    title="Next Slide"
+                    title={t("Next Slide")}
                   >
                     <ChevronRight size={16} />
                   </button>
@@ -398,13 +406,13 @@ export default function FCLayout({
                       {vid.isLive && (
                         <span className="absolute top-2 left-2 bg-red-650 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow z-15 animate-pulse flex items-center gap-1 select-none">
                           <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
-                          LIVE NOW
+                          {t("LIVE NOW")}
                         </span>
                       )}
                       {vid.isScheduled && (
                         <span className="absolute top-2 left-2 bg-blue-600 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow z-15 flex items-center gap-1 select-none">
                           <Clock size={10} />
-                          SCHEDULED
+                          {t("SCHEDULED")}
                         </span>
                       )}
 
@@ -416,7 +424,7 @@ export default function FCLayout({
                       
                       <SmartVideoPlayer
                         src={vid.url}
-                        title={vid.title}
+                        title={t(vid.title)}
                         className="rounded-lg"
                         status={vid.status}
                         thumbnailUrl={vid.thumbnailUrl}
@@ -427,16 +435,16 @@ export default function FCLayout({
 
                     <div className="space-y-1.5">
                       <h4 className="font-extrabold text-sm text-white group-hover:text-red-500 transition-colors duration-200 leading-snug line-clamp-2">
-                        {vid.title}
+                        {t(vid.title)}
                       </h4>
                       {vid.isScheduled && vid.scheduledTime && (
                         <p className="text-[10px] text-blue-400 font-mono font-bold flex items-center gap-1 select-none pb-1">
                           <Clock size={10} className="text-blue-400 animate-spin-slow" />
-                          Streaming on: {safeFormatDateTime(vid.scheduledTime)}
+                          {t("Streaming on:")} {safeFormatDateTime(vid.scheduledTime)}
                         </p>
                       )}
                       <p className="text-neutral-400 text-xs leading-relaxed line-clamp-3 font-sans">
-                        {vid.description}
+                        {t(vid.description)}
                       </p>
                     </div>
                   </div>
@@ -444,7 +452,7 @@ export default function FCLayout({
                   {/* Date Badge */}
                   <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 font-mono mt-4 pt-3 border-t border-neutral-800 pb-0.5 select-none hover:text-neutral-450">
                     <Clock size={11} className="text-neutral-400" />
-                    <span>PUBLISHED: {safeFormatDateFull(vid.createdAt)}</span>
+                    <span>{t("PUBLISHED:")} {safeFormatDateFull(vid.createdAt)}</span>
                   </div>
                 </div>
               );
@@ -459,14 +467,14 @@ export default function FCLayout({
           <div>
             <h3 className="font-extrabold text-sm md:text-base text-slate-900 flex items-center gap-2 tracking-tight uppercase">
               <span className="w-2.5 h-2.5 bg-blue-600 rounded-full animate-bounce" />
-              Active Coverage Sections Maps
+              {t("Active Coverage Sections Maps")}
             </h3>
             <p className="text-xs text-slate-500 mt-1 select-none">
-              Live correspondent tracking, global telemetry sectors, and incident reports from our regional bureau desks.
+              {t("Live correspondent tracking, global telemetry sectors, and incident reports from our regional bureau desks.")}
             </p>
           </div>
           <span className="font-mono text-[9px] font-bold text-neutral-500 mt-2 md:mt-0 uppercase tracking-wider bg-neutral-100 border border-neutral-200 px-2.5 py-1 rounded">
-            ● {coverageZones.length} BUREAU STATIONS LIVE
+            ● {coverageZones.length} {t("BUREAU STATIONS LIVE")}
           </span>
         </div>
 

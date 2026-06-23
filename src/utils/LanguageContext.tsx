@@ -361,38 +361,65 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Keep track of pending translations to avoid redundant simultaneous requests
   const pendingTranslations = React.useRef<Set<string>>(new Set());
+  const pendingBatchTexts = React.useRef<Set<string>>(new Set());
+  const batchTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  const triggerLazyTranslation = async (text: string) => {
+  const triggerLazyTranslation = (text: string) => {
     if (currentLang.code === "en" || !text.trim()) return;
     const cacheKey = `${currentLang.code}_${text}`;
-    if (pendingTranslations.current.has(cacheKey)) return;
+    if (pendingTranslations.current.has(cacheKey) || dynamicCache[cacheKey]) return;
 
-    pendingTranslations.current.add(cacheKey);
+    pendingBatchTexts.current.add(text);
 
-    try {
-      const response = await fetch("/api/translate/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          texts: [text],
-          targetLangCode: currentLang.code,
-          targetLangName: currentLang.name
-        })
+    if (batchTimeoutRef.current) {
+      clearTimeout(batchTimeoutRef.current);
+    }
+
+    batchTimeoutRef.current = setTimeout(async () => {
+      const textsToRequest = Array.from(pendingBatchTexts.current);
+      pendingBatchTexts.current.clear();
+
+      if (textsToRequest.length === 0) return;
+
+      // Mark all as pending
+      const activeCacheKeys: string[] = [];
+      textsToRequest.forEach((item) => {
+        const key = `${currentLang.code}_${item}`;
+        pendingTranslations.current.add(key);
+        activeCacheKeys.push(key);
       });
-      const data = await response.json();
-      if (data.translations && data.translations[0]) {
-        const translatedText = data.translations[0];
+
+      try {
+        const response = await fetch("/api/translate/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            texts: textsToRequest,
+            targetLangCode: currentLang.code,
+            targetLangName: currentLang.name
+          })
+        });
+        const data = await response.json();
+        const translations = data.translations || [];
+
         setDynamicCache((prev) => {
-          const updated = { ...prev, [cacheKey]: translatedText };
+          const updated = { ...prev };
+          textsToRequest.forEach((item, idx) => {
+            const transVal = translations[idx] || item;
+            const key = `${currentLang.code}_${item}`;
+            updated[key] = transVal;
+          });
           localStorage.setItem("fc_translations_cache_v1", JSON.stringify(updated));
           return updated;
         });
+      } catch (err) {
+        console.warn("Batch lazy translation back-off failed:", err);
+      } finally {
+        activeCacheKeys.forEach((key) => {
+          pendingTranslations.current.delete(key);
+        });
       }
-    } catch (err) {
-      console.warn("Background lazy translation failed for: " + text, err);
-    } finally {
-      pendingTranslations.current.delete(cacheKey);
-    }
+    }, 250);
   };
 
   // Dynamic Batch Translation Helper

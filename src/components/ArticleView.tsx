@@ -5,6 +5,7 @@ import { db } from "../firebase";
 import { Clock, User, ArrowLeft, Send, MessageSquare, Flame, Bookmark as BookmarkIcon, Share2, Twitter, Facebook, MessageCircle, Link, X, Maximize2, ChevronLeft, ChevronRight } from "lucide-react";
 import { getFallbackImage } from "../utils/imageHelpers";
 import { AnimatePresence, motion } from "motion/react";
+import { useLanguage } from "../utils/LanguageContext";
 
 interface ArticleViewProps {
   article: Article;
@@ -25,6 +26,48 @@ export default function ArticleView({
   onBack,
   onSelectArticle,
 }: ArticleViewProps) {
+  const { currentLang, translateArticle, t } = useLanguage();
+  const [translatedArticle, setTranslatedArticle] = useState<any | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+
+  useEffect(() => {
+    if (currentLang.code === "en") {
+      setTranslatedArticle(null);
+      return;
+    }
+
+    let active = true;
+    setIsTranslating(true);
+
+    translateArticle(article.id)
+      .then((res) => {
+        if (active) {
+          if (res && !res.error) {
+            setTranslatedArticle(res);
+          } else {
+            setTranslatedArticle(null);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to translate article automatically:", err);
+        if (active) setTranslatedArticle(null);
+      })
+      .finally(() => {
+        if (active) setIsTranslating(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [article.id, currentLang.code]);
+
+  const displayTitle = translatedArticle?.title || article.title;
+  const displaySubtitle = translatedArticle?.subtitle || article.subtitle;
+  const displayContent = translatedArticle?.content || article.content;
+  const displayExcerpt = translatedArticle?.excerpt || article.excerpt;
+  const displayImageCaption = translatedArticle?.imageCaption || article.imageCaption;
+
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentName, setCommentName] = useState("");
   const [commentEmail, setCommentEmail] = useState("");
@@ -42,9 +85,11 @@ export default function ArticleView({
         ? [article.featuredImage] 
         : [];
 
-  const articleCaptions = article.imageCaptions && article.imageCaptions.length > 0
+  const rawCaptions = article.imageCaptions && article.imageCaptions.length > 0
     ? article.imageCaptions
-    : articleImages.map((_, i) => i === 0 ? (article.imageCaption || "Featured media image") : "");
+    : articleImages.map((_, i) => i === 0 ? (displayImageCaption || "Featured media image") : "");
+
+  const articleCaptions = rawCaptions.map((cap) => t(cap));
 
   // Esc-key and arrow keys event listener for high accessibility and carousel nav
   useEffect(() => {
@@ -70,7 +115,7 @@ export default function ArticleView({
   const isBookmarked = bookmarks?.some((b) => b.articleId === article.id) || false;
 
   const shareUrl = typeof window !== "undefined" ? window.location.href : "";
-  const shareTitle = article.title;
+  const shareTitle = displayTitle;
 
   const handleShare = (platform: "X" | "Facebook" | "WhatsApp" | "Copy") => {
     if (platform === "X") {
@@ -193,7 +238,7 @@ export default function ArticleView({
         onClick={onBack}
         className="flex items-center gap-2 text-slate-500 hover:text-blue-650 transition-colors mb-6 cursor-pointer text-xs font-bold tracking-wider uppercase font-sans"
       >
-        <ArrowLeft size={14} /> Back to Headlines
+        <ArrowLeft size={14} /> {t("Back to Headlines")}
       </button>
 
       {/* Main Core News Article card */}
@@ -202,14 +247,14 @@ export default function ArticleView({
           {/* Title & Metadata */}
           <div className="space-y-3 mb-6">
             <span className="bg-slate-100 text-slate-800 text-[10px] font-mono font-bold uppercase tracking-widest px-2 py-0.5 rounded select-none">
-              {article.categoryId}
+              {t(article.categoryId)}
             </span>
             <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 leading-tight tracking-tight">
-              {article.title}
+              {displayTitle}
             </h1>
-            {article.subtitle && (
+            {displaySubtitle && (
               <p className="text-base md:text-lg text-slate-600 font-medium leading-relaxed italic border-l-2 border-blue-600 pl-3">
-                {article.subtitle}
+                {displaySubtitle}
               </p>
             )}
 
@@ -218,17 +263,17 @@ export default function ArticleView({
               <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono text-slate-400">
                 <div className="flex items-center gap-1.5 font-bold text-slate-800">
                   <User size={12} className="text-blue-600" />
-                  <span>By {article.authorName}</span>
+                  <span>{t("By")} {article.authorName}</span>
                 </div>
                 <span className="text-slate-200">|</span>
                 <div className="flex items-center gap-1.5">
                   <Clock size={12} />
-                  <span>Published {formatDate(article.publishDate)}</span>
+                  <span>{t("Published")} {formatDate(article.publishDate)}</span>
                 </div>
                 <span className="text-slate-200">|</span>
                 <div className="flex items-center gap-1.5 text-red-655">
                   <Flame size={12} />
-                  <span>{article.views + 1} Reads</span>
+                  <span>{article.views + 1} {t("Reads")}</span>
                 </div>
               </div>
 
@@ -243,14 +288,14 @@ export default function ArticleView({
                 }`}
               >
                 <BookmarkIcon size={12} className={isBookmarked ? "fill-white" : ""} />
-                <span>{isBookmarked ? "Saved to Briefs" : "Save Briefing"}</span>
+                <span>{isBookmarked ? t("Saved to Briefs") : t("Save Briefing")}</span>
               </button>
             </div>
 
             {/* Social Share Ribbon */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200/80 mb-6">
               <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 select-none">
-                <Share2 size={12} className="text-blue-600" /> Share bulletins
+                <Share2 size={12} className="text-blue-600" /> {t("Share bulletins")}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -260,7 +305,7 @@ export default function ArticleView({
                   className="p-1 px-2.5 text-[10px] font-bold font-sans tracking-wide bg-neutral-900 border border-neutral-950 text-white rounded-lg hover:bg-neutral-800 transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <Twitter size={11} />
-                  <span>X</span>
+                  <span>{t("X")}</span>
                 </button>
                 <button
                   type="button"
@@ -269,7 +314,7 @@ export default function ArticleView({
                   className="p-1 px-2.5 text-[10px] font-bold font-sans tracking-wide bg-blue-700 border border-blue-800 text-white rounded-lg hover:bg-blue-650 transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <Facebook size={11} />
-                  <span>Facebook</span>
+                  <span>{t("Facebook")}</span>
                 </button>
                 <button
                   type="button"
@@ -278,7 +323,7 @@ export default function ArticleView({
                   className="p-1 px-2.5 text-[10px] font-bold font-sans tracking-wide bg-green-600 border border-green-700 text-white rounded-lg hover:bg-green-550 transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <MessageCircle size={11} />
-                  <span>WhatsApp</span>
+                  <span>{t("WhatsApp")}</span>
                 </button>
                 <button
                   type="button"
@@ -291,7 +336,7 @@ export default function ArticleView({
                   }`}
                 >
                   <Link size={11} />
-                  <span>{copied ? "Copied!" : "Copy Link"}</span>
+                  <span>{copied ? t("Copied!") : t("Copy Link")}</span>
                 </button>
               </div>
             </div>
@@ -304,11 +349,11 @@ export default function ArticleView({
               setIsLightboxOpen(true);
             }}
             className="group relative mb-6 rounded-lg overflow-hidden shadow-sm bg-slate-50 border border-slate-200 aspect-[16/9] cursor-zoom-in active:scale-[0.99] transition-transform duration-200"
-            title="Click to view full-screen"
+            title={t("Click to view full-screen")}
           >
             <img
               src={article.featuredImage || getFallbackImage(article.title, article.categoryId)}
-              alt={article.title}
+              alt={displayTitle}
               className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500 ease-out"
               referrerPolicy="no-referrer"
               loading="lazy"
@@ -320,14 +365,14 @@ export default function ArticleView({
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors duration-350 flex items-center justify-center">
               <div className="opacity-0 group-hover:opacity-100 transform translate-y-3 group-hover:translate-y-0 bg-neutral-900/90 text-white text-[10px] font-bold font-sans uppercase tracking-wider px-3.5 py-2 rounded-full flex items-center gap-2 transition-all duration-300 shadow-lg border border-white/10 select-none">
                 <Maximize2 size={11} className="text-blue-400" />
-                <span>Click to expand image</span>
+                <span>{t("Click to expand image")}</span>
               </div>
             </div>
           </div>
 
           {/* Inner Content Paragraphs */}
           <div className="text-slate-800 text-sm md:text-base leading-relaxed whitespace-pre-line space-y-4 max-w-none font-sans">
-            {article.content}
+            {displayContent}
           </div>
 
           {/* GALLERY SPOTLIGHT COMPONENT */}
@@ -335,10 +380,10 @@ export default function ArticleView({
             <div className="mt-8 pt-6 border-t border-slate-100" id="article_view_gallery_block">
               <div className="flex justify-between items-center mb-4 select-none">
                 <h3 className="text-xs font-bold text-slate-900 tracking-wider uppercase border-l-3 border-blue-600 pl-3">
-                  Documentary Image Gallery ({articleImages.length} Photos)
+                  {t("Documentary Image Gallery")} ({articleImages.length} {t("Photos")})
                 </h3>
                 <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                  Click any photo to expand
+                  {t("Click any photo to expand")}
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
@@ -360,7 +405,7 @@ export default function ArticleView({
                     />
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent opacity-90 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2.5 pt-8">
                       <span className="text-[8px] font-mono font-bold text-white uppercase bg-blue-600 px-1 py-0.5 rounded self-start mb-1">
-                        View Slide
+                        {t("View Slide")}
                       </span>
                       {articleCaptions[idx] && (
                         <p className="text-[10px] text-zinc-200 line-clamp-1 leading-snug font-sans">
@@ -369,7 +414,7 @@ export default function ArticleView({
                       )}
                     </div>
                     <div className="absolute top-1.5 right-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[8px] font-mono text-neutral-300 font-bold z-10">
-                      {idx + 1} of {articleImages.length}
+                      {idx + 1} {t("of")} {articleImages.length}
                     </div>
                   </div>
                 ))}
@@ -380,8 +425,8 @@ export default function ArticleView({
           {/* Post-Reading Bulletin Share Row */}
           <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="text-left select-none">
-              <h4 className="text-xs font-bold text-slate-800 tracking-tight leading-none animate-fade-in">Share this Story</h4>
-              <p className="text-[10px] text-slate-400 mt-1">If you found this reporting valuable, distribute it on your networks.</p>
+              <h4 className="text-xs font-bold text-slate-800 tracking-tight leading-none animate-fade-in">{t("Share this Story")}</h4>
+              <p className="text-[10px] text-slate-400 mt-1">{t("If you found this reporting valuable, distribute it on your networks.")}</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -390,7 +435,7 @@ export default function ArticleView({
                 className="p-1.5 px-3 bg-neutral-900 border border-neutral-950 text-white text-[11px] font-bold rounded-lg hover:bg-neutral-800 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Twitter size={12} />
-                <span>X / Twitter</span>
+                <span>{t("X / Twitter")}</span>
               </button>
               <button
                 type="button"
@@ -398,7 +443,7 @@ export default function ArticleView({
                 className="p-1.5 px-3 bg-blue-700 border border-blue-800 text-white text-[11px] font-bold rounded-lg hover:bg-blue-650 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Facebook size={12} />
-                <span>Facebook</span>
+                <span>{t("Facebook")}</span>
               </button>
               <button
                 type="button"
@@ -406,7 +451,7 @@ export default function ArticleView({
                 className="p-1.5 px-3 bg-green-600 border border-green-700 text-white text-[11px] font-bold rounded-lg hover:bg-green-550 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <MessageCircle size={12} />
-                <span>WhatsApp</span>
+                <span>{t("WhatsApp")}</span>
               </button>
               <button
                 type="button"
@@ -428,7 +473,7 @@ export default function ArticleView({
         {relatedArticles.length > 0 && (
           <section className="py-6 border-b border-slate-100" id="related_bulletins_wrapper">
             <h3 className="text-xs font-bold text-slate-900 mb-4 tracking-wider uppercase border-l-3 border-blue-600 pl-3">
-              Related News Coverage
+              {t("Related News Coverage")}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {relatedArticles.map((rel) => (
@@ -439,7 +484,7 @@ export default function ArticleView({
                 >
                   <img
                     src={rel.featuredImage || getFallbackImage(rel.title, rel.categoryId)}
-                    alt={rel.title}
+                    alt={t(rel.title)}
                     className="w-16 h-16 object-cover rounded shrink-0 border border-slate-200"
                     referrerPolicy="no-referrer"
                     loading="lazy"
@@ -449,11 +494,11 @@ export default function ArticleView({
                     }}
                   />
                   <div className="space-y-1 overflow-hidden">
-                    <span className="text-[9px] uppercase tracking-wider text-red-650 font-extrabold font-sans">
-                      {rel.categoryId}
+                    <span className="text-[9px] uppercase tracking-wider text-red-655 font-extrabold font-sans">
+                      {t(rel.categoryId)}
                     </span>
                     <h4 className="font-extrabold text-slate-900 text-xs leading-snug group-hover:text-blue-600 transition-colors line-clamp-2">
-                      {rel.title}
+                      {t(rel.title)}
                     </h4>
                   </div>
                 </div>
@@ -466,14 +511,14 @@ export default function ArticleView({
         <section className="py-6 space-y-8" id="comments_dashboard_section">
           <h3 className="text-xs font-bold text-slate-900 tracking-wider uppercase flex items-center gap-1.5 border-l-3 border-blue-600 pl-3 select-none">
             <MessageSquare size={14} className="text-blue-600" />
-            Comments Desk ({comments.length})
+            {t("Comments Desk")} ({comments.length})
           </h3>
 
           {/* Existing Comments listing */}
           <div className="space-y-4">
             {comments.length === 0 ? (
               <p className="text-slate-400 italic text-[11px] py-4 bg-slate-50 border border-dashed border-slate-200 text-center rounded-lg">
-                No comments have been approved yet. Be the first to start the discussion!
+                {t("No comments have been approved yet. Be the first to start the discussion!")}
               </p>
             ) : (
               comments.map((comment) => (
@@ -493,7 +538,7 @@ export default function ArticleView({
                     </span>
                   </div>
                   <p className="text-slate-700 text-xs leading-relaxed whitespace-pre-line font-sans pl-6">
-                    {comment.content}
+                    {t(comment.content)}
                   </p>
                 </div>
               ))
@@ -503,27 +548,27 @@ export default function ArticleView({
           {/* Submission Form */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <h4 className="text-xs font-bold text-slate-900 mb-2 tracking-tight uppercase">
-              Join the Conversation
+              {t("Join the Conversation")}
             </h4>
             <p className="text-[10px] text-amber-805 bg-amber-50 border border-amber-100 p-2 rounded mb-4">
-              <strong>Standards Policy:</strong> Comments pass editorial moderation before loading publicly to prevent spam.
+              <strong>{t("Standards Policy:")}</strong> {t("Comments pass editorial moderation before loading publicly to prevent spam.")}
             </p>
 
             {currentUser ? (
               <div className="bg-blue-50/60 border border-blue-200/60 p-3 rounded-lg mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs font-sans select-none animate-fade-in">
                 <div className="text-blue-800">
-                  Commenting as <strong className="font-bold text-blue-900">{currentUser.displayName || "Anonymous Reader"}</strong> <span className="text-blue-600/85 font-mono text-[10px]">({currentUser.email})</span>
+                  {t("Commenting as")} <strong className="font-bold text-blue-900">{currentUser.displayName || "Anonymous Reader"}</strong> <span className="text-blue-600/85 font-mono text-[10px]">({currentUser.email})</span>
                   <span className="ml-2 bg-blue-100 text-blue-700 font-mono text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wider uppercase">
-                    VERIFIED ID
+                    {t("VERIFIED ID")}
                   </span>
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono">
-                  Synced verified user profile
+                  {t("Synced verified user profile")}
                 </div>
               </div>
             ) : (
               <div className="bg-slate-100 text-slate-650 p-2.5 rounded-lg mb-4 text-[10px] leading-relaxed font-sans select-none">
-                💡 <strong>Subscribers:</strong> Complete your <strong>Reader Sign In</strong> (located in the header top log bar) to register comments under your unique account handle and verify your reading streak.
+                💡 {t("Comment registration info")}
               </div>
             )}
 
@@ -531,22 +576,22 @@ export default function ArticleView({
               {!currentUser && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Name</label>
+                    <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">{t("Name")}</label>
                     <input
                       type="text"
                       required
-                      placeholder="Your display name"
+                      placeholder={t("Your display name")}
                       value={commentName}
                       onChange={(e) => setCommentName(e.target.value)}
                       className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-sans focus:outline-none focus:border-blue-650"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Email</label>
+                    <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">{t("Email")}</label>
                     <input
                       type="email"
                       required
-                      placeholder="name@example.com (Hidden)"
+                      placeholder={t("Hidden Email")}
                       value={commentEmail}
                       onChange={(e) => setCommentEmail(e.target.value)}
                       className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-sans focus:outline-none focus:border-blue-650"
@@ -556,11 +601,11 @@ export default function ArticleView({
               )}
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">Your Comment</label>
+                <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1 font-mono">{t("Your Comment")}</label>
                 <textarea
                   required
                   rows={4}
-                  placeholder="Share your thoughts constructively..."
+                  placeholder={t("Share your thoughts constructively...")}
                   value={commentContent}
                   onChange={(e) => setCommentContent(e.target.value)}
                   className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-sans focus:outline-none focus:border-blue-650"
@@ -570,12 +615,12 @@ export default function ArticleView({
               <div className="flex justify-between items-center">
                 {submitStatus === "success" && (
                   <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2.5 py-1.5 rounded">
-                    Thank you! Your comment went to our editorial queue for approval.
+                    {t("Thank you! Your comment went to our editorial queue for approval.")}
                   </span>
                 )}
                 {submitStatus === "error" && (
                   <span className="text-[10px] font-bold text-red-650 bg-red-50 px-2.5 py-1.5 rounded">
-                    An error occurred. Please check connectivity.
+                    {t("An error occurred. Please check connectivity.")}
                   </span>
                 )}
                 <div className="ml-auto">
@@ -584,7 +629,7 @@ export default function ArticleView({
                     disabled={submitStatus === "sending"}
                     className="bg-blue-600 hover:bg-blue-750 disabled:opacity-50 text-white font-sans text-xs uppercase tracking-widest font-black px-4 py-2.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    {submitStatus === "sending" ? "Publishing..." : "Submit Comment"}
+                    {submitStatus === "sending" ? t("Publishing...") : t("Submit Comment")}
                     <Send size={11} />
                   </button>
                 </div>

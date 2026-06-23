@@ -164,6 +164,16 @@ export default function Header({
               {t("Top Stories")}
             </button>
             <button
+              onClick={() => onSelectCategory("videos")}
+              className={`px-3 py-1.5 text-[10px] font-extrabold font-sans uppercase tracking-widest transition-all shrink-0 rounded-md flex items-center gap-1 border ${
+                selectedCategoryId === "videos"
+                  ? "bg-red-750 text-white border-red-750 shadow-xs"
+                  : "text-red-700 bg-red-50 hover:bg-neutral-900 hover:text-white border-red-200/50"
+              }`}
+            >
+              📺 {t("Video Hub")}
+            </button>
+            <button
               onClick={() => onSelectCategory("markets")}
               className={`px-3 py-1.5 text-[10px] font-extrabold font-sans uppercase tracking-widest transition-all shrink-0 rounded-md flex items-center gap-1 border ${
                 selectedCategoryId === "markets"
@@ -191,7 +201,5 @@ export default function Header({
         </div>
       </div>
     </header>
-  );
-}   </header>
   );
 }

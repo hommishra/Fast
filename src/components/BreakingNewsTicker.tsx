@@ -42,19 +42,21 @@ export default function BreakingNewsTicker() {
       items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       // Trigger animation alarm if list fetched has a new item
-      if (lastItemCount !== 0 && items.length > lastItemCount) {
-        setHasNewAlert(true);
-        setTimeout(() => setHasNewAlert(false), 8000);
-      }
+      setLastItemCount((prev) => {
+        if (prev !== 0 && items.length > prev) {
+          setHasNewAlert(true);
+          setTimeout(() => setHasNewAlert(false), 8000);
+        }
+        return items.length;
+      });
 
       setTickerItems(items);
-      setLastItemCount(items.length);
     }, (error) => {
       console.error("BreakingNewsTicker onSnapshot subscription failed:", error);
     });
 
     return () => unsubscribe();
-  }, [lastItemCount]);
+  }, []);
 
   // Live real-time clock counter
   useEffect(() => {

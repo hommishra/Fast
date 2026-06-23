@@ -17,6 +17,7 @@ import AdminPanel from "./components/AdminPanel";
 import MarketDashboard from "./components/MarketDashboard";
 import AuthModal from "./components/AuthModal";
 import SavedArticlesModal from "./components/SavedArticlesModal";
+import VideoHubView from "./components/VideoHubView";
 
 
 export default function App() {
@@ -468,6 +469,11 @@ export default function App() {
           />
         ) : selectedCategoryId === "markets" ? (
           <MarketDashboard />
+        ) : selectedCategoryId === "videos" ? (
+          <VideoHubView
+            videos={videos}
+            currentUser={currentUser}
+          />
         ) : (
           <FCLayout
             articles={articles}

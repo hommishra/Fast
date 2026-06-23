@@ -2,6 +2,7 @@ import React from "react";
 import { Bookmark } from "../types";
 import { X, BookMarked, Trash2, ArrowUpRight, FolderHeart, Calendar } from "lucide-react";
 import { getFallbackImage } from "../utils/imageHelpers";
+import { useLanguage } from "../utils/LanguageContext";
 
 interface SavedArticlesModalProps {
   isOpen: boolean;
@@ -18,7 +19,10 @@ export default function SavedArticlesModal({
   onRemoveBookmark,
   onSelectArticleById,
 }: SavedArticlesModalProps) {
+  const { t } = useLanguage();
   if (!isOpen) return null;
+
+  const defaultDescription = "Your personally curated index of saved news briefings, investigative reports, and market portfolios. Bookmarks sync securely across devices linked to your account.";
 
   return (
     <div 
@@ -32,17 +36,17 @@ export default function SavedArticlesModal({
           <div className="flex items-center gap-2">
             <BookMarked size={16} className="text-red-500" />
             <h3 className="text-sm font-black tracking-widest text-white uppercase font-sans">
-              Saved Briefings Board
+              {t("Saved Briefings Board")}
             </h3>
             <span className="bg-red-750 text-white font-mono text-[9px] font-bold px-1.5 py-0.5 rounded">
-              {bookmarks.length} SAVED
+              {bookmarks.length} {t("SAVED")}
             </span>
           </div>
           <button 
             type="button" 
             onClick={onClose}
             className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="Close Bookmarks"
+            title={t("Close Bookmarks")}
           >
             <X size={16} />
           </button>
@@ -53,15 +57,15 @@ export default function SavedArticlesModal({
           
           <div className="select-none">
             <p className="text-[11px] text-slate-500">
-              Your personally curated index of saved news briefings, investigative reports, and market portfolios. Bookmarks sync securely across devices linked to your account.
+              {t(defaultDescription)}
             </p>
           </div>
 
           {bookmarks.length === 0 ? (
             <div className="text-center py-10 px-4 border border-dashed border-slate-200 rounded-xl bg-slate-50/50 space-y-2 select-none">
               <FolderHeart size={28} className="text-slate-300 mx-auto" />
-              <p className="text-xs font-bold text-slate-800">Your brief board is currently empty.</p>
-              <p className="text-[10px] text-slate-400">Click "Save Briefing" inside any global report to bookmark it.</p>
+              <p className="text-xs font-bold text-slate-800">{t("Your brief board is currently empty.")}</p>
+              <p className="text-[10px] text-slate-400">{t("Click \"Save Briefing\" inside any global report to bookmark it.")}</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto border border-slate-200 rounded-xl overflow-hidden">
@@ -89,14 +93,14 @@ export default function SavedArticlesModal({
                         }}
                       />
                     ) : (
-                      <div className="w-12 h-12 bg-slate-100 rounded-lg shrink-0 flex items-center justify-center font-bold text-[9px] text-slate-400 border border-slate-200 uppercase font-mono">
-                        NEWS
+                      <div className="w-12 h-12 bg-slate-105 rounded-lg shrink-0 flex items-center justify-center font-bold text-[9px] text-slate-400 border border-slate-200 uppercase font-mono">
+                        {t("NEWS")}
                       </div>
                     )}
                     <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-[8px] font-black uppercase tracking-wider text-red-600 bg-red-50/80 px-1 py-0.5 rounded">
-                          {bookmark.categoryId}
+                        <span className="text-[8px] font-black uppercase tracking-wider text-red-656 bg-red-50/80 px-1 py-0.5 rounded">
+                          {t(bookmark.categoryId)}
                         </span>
                         <span className="text-[8px] text-slate-400 font-mono flex items-center gap-1 leading-none">
                           <Calendar size={8} />
@@ -104,7 +108,7 @@ export default function SavedArticlesModal({
                         </span>
                       </div>
                       <h4 className="font-extrabold text-xs text-slate-900 group-hover:text-blue-650 transition-colors truncate">
-                        {bookmark.articleTitle}
+                        {t(bookmark.articleTitle)}
                       </h4>
                     </div>
                   </div>
@@ -114,7 +118,7 @@ export default function SavedArticlesModal({
                       type="button"
                       onClick={() => onRemoveBookmark(bookmark.id)}
                       className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded-lg transition-colors cursor-pointer"
-                      title="Delete Bookmark"
+                      title={t("Delete Bookmark")}
                     >
                       <Trash2 size={13} />
                     </button>
@@ -125,7 +129,7 @@ export default function SavedArticlesModal({
                         onClose();
                       }}
                       className="text-slate-500 hover:text-slate-800 p-2 rounded-lg transition-colors cursor-pointer hidden sm:inline-flex"
-                      title="Read Briefing"
+                      title={t("Read Briefing")}
                     >
                       <ArrowUpRight size={13} />
                     </button>
@@ -142,7 +146,7 @@ export default function SavedArticlesModal({
               onClick={onClose}
               className="bg-slate-900 hover:bg-slate-800 text-white font-sans text-xs uppercase tracking-widest font-black py-2 px-4 rounded-lg cursor-pointer"
             >
-              Close Hub
+              {t("Close Hub")}
             </button>
           </div>
 

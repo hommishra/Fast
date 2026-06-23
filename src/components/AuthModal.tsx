@@ -5,6 +5,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../firebase";
 import { X, AlertCircle, Sparkles } from "lucide-react";
+import { useLanguage } from "../utils/LanguageContext";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface AuthModalProps {
 }
 
 export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
+  const { t } = useLanguage();
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,15 +29,15 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       const result = await signInWithPopup(auth, provider);
-      setSuccessMsg(`Welcome, ${result.user.displayName || result.user.email}! Signed in successfully.`);
+      setSuccessMsg(`${t("Welcome")}, ${result.user.displayName || result.user.email}! ${t("Signed in successfully.")}`);
       setTimeout(() => {
         onClose();
       }, 1200);
     } catch (err: any) {
       console.error("Google login error:", err);
-      let friendlyMessage = "Failed to sign in with Google Popup. Check your network or browser settings.";
+      let friendlyMessage = t("Failed to sign in with Google Popup. Check your network or browser settings.");
       if (err.code === "auth/popup-blocked") {
-        friendlyMessage = "The Google login popup was blocked by your browser. Please allow popups for this site.";
+        friendlyMessage = t("The Google login popup was blocked by your browser. Please allow popups for this site.");
       } else if (err.message) {
         friendlyMessage = err.message;
       }
@@ -44,6 +46,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       setLoading(false);
     }
   };
+
+  const defaultDesc = "Join our active subscriber network to save custom bulletins, participate in real-time user commentaries, and verify your read history instantly.";
 
   return (
     <div 
@@ -56,17 +60,17 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         <div className="bg-slate-900 px-6 py-4 flex justify-between items-center border-b border-slate-950">
           <div className="flex items-center gap-2">
             <span className="bg-red-650 text-white text-[9.5px] font-black px-2 py-0.5 rounded uppercase tracking-wider">
-              FC NETWORK
+              {t("FC NETWORK")}
             </span>
             <span className="text-[10px] font-mono font-bold tracking-wider text-slate-350 uppercase">
-              Reader Access Gate
+              {t("Reader Access Gate")}
             </span>
           </div>
           <button 
             type="button" 
             onClick={onClose}
             className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="Close Gate"
+            title={t("Close Gate")}
           >
             <X size={16} />
           </button>
@@ -77,10 +81,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           {/* Section Heading */}
           <div className="text-center space-y-2 select-none">
             <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">
-              Sign In to Fast Coverage
+              {t("Sign In to Fast Coverage")}
             </h3>
-            <p className="text-[11px] text-slate-450 leading-relaxed font-medium">
-              Join our active subscriber network to save custom bulletins, participate in real-time user commentaries, and verify your read history instantly.
+            <p className="text-[11px] text-slate-455 leading-relaxed font-medium">
+              {t(defaultDesc)}
             </p>
           </div>
 
@@ -129,17 +133,17 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   className="opacity-95"
                 />
               </svg>
-              <span>{loading ? "Signing in..." : "Continue with Google"}</span>
+              <span>{loading ? t("Signing in...") : t("Continue with Google")}</span>
             </button>
             <p className="text-[10px] text-center text-slate-400 font-mono">
-              Secure Auth &bull; 1-Click Connection
+              {t("Secure Auth")} &bull; {t("1-Click Connection")}
             </p>
           </div>
 
           {/* Institutional Note */}
           <div className="pt-2 select-none border-t border-slate-100 text-center">
             <span className="text-[9.5px] uppercase font-mono font-bold text-slate-400 tracking-wider">
-              FAST COVERAGE STANDARDS DIRECTIVE
+              {t("FAST COVERAGE STANDARDS DIRECTIVE")}
             </span>
           </div>
 

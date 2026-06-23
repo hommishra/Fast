@@ -1,5 +1,6 @@
 import React from "react";
 import { Globe, ArrowUp } from "lucide-react";
+import { useLanguage } from "../utils/LanguageContext";
 
 interface FooterProps {
   logoText: string;
@@ -17,9 +18,12 @@ interface FooterProps {
 }
 
 export default function Footer({ logoText, aboutText, contactEmail, securityEmail, mobileNumbers = [], gmailIds = [], socials }: FooterProps) {
+  const { t } = useLanguage();
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const fallbackAbout = "Bringing fast, accurate, and multi-dimensional news reports from the frontlines of politics, technology, economy, and metropolitan lifestyles with certified integrity.";
 
   return (
     <footer className="bg-slate-950 text-slate-400 mt-16 border-t font-sans border-slate-900" id="main_website_footer">
@@ -36,22 +40,22 @@ export default function Footer({ logoText, aboutText, contactEmail, securityEmai
               </span>
             </div>
             <p className="text-slate-400 text-xs leading-relaxed max-w-sm">
-              {aboutText || "Bringing fast, accurate, and multi-dimensional news reports from the frontlines of politics, technology, economy, and metropolitan lifestyles with certified integrity."}
+              {aboutText ? t(aboutText) : t(fallbackAbout)}
             </p>
           </div>
 
           {/* Quick links & Contact */}
           <div>
-            <h4 className="text-slate-200 text-[10px] font-bold tracking-widest uppercase mb-3.5 font-sans select-none border-l-2 border-blue-500 pl-2">Contact Desk</h4>
+            <h4 className="text-slate-200 text-[10px] font-bold tracking-widest uppercase mb-3.5 font-sans select-none border-l-2 border-blue-500 pl-2">{t("Contact Desk")}</h4>
             <ul className="space-y-3.5 text-xs">
               <li>
-                <span className="text-slate-500 block text-[9px] uppercase font-mono">General Inquiries</span>
+                <span className="text-slate-500 block text-[9px] uppercase font-mono">{t("General Inquiries")}</span>
                 <a href={`mailto:${contactEmail}`} className="text-slate-300 hover:text-blue-500 transition-colors">
                   {contactEmail || "press@fastcoverage.news"}
                 </a>
               </li>
               <li>
-                <span className="text-slate-500 block text-[9px] uppercase font-mono">Security Ops</span>
+                <span className="text-slate-500 block text-[9px] uppercase font-mono">{t("Security Ops")}</span>
                 {securityEmail ? (
                   <a href={`mailto:${securityEmail}`} className="text-slate-300 hover:text-blue-500 transition-colors">
                     {securityEmail}
@@ -64,7 +68,7 @@ export default function Footer({ logoText, aboutText, contactEmail, securityEmai
               {/* Dynamic Mobile Registries managed via settings */}
               {mobileNumbers && mobileNumbers.length > 0 && (
                 <li>
-                  <span className="text-slate-500 block text-[9px] uppercase font-mono">Mobile Hotlines</span>
+                  <span className="text-slate-500 block text-[9px] uppercase font-mono">{t("Mobile Hotlines")}</span>
                   <div className="flex flex-col space-y-1 mt-1 font-mono text-[11px]">
                     {mobileNumbers.map((num, idx) => (
                       <a key={idx} href={`tel:${num}`} className="text-slate-300 hover:text-blue-500 transition-colors">
@@ -78,7 +82,7 @@ export default function Footer({ logoText, aboutText, contactEmail, securityEmai
               {/* Dynamic Gmail Registries managed via settings */}
               {gmailIds && gmailIds.length > 0 && (
                 <li>
-                  <span className="text-slate-500 block text-[9px] uppercase font-mono">Gmail Helpdesk</span>
+                  <span className="text-slate-500 block text-[9px] uppercase font-mono">{t("Gmail Helpdesk")}</span>
                   <div className="flex flex-col space-y-1 mt-1 font-mono text-[11px]">
                     {gmailIds.map((gmail, idx) => (
                       <a key={idx} href={`mailto:${gmail}`} className="text-slate-300 hover:text-blue-500 transition-colors">
@@ -93,19 +97,19 @@ export default function Footer({ logoText, aboutText, contactEmail, securityEmai
 
           {/* Social connections */}
           <div>
-            <h4 className="text-slate-200 text-[10px] font-bold tracking-widest uppercase mb-3.5 font-sans select-none border-l-2 border-blue-500 pl-2">Connect Online</h4>
+            <h4 className="text-slate-200 text-[10px] font-bold tracking-widest uppercase mb-3.5 font-sans select-none border-l-2 border-blue-500 pl-2">{t("Connect Online")}</h4>
             <div className="flex flex-col space-y-1.5 text-xs">
               <a href={socials.facebook} target="_blank" rel="noreferrer" className="hover:text-blue-400 transition-all">
-                Facebook Live Feed
+                {t("Facebook Live Feed")}
               </a>
               <a href={socials.twitter} target="_blank" rel="noreferrer" className="hover:text-blue-400 transition-all">
-                X Bulletin (Twitter)
+                {t("X Bulletin (Twitter)")}
               </a>
               <a href={socials.instagram} target="_blank" rel="noreferrer" className="hover:text-blue-400 transition-all">
-                Instagram Insights
+                {t("Instagram Insights")}
               </a>
               <a href={socials.youtube} target="_blank" rel="noreferrer" className="hover:text-blue-400 transition-all">
-                YouTube Live Broadcasts
+                {t("YouTube Live Broadcasts")}
               </a>
             </div>
           </div>
@@ -115,14 +119,14 @@ export default function Footer({ logoText, aboutText, contactEmail, securityEmai
         <div className="border-t border-slate-900 mt-10 pt-5 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px]">
           <div className="flex items-center gap-2 text-slate-500">
             <Globe size={12} className="text-slate-500" />
-            <span>&copy; {new Date().getFullYear()} {logoText || "Fast Coverage"}. All rights preserved.</span>
+            <span>&copy; {new Date().getFullYear()} {logoText || "Fast Coverage"}. {t("All rights preserved.")}</span>
           </div>
 
           <button
             onClick={scrollToTop}
             className="flex items-center gap-1 hover:text-white transition-all bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded hover:bg-slate-800 font-mono text-[10px]"
           >
-            Back to Top <ArrowUp size={11} />
+            {t("Back to Top")} <ArrowUp size={11} />
           </button>
         </div>
       </div>
