@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, onSnapshot, query, limit, doc, getDoc, updateDoc, where, setDoc, deleteDoc, addDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { db, auth } from "./firebase";
-import { Article, Category, WebSettings, VideoItem, CoverageZone, Bookmark } from "./types";
+import { Article, Category, WebSettings, VideoItem, CoverageZone, Bookmark, EBook } from "./types";
 import { useLanguage } from "./utils/LanguageContext";
 import { seedDatabaseIfEmpty } from "./seedData";
 
@@ -26,6 +26,7 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [coverageZones, setCoverageZones] = useState<CoverageZone[]>([]);
+  const [ebooks, setEbooks] = useState<EBook[]>([]);
   const [globalSettings, setGlobalSettings] = useState<WebSettings>({
     logoText: "FAST COVERAGE",
     siteTitle: "Fast Coverage | Rapid Global Headlines",
@@ -338,12 +339,26 @@ export default function App() {
       console.error("Coverage zones onSnapshot subscription failed:", error);
     });
 
+    // Listen to Ebooks collection
+    const unsubscribeEbooks = onSnapshot(collection(db, "ebooks"), (snapshot) => {
+      const items: EBook[] = [];
+      snapshot.forEach((doc) => {
+        items.push({ id: doc.id, ...doc.data() } as EBook);
+      });
+      // Sort newest first
+      items.sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
+      setEbooks(items);
+    }, (error) => {
+      console.error("Ebooks onSnapshot subscription failed:", error);
+    });
+
     return () => {
       unsubscribeArticles();
       unsubscribeCategories();
       unsubscribeSettings();
       unsubscribeVideos();
       unsubscribeZones();
+      unsubscribeEbooks();
     };
   }, []);
 
@@ -510,6 +525,7 @@ export default function App() {
             }}
             selectedCategory={selectedCategoryId}
             searchTerm={searchTerm}
+            ebooks={ebooks}
           />
         )}
       </main>

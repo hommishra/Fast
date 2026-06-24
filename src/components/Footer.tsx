@@ -31,13 +31,18 @@ export default function Footer({ logoText, aboutText, contactEmail, securityEmai
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Brand Info */}
           <div className="md:col-span-2 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="bg-red-650 text-white font-sans font-black text-lg px-2 py-0.5 rounded tracking-tighter">
+            <div className="flex items-center gap-3">
+              <span className="bg-red-650 text-white font-sans font-black text-lg px-2 py-0.5 rounded tracking-tighter shrink-0">
                 FC
               </span>
-              <span className="font-sans font-black text-md tracking-tight text-white uppercase">
-                {logoText || "FAST COVERAGE"}
-              </span>
+              <div className="flex flex-col leading-none">
+                <span className="font-sans font-black text-md tracking-tight text-white uppercase">
+                  {logoText || "FAST COVERAGE"}
+                </span>
+                <span className="text-[9px] font-bold tracking-widest text-slate-500 uppercase mt-0.5">
+                  Global News Network
+                </span>
+              </div>
             </div>
             <p className="text-slate-400 text-xs leading-relaxed max-w-sm">
               {aboutText ? t(aboutText) : t(fallbackAbout)}

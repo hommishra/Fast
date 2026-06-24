@@ -59,8 +59,8 @@ const PRE_APPROVED_USERS = [
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: "150mb" }));
-  app.use(express.urlencoded({ limit: "150mb", extended: true }));
+  app.use(express.json({ limit: "500mb" }));
+  app.use(express.urlencoded({ limit: "500mb", extended: true }));
 
   // CORS headers
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -1155,17 +1155,21 @@ Return as a JSON object with keys:
 
       fs.writeFileSync(targetPath, buffer);
 
-      // Replicate the fileData durably in Firestore
-      try {
-        await setDoc(doc(db, "uploaded_assets", safeName), {
-          fileName: safeName,
-          fileData: fileData, // Storing base64 representation
-          size: buffer.length,
-          uploadedAt: new Date().toISOString()
-        });
-        console.log(`[Durable Store Saved] Replicated ${safeName} permanently to Firestore!`);
-      } catch (dbErr) {
-        console.error(`[Durable Store Error] Failed replicating ${safeName} to Firestore:`, dbErr);
+      // Replicate the fileData durably in Firestore if it fits within the 1MB document limit
+      if (fileData.length < 950000) {
+        try {
+          await setDoc(doc(db, "uploaded_assets", safeName), {
+            fileName: safeName,
+            fileData: fileData, // Storing base64 representation
+            size: buffer.length,
+            uploadedAt: new Date().toISOString()
+          });
+          console.log(`[Durable Store Saved] Replicated ${safeName} permanently to Firestore!`);
+        } catch (dbErr: any) {
+          console.log(`[Durable Store Info] Firestore backup skipped:`, dbErr.message || dbErr);
+        }
+      } else {
+        console.log(`[Durable Store Info] Image size (${(buffer.length / (1024 * 1024)).toFixed(2)} MB) or Base64 payload length exceeds Firestore document limit; saved to local serving nodes only.`);
       }
 
       const fileUrl = `/uploads/${safeName}`;
@@ -1178,6 +1182,82 @@ Return as a JSON object with keys:
     } catch (err: any) {
       console.error("Image upload server failure: ", err);
       return res.status(500).json({ error: "Failed to save the picture file payload." });
+    }
+  });
+
+  // 4b-2. E-Book PDF File Upload Endpoint with automated validation and safety
+  app.post("/api/admin/upload-ebook", authenticateJWT, async (req: Request, res: Response) => {
+    const { fileName, fileData } = req.body;
+
+    if (!fileName || !fileData) {
+      return res.status(400).json({ error: "Missing uploaded file credentials (fileName, fileData)." });
+    }
+
+    try {
+      const lowerName = fileName.toLowerCase();
+      const ext = path.extname(lowerName);
+      if (ext !== ".pdf") {
+        return res.status(400).json({ 
+          error: "Only standard PDF publications (.pdf) are authorized." 
+        });
+      }
+
+      // Safe base64 resolution irrespective of MIME prefix structure
+      const base64Data = fileData.includes(";base64,")
+        ? fileData.substring(fileData.indexOf(";base64,") + 8)
+        : fileData;
+      const buffer = Buffer.from(base64Data, "base64");
+
+      // Set upper limits (500MB)
+      const MAX_SIZE = 500 * 1024 * 1024;
+      if (buffer.length > MAX_SIZE) {
+        return res.status(400).json({ error: "E-Book file exceeds the 500MB upload allowance." });
+      }
+
+      const safeName = "ebook-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + ext;
+      const targetPath = path.join(uploadsDir, safeName);
+
+      fs.writeFileSync(targetPath, buffer);
+
+      let fileUrl = `/uploads/${safeName}`;
+
+      // Upload to Firebase Storage for robust replication
+      try {
+        console.log(`[Durable Store E-Book] Uploading ${safeName} to Firebase Storage...`);
+        const storageInstance = getStorage(firebaseApp);
+        const storageRef = ref(storageInstance, `ebooks/${safeName}`);
+        
+        await uploadBytes(storageRef, buffer, { contentType: "application/pdf" });
+        const permanentDownloadUrl = await getDownloadURL(storageRef);
+        console.log(`[Durable Store E-Book Success] Successful upload to Firebase Storage: ${permanentDownloadUrl}`);
+        fileUrl = permanentDownloadUrl;
+      } catch (dbErr: any) {
+        console.log(`[Durable Store] Saved locally to serving container`);
+        // Also replicate base64 in Firestore uploaded_assets if under 1MB as local fallback
+        if (fileData.length < 950000) {
+          try {
+            await setDoc(doc(db, "uploaded_assets", safeName), {
+              fileName: safeName,
+              fileData: fileData,
+              size: buffer.length,
+              uploadedAt: new Date().toISOString()
+            });
+            console.log(`[Durable Store Fallback] Replicated smaller PDF to assets`);
+          } catch (assetErr: any) {
+            // Quiet fallback logging
+          }
+        }
+      }
+
+      return res.json({
+        success: true,
+        url: fileUrl,
+        name: safeName,
+        size: buffer.length
+      });
+    } catch (err: any) {
+      console.error("E-Book upload server failure: ", err);
+      return res.status(500).json({ error: "Failed to save the e-book file payload." });
     }
   });
 

@@ -14,3 +14,27 @@
   -ms-overflow-style: none; /* IE and Edge */
   scrollbar-width: none; /* Firefox */
 }
+
+/* Custom continuous rotation animations */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+/* Premium Card Hover & Transitions */
+.premium-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.premium-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px -10px rgba(15, 23, 42, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+

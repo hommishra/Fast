@@ -159,5 +159,19 @@ export interface Bookmark {
   savedAt: string;
 }
 
+export interface EBook {
+  id: string;
+  title: string;
+  author: string;
+  description: string;
+  pdfUrl: string; // Base64 content or external URL or reference
+  coverUrl?: string; // Optional cover image URL or Base64
+  fileSize: string;
+  publishDate: string; // ISO string
+  downloadCount: number;
+  allowDownload: boolean;
+}
+
+
 
 

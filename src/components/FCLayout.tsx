@@ -1,8 +1,9 @@
-import React from "react";
-import { Article, Category, VideoItem, CoverageZone } from "../types";
-import { Clock, Eye, TrendingUp, Tv, Camera, ChevronLeft, ChevronRight } from "lucide-react";
+import React, { useState } from "react";
+import { Article, Category, VideoItem, CoverageZone, EBook } from "../types";
+import { Clock, Eye, TrendingUp, Tv, Camera, ChevronLeft, ChevronRight, BookOpen, Download } from "lucide-react";
 import ActiveSectionsMap from "./ActiveSectionsMap";
 import SmartVideoPlayer from "./SmartVideoPlayer";
+import EBookReaderModal from "./EBookReaderModal";
 import { getFallbackImage } from "../utils/imageHelpers";
 import { useLanguage } from "../utils/LanguageContext";
 
@@ -53,6 +54,7 @@ interface FCLayoutProps {
   categories: Category[];
   videos?: VideoItem[];
   coverageZones?: CoverageZone[];
+  ebooks?: EBook[];
   onSelectArticle: (art: Article) => void;
   selectedCategory: string;
   searchTerm: string;
@@ -63,11 +65,37 @@ export default function FCLayout({
   categories,
   videos = [],
   coverageZones = [],
+  ebooks = [],
   onSelectArticle,
   selectedCategory,
   searchTerm,
 }: FCLayoutProps) {
   const { t } = useLanguage();
+  const [selectedEbook, setSelectedEbook] = useState<EBook | null>(null);
+  const [isReaderOpen, setIsReaderOpen] = useState(false);
+
+  const handleDownloadEbook = async (book: EBook) => {
+    try {
+      const { doc: fsDoc, updateDoc, increment } = await import("firebase/firestore");
+      const { db } = await import("../firebase");
+      await updateDoc(fsDoc(db, "ebooks", book.id), {
+        downloadCount: increment(1)
+      });
+    } catch (err) {
+      console.error("Failed to increment download count:", err);
+    }
+
+    if (book.pdfUrl.startsWith("data:")) {
+      const link = document.createElement("a");
+      link.href = book.pdfUrl;
+      link.download = `${book.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      window.open(book.pdfUrl, "_blank");
+    }
+  };
 
   // Filter active and published records
   const publishedArticles = articles.filter(
@@ -198,7 +226,8 @@ export default function FCLayout({
   const coreFlow = filteredArticles.slice(4);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6 space-y-10" id="fc_blueprint_view">
+    <div className="max-w-7xl mx-auto px-6 py-6 space-y-10 animate-in fade-in duration-300" id="fc_blueprint_view">
+      
       {/* SECTION 1: Dynamic Spotlight Block */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-8 border-b border-slate-200">
         {/* Spotlight Hero Article */}
@@ -206,11 +235,11 @@ export default function FCLayout({
           onClick={() => onSelectArticle(featuredHero)}
           className="lg:col-span-2 group cursor-pointer space-y-4"
         >
-          <div className="overflow-hidden bg-slate-100 rounded-xl aspect-[16/9] border border-slate-200 relative">
+          <div className="overflow-hidden bg-slate-100 rounded-2xl aspect-[16/9] border border-slate-200 relative shadow-md transition-shadow group-hover:shadow-lg">
             <img
               src={getArticleThumb(featuredHero)}
               alt={t(featuredHero.title)}
-              className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
+              className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-700"
               referrerPolicy="no-referrer"
               loading="lazy"
               onError={(e) => {
@@ -230,18 +259,18 @@ export default function FCLayout({
                 {t("Gallery:")} {getArticleImagesCount(featuredHero)} {t("Photos")}
               </span>
             )}
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/90 to-transparent p-6 text-white pt-24 hidden md:block">
-              <span className="bg-red-600 text-white text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded">
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/95 via-slate-950/70 to-transparent p-6 text-white pt-28 hidden md:block">
+              <span className="bg-red-600 text-white text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded font-bold shadow-sm">
                 {t("Spotlight Bulletin")}
               </span>
-              <h2 className="text-xl md:text-3xl font-black tracking-tight leading-snug mt-3">
+              <h2 className="text-xl md:text-3xl font-black tracking-tight leading-snug mt-3 group-hover:text-blue-400 transition-colors">
                 {t(featuredHero.title)}
               </h2>
             </div>
           </div>
 
           <div className="md:hidden space-y-1.5">
-            <span className="text-[9px] font-mono tracking-widest uppercase text-red-600 select-none">
+            <span className="text-[9px] font-mono tracking-widest uppercase text-red-600 select-none font-bold">
               {t("Spotlight Bulletin")}
             </span>
             <h2 className="text-xl font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors">
@@ -249,14 +278,17 @@ export default function FCLayout({
             </h2>
           </div>
 
-          <p className="text-slate-600 text-xs md:text-sm leading-relaxed line-clamp-2">
+          <p className="text-slate-600 text-xs md:text-sm leading-relaxed line-clamp-2 font-sans font-medium">
             {t(featuredHero.excerpt)}
           </p>
 
           <div className="flex items-center gap-3 text-[10px] font-mono text-slate-400">
             <span className="font-bold text-slate-800">{t("By")} {featuredHero.authorName}</span>
             <span>&bull;</span>
-            <span>{formatDate(featuredHero.publishDate)}</span>
+            <span className="flex items-center gap-1">
+              <Clock size={11} className="text-blue-500" />
+              {formatDate(featuredHero.publishDate)}
+            </span>
           </div>
         </div>
 
@@ -266,12 +298,12 @@ export default function FCLayout({
             <TrendingUp size={13} className="text-blue-600" />
             {t("Bulletins & Analysis")}
           </h3>
-          <div className="divide-y divide-slate-200">
+          <div className="divide-y divide-slate-100 bg-slate-50/50 p-4 rounded-xl border border-slate-150">
             {sidebarStories.map((art) => (
               <div
                 key={art.id}
                 onClick={() => onSelectArticle(art)}
-                className="py-3 hover:bg-slate-50 rounded transition-colors group cursor-pointer space-y-1 first:pt-0"
+                className="py-3.5 hover:bg-white rounded-lg px-2.5 transition-all duration-150 group cursor-pointer space-y-1.5 first:pt-0"
               >
                 <div className="flex justify-between items-baseline gap-2">
                   <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans">
@@ -281,7 +313,7 @@ export default function FCLayout({
                     {formatDate(art.publishDate)}
                   </span>
                 </div>
-                <h4 className="font-extrabold text-slate-900 text-xs leading-snug group-hover:text-blue-600 transition-colors">
+                <h4 className="font-bold text-slate-900 text-[12px] leading-snug group-hover:text-blue-600 transition-colors">
                   {t(art.title)}
                 </h4>
                 <p className="text-slate-500 text-[11px] line-clamp-1 leading-relaxed">
@@ -299,22 +331,27 @@ export default function FCLayout({
       {/* SECTION 2: Secondary Stories Row */}
       {coreFlow.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-xs font-bold text-slate-550 tracking-wider uppercase border-b border-slate-200 pb-2 select-none font-sans">
-            {t("Latest Daily Coverage")}
-          </h3>
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2 select-none">
+            <h3 className="text-xs font-black text-slate-700 tracking-wider uppercase font-sans flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping"></span>
+              {t("Latest Daily Coverage")}
+            </h3>
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Universal Dispatch Feed</span>
+          </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {coreFlow.map((art) => (
               <div
                 key={art.id}
                 onClick={() => onSelectArticle(art)}
-                className="group cursor-pointer bg-white border border-slate-200 p-3.5 rounded-xl shadow-xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between hover:border-slate-300"
+                className="premium-card group cursor-pointer bg-white border border-slate-200 p-4 rounded-xl shadow-xs flex flex-col justify-between"
               >
                 <div className="space-y-2">
                   <div className="aspect-[16/10] w-full overflow-hidden bg-slate-50 rounded-lg border border-slate-150 image-box relative">
                     <img
                       src={getArticleThumb(art)}
                       alt={t(art.title)}
-                      className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
+                      className="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500"
                       referrerPolicy="no-referrer"
                       loading="lazy"
                       onError={(e) => {
@@ -329,16 +366,19 @@ export default function FCLayout({
                       </span>
                     )}
                   </div>
-                  <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans block">
+                  <span className="text-[9px] uppercase tracking-wider text-red-650 font-extrabold font-sans block">
                     {t(art.categoryId)}
                   </span>
-                  <h4 className="font-extrabold text-slate-900 text-xs leading-snug group-hover:text-blue-600 transition-colors line-clamp-2">
+                  <h4 className="font-extrabold text-slate-900 text-[12.5px] leading-snug group-hover:text-blue-600 transition-colors line-clamp-2">
                     {t(art.title)}
                   </h4>
                 </div>
-                <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 mt-3 pt-2.5 border-t border-slate-100">
-                  <span>{formatDate(art.publishDate)}</span>
-                  <span className="font-bold text-red-655">{art.views} {t("reads")}</span>
+                <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 mt-4 pt-2.5 border-t border-slate-100">
+                  <span className="flex items-center gap-1">
+                    <Clock size={10} className="text-blue-500" />
+                    {formatDate(art.publishDate)}
+                  </span>
+                  <span className="font-bold text-red-600">{art.views} {t("reads")}</span>
                 </div>
               </div>
             ))}
@@ -483,6 +523,109 @@ export default function FCLayout({
           isAdmin={false}
         />
       </div>
+
+      {/* SECTION 5: Digital Library & Downloadable E-Books */}
+      {ebooks.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col gap-6 animate-fadeIn mt-12" id="digital_library_ebooks_section">
+          <div className="border-b border-slate-100 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-extrabold text-sm md:text-base text-slate-900 flex items-center gap-2 tracking-tight uppercase">
+                <BookOpen size={18} className="text-red-650" />
+                {t("Digital Library & Publications")}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 select-none">
+                {t("Access our official media reports, analytical dossiers, and special edition digital publications inside our secure digital document reader.")}
+              </p>
+            </div>
+            <span className="font-mono text-[9px] font-bold text-neutral-500 uppercase tracking-wider bg-slate-50 border border-slate-200 px-2.5 py-1 rounded">
+              ● {ebooks.length} {t("Publications Available")}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {ebooks.map((book) => (
+              <div 
+                key={book.id} 
+                onClick={() => {
+                  setSelectedEbook(book);
+                  setIsReaderOpen(true);
+                }}
+                className="bg-slate-50/50 hover:bg-white border border-slate-100 hover:border-slate-300 rounded-2xl p-4 flex gap-4 transition-all duration-300 hover:shadow-md relative group cursor-pointer"
+                title={t("Click to Open and Read Publication")}
+              >
+                <div className="w-20 h-28 shrink-0 overflow-hidden rounded-xl bg-slate-100 shadow border border-slate-200 relative select-none">
+                  <img 
+                    src={book.coverUrl || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400"} 
+                    alt={book.title} 
+                    className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute top-1 left-1 bg-black/75 text-white text-[8px] font-mono font-bold px-1 rounded-sm shadow-sm select-none">
+                    PDF
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col justify-between overflow-hidden">
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-mono uppercase font-bold text-red-650 tracking-wider flex items-center gap-1">
+                      <BookOpen size={8} /> {t("CLICK TO READ")}
+                    </span>
+                    <h4 className="text-xs md:text-sm font-extrabold text-slate-900 line-clamp-1 leading-tight group-hover:text-red-700 transition-colors duration-200">
+                      {book.title}
+                    </h4>
+                    <p className="text-[10px] text-slate-500 font-mono font-medium truncate">
+                      {t("By:")} {book.author}
+                    </p>
+                    <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
+                      {book.description || t("No summary provided.")}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-2 pt-2">
+                    <span className="text-[9px] text-slate-400 font-mono">
+                      {book.fileSize || "1.2 MB"}
+                    </span>
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedEbook(book);
+                          setIsReaderOpen(true);
+                        }}
+                        className="bg-red-700 hover:bg-red-850 text-white font-mono text-[10px] font-bold px-3 py-1 rounded-lg transition-all duration-200 flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm"
+                      >
+                        <BookOpen size={10} />
+                        {t("Read")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleDownloadEbook(book);
+                        }}
+                        className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-850 font-mono text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all duration-200 flex items-center gap-1 cursor-pointer active:scale-95"
+                      >
+                        <Download size={10} />
+                        {t("Download")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Embedded Document Reader Modal overlay */}
+      <EBookReaderModal
+        isOpen={isReaderOpen}
+        onClose={() => {
+          setIsReaderOpen(false);
+          setSelectedEbook(null);
+        }}
+        book={selectedEbook}
+        onDownload={handleDownloadEbook}
+      />
 
     </div>
   );

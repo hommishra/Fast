@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from "react";
 import { Category } from "../types";
-import { Search, Globe, ChevronDown, ShieldAlert, BookOpen } from "lucide-react";
+import { 
+  Search, 
+  Globe, 
+  ChevronDown, 
+  ShieldAlert, 
+  BookOpen, 
+  Sun, 
+  CloudSun, 
+  CloudRain, 
+  Cloud, 
+  Moon, 
+  Wind, 
+  Droplets, 
+  TrendingUp, 
+  Info 
+} from "lucide-react";
 import { useLanguage, SUPPORTED_LANGUAGES } from "../utils/LanguageContext";
 
 interface HeaderProps {
@@ -16,6 +31,14 @@ interface HeaderProps {
   onSignOut?: () => void;
 }
 
+const CITY_WEATHER: Record<string, { name: string; temp: string; icon: string; desc: string; humidity: string; wind: string; aqi: string; bg: string }> = {
+  london: { name: "London", temp: "18°C", icon: "🌧️", desc: "Showers", humidity: "78%", wind: "14 km/h", aqi: "32 (Good)", bg: "from-blue-900/10 to-slate-900/10" },
+  newYork: { name: "New York", temp: "24°C", icon: "☀️", desc: "Sunny", humidity: "45%", wind: "8 km/h", aqi: "45 (Good)", bg: "from-amber-500/10 to-orange-500/10" },
+  tokyo: { name: "Tokyo", temp: "21°C", icon: "⛅", desc: "Partly Cloudy", humidity: "62%", wind: "11 km/h", aqi: "28 (Good)", bg: "from-indigo-500/10 to-purple-500/10" },
+  newDelhi: { name: "New Delhi", temp: "35°C", icon: "💨", desc: "Hazy Weather", humidity: "50%", wind: "12 km/h", aqi: "142 (Moderate)", bg: "from-orange-500/10 to-yellow-500/10" },
+  paris: { name: "Paris", temp: "20°C", icon: "🌤️", desc: "Mostly Sunny", humidity: "55%", wind: "9 km/h", aqi: "38 (Good)", bg: "from-sky-500/10 to-blue-500/10" },
+};
+
 export default function Header({
   categories,
   selectedCategoryId,
@@ -30,12 +53,43 @@ export default function Header({
 }: HeaderProps) {
   const [currentUtc, setCurrentUtc] = useState("");
   const { currentLang, setLanguage, t } = useLanguage();
+  const [selectedCityWeather, setSelectedCityWeather] = useState<string | null>(null);
+
+  const [clocks, setClocks] = useState({
+    london: "",
+    newYork: "",
+    tokyo: "",
+    newDelhi: "",
+    paris: "",
+  });
 
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
       setCurrentUtc(now.toUTCString().replace("GMT", "UTC"));
+      
+      const formatTime = (tz: string) => {
+        try {
+          return now.toLocaleTimeString("en-US", {
+            timeZone: tz,
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+        } catch {
+          return "00:00";
+        }
+      };
+
+      setClocks({
+        london: formatTime("Europe/London"),
+        newYork: formatTime("America/New_York"),
+        tokyo: formatTime("Asia/Tokyo"),
+        newDelhi: formatTime("Asia/Kolkata"),
+        paris: formatTime("Europe/Paris"),
+      });
     };
+    
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
@@ -124,14 +178,19 @@ export default function Header({
         {/* News Brand Logo */}
         <div 
           onClick={() => onSelectCategory("")}
-          className="cursor-pointer select-none group flex items-center gap-2"
+          className="cursor-pointer select-none group flex items-center gap-3"
         >
-          <span className="bg-red-600 text-white font-sans font-black text-xl px-2 py-0.5 rounded tracking-tighter uppercase transform group-hover:bg-red-750 transition-all">
+          <span className="bg-red-600 text-white font-sans font-black text-xl px-2.5 py-1 rounded tracking-tighter uppercase transform group-hover:bg-red-750 transition-all shrink-0">
             FC
           </span>
-          <span className="font-sans font-black text-lg tracking-tight uppercase text-slate-900 group-hover:text-blue-600 transition-colors">
-            {logoText || "FAST COVERAGE"}
-          </span>
+          <div className="flex flex-col leading-none">
+            <span className="font-sans font-black text-lg tracking-tight uppercase text-slate-900 group-hover:text-blue-600 transition-colors">
+              {logoText || "FAST COVERAGE"}
+            </span>
+            <span className="font-sans text-[10px] font-bold tracking-widest text-slate-500 uppercase mt-0.5">
+              Global News Network
+            </span>
+          </div>
         </div>
 
         {/* Global News Search */}

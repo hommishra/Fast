@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Article, Category, Comment, UserDB, ActivityLog, BreakingNews, WebSettings, CoverageZone } from "../types";
+import { Article, Category, Comment, UserDB, ActivityLog, BreakingNews, WebSettings, CoverageZone, EBook } from "../types";
 import {
   collection,
   onSnapshot,
@@ -28,6 +28,11 @@ import {
   Zap,
   Video,
   Upload,
+  BookOpen,
+  Book,
+  Download,
+  Trash2,
+  Plus,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -71,7 +76,7 @@ export default function AdminPanel({
   coverageZones,
 }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings" | "videos"
+    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings" | "videos" | "ebooks"
   >("dashboard");
 
   // Real-time Database Collections State
@@ -79,6 +84,7 @@ export default function AdminPanel({
   const [users, setUsers] = useState<UserDB[]>([]);
   const [breakingLogs, setBreakingLogs] = useState<BreakingNews[]>([]);
   const [globalSettings, setGlobalSettings] = useState<WebSettings | null>(null);
+  const [ebooks, setEbooks] = useState<EBook[]>([]);
   
   // Security operations items
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -91,6 +97,18 @@ export default function AdminPanel({
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<"Admin" | "Editor" | "Author">("Author");
   const [newBreakingText, setNewBreakingText] = useState("");
+
+  // Ebook form state
+  const [ebookTitle, setEbookTitle] = useState("");
+  const [ebookAuthor, setEbookAuthor] = useState("");
+  const [ebookDesc, setEbookDesc] = useState("");
+  const [ebookCover, setEbookCover] = useState("");
+  const [ebookPdf, setEbookPdf] = useState("");
+  const [ebookPdfName, setEbookPdfName] = useState("");
+  const [ebookSize, setEbookSize] = useState("");
+  const [ebookAllowDownload, setEbookAllowDownload] = useState(true);
+  const [isEbookSaving, setIsEbookSaving] = useState(false);
+  const [deleteConfirmEbookId, setDeleteConfirmEbookId] = useState<string | null>(null);
 
   // Inactivity timeout tracking
   useEffect(() => {
@@ -188,6 +206,19 @@ export default function AdminPanel({
       console.error("AdminPanel traffic_logs onSnapshot subscription failed:", error);
     });
 
+    // 7. E-books subscription
+    const unsubscribeEbooks = onSnapshot(collection(db, "ebooks"), (snap) => {
+      const items: EBook[] = [];
+      snap.forEach((doc) => {
+        items.push({ id: doc.id, ...doc.data() } as EBook);
+      });
+      // Sort newest first
+      items.sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
+      setEbooks(items);
+    }, (error) => {
+      console.error("AdminPanel ebooks onSnapshot subscription failed:", error);
+    });
+
     return () => {
       unsubscribeComments();
       unsubscribeUsers();
@@ -195,6 +226,7 @@ export default function AdminPanel({
       unsubscribeSettings();
       unsubscribeLogs();
       unsubscribeTraffic();
+      unsubscribeEbooks();
     };
   }, []);
 
@@ -415,6 +447,120 @@ export default function AdminPanel({
     }
   };
 
+  // EBook triggers
+  const handleSaveEBook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ebookTitle.trim() || !ebookAuthor.trim() || !ebookPdf) {
+      alert("Please fill in Title, Author, and upload a PDF file.");
+      return;
+    }
+
+    setIsEbookSaving(true);
+    const ebookId = "ebook_" + Math.random().toString(36).substring(2, 11);
+
+    try {
+      // 1. Upload the PDF file base64 data to the backend / Firebase Storage
+      const uploadRes = await fetch("/api/admin/upload-ebook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${adminSession.token}`
+        },
+        body: JSON.stringify({
+          fileName: ebookPdfName || "ebook.pdf",
+          fileData: ebookPdf
+        })
+      });
+
+      if (!uploadRes.ok) {
+        const errorData = await uploadRes.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload request failed with status ${uploadRes.status}`);
+      }
+
+      const uploadData = await uploadRes.json();
+      if (!uploadData || !uploadData.success || !uploadData.url) {
+        throw new Error("Failed to retrieve valid document URL from server response.");
+      }
+
+      const uploadedPdfUrl = uploadData.url;
+
+      let uploadedCoverUrl = ebookCover || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400";
+      if (ebookCover && ebookCover.startsWith("data:")) {
+        try {
+          const extMatch = ebookCover.match(/^data:image\/([a-zA-Z+]+);base64,/);
+          const ext = extMatch ? `.${extMatch[1] === "jpeg" ? "jpg" : extMatch[1]}` : ".jpg";
+          const coverFileName = `ebook-cover-${ebookId}${ext}`;
+
+          const coverUploadRes = await fetch("/api/admin/upload-image", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${adminSession.token}`
+            },
+            body: JSON.stringify({
+              fileName: coverFileName,
+              fileData: ebookCover
+            })
+          });
+
+          if (coverUploadRes.ok) {
+            const coverUploadData = await coverUploadRes.json();
+            if (coverUploadData && coverUploadData.success && coverUploadData.url) {
+              uploadedCoverUrl = coverUploadData.url;
+            }
+          } else {
+            console.warn("Cover image upload failed, using default fallback image.");
+            uploadedCoverUrl = "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400";
+          }
+        } catch (coverErr) {
+          console.error("Error uploading cover image:", coverErr);
+          uploadedCoverUrl = "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400";
+        }
+      }
+
+      const updated = {
+        id: ebookId,
+        title: ebookTitle.trim(),
+        author: ebookAuthor.trim(),
+        description: ebookDesc.trim(),
+        pdfUrl: uploadedPdfUrl,
+        coverUrl: uploadedCoverUrl,
+        fileSize: ebookSize || "Unknown Size",
+        publishDate: new Date().toISOString(),
+        downloadCount: 0,
+        allowDownload: ebookAllowDownload,
+      };
+
+      await setDoc(doc(db, "ebooks", ebookId), cleanUndefined(updated));
+      await logAuditActivity(`Uploaded and saved eBook "${ebookTitle}" by ${ebookAuthor}`);
+      
+      // Clear form
+      setEbookTitle("");
+      setEbookAuthor("");
+      setEbookDesc("");
+      setEbookCover("");
+      setEbookPdf("");
+      setEbookPdfName("");
+      setEbookSize("");
+      setEbookAllowDownload(true);
+      alert("E-Book successfully uploaded and published!");
+    } catch (err: any) {
+      console.error("E-book publish error: ", err);
+      alert(`Publishing failed: ${err.message || err}`);
+    } finally {
+      setIsEbookSaving(false);
+    }
+  };
+
+  const handleDeleteEBook = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "ebooks", id));
+      await logAuditActivity(`Deleted e-book ID: ${id}`);
+    } catch (err) {
+      handleFirestoreErrorLocal(err, "delete", `ebooks/${id}`);
+    }
+  };
+
   // Database Seed Action
   const handleTriggerSeed = async () => {
     const { seedDatabaseIfEmpty } = await import("../seedData");
@@ -579,6 +725,15 @@ export default function AdminPanel({
             }`}
           >
             <Video size={15} /> Video Upload & Manager
+          </button>
+
+          <button
+            onClick={() => setActiveTab("ebooks")}
+            className={`w-full flex items-center gap-3 px-3.5 py-3 rounded text-xs font-bold uppercase tracking-wider transition ${
+              activeTab === "ebooks" ? "bg-red-800 text-white" : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
+            }`}
+          >
+            <BookOpen size={15} /> E-Books Manager ({ebooks.length})
           </button>
 
           <div className="pt-8 text-center select-none">
@@ -1045,6 +1200,334 @@ export default function AdminPanel({
           {/* TAB 9: Videos & Description upload */}
           {activeTab === "videos" && (
             <AdminVideos adminToken={adminSession.token} adminSession={adminSession} />
+          )}
+
+          {/* TAB 10: E-Books Manager */}
+          {activeTab === "ebooks" && (
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-neutral-950 border border-neutral-800/80 p-6 rounded-lg space-y-4">
+                <div className="flex justify-between items-center select-none border-b border-neutral-800 pb-3">
+                  <div>
+                    <h3 className="text-base font-extrabold tracking-wider text-white uppercase font-mono flex items-center gap-2">
+                      <BookOpen size={16} className="text-red-500" />
+                      Add New E-Book (PDF)
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Publish digital report manuals, magazines, or research papers directly to the front-page library.
+                    </p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveEBook} className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-neutral-400 font-mono uppercase">E-Book Title</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Fast Coverage Global Media Report 2026"
+                        value={ebookTitle}
+                        onChange={(e) => setEbookTitle(e.target.value)}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded p-2.5 text-xs text-white focus:outline-none focus:border-red-650"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-neutral-400 font-mono uppercase">Author / Organization</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. FC Journalism Guild"
+                        value={ebookAuthor}
+                        onChange={(e) => setEbookAuthor(e.target.value)}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded p-2.5 text-xs text-white focus:outline-none focus:border-red-650"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-neutral-400 font-mono uppercase">Brief Summary / Description</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Provide a compelling overview of what readers will learn inside this premium publication..."
+                        value={ebookDesc}
+                        onChange={(e) => setEbookDesc(e.target.value)}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded p-2.5 text-xs text-white focus:outline-none focus:border-red-650 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2.5 py-1">
+                      <input
+                        type="checkbox"
+                        id="ebookAllowDownloadCheckbox"
+                        checked={ebookAllowDownload}
+                        onChange={(e) => setEbookAllowDownload(e.target.checked)}
+                        className="w-4 h-4 bg-neutral-900 border border-neutral-800 rounded text-red-600 focus:ring-red-500 cursor-pointer accent-red-600"
+                      />
+                      <label htmlFor="ebookAllowDownloadCheckbox" className="text-xs font-bold text-neutral-300 font-mono cursor-pointer select-none">
+                        ALLOW READERS TO DOWNLOAD PDF
+                      </label>
+                    </div>
+
+                    <div className="pt-1">
+                      <button
+                        type="submit"
+                        disabled={isEbookSaving}
+                        className="w-full bg-red-700 hover:bg-red-800 disabled:bg-neutral-800 text-white font-mono text-xs uppercase tracking-widest font-black py-3 rounded cursor-pointer transition flex items-center justify-center gap-2"
+                      >
+                        {isEbookSaving ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            Publishing Digital File...
+                          </>
+                        ) : (
+                          <>
+                            <Plus size={14} /> Publish & Save E-Book
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Cover Drag and Drop */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-neutral-400 font-mono uppercase">Cover Image (Drag & Drop or Click)</label>
+                      <div
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (e.dataTransfer.files?.[0]) {
+                            const file = e.dataTransfer.files[0];
+                            if (file.type.startsWith("image/")) {
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                if (event.target?.result) setEbookCover(event.target.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            } else {
+                              alert("Please drop a valid image file.");
+                            }
+                          }
+                        }}
+                        className="border border-dashed border-neutral-800 hover:border-red-700/60 bg-neutral-900/60 p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer min-h-[110px] transition relative group"
+                        onClick={() => {
+                          const input = document.createElement("input");
+                          input.type = "file";
+                          input.accept = "image/*";
+                          input.onchange = (e: any) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                if (event.target?.result) setEbookCover(event.target.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          };
+                          input.click();
+                        }}
+                      >
+                        {ebookCover ? (
+                          <div className="flex items-center gap-3 w-full">
+                            <img src={ebookCover} alt="Cover Preview" className="w-12 h-16 object-cover rounded border border-neutral-700 shadow shrink-0" />
+                            <div className="text-left overflow-hidden">
+                              <p className="text-xs text-white font-bold font-mono">Cover Loaded</p>
+                              <p className="text-[10px] text-neutral-500 truncate">Click / Drop again to replace</p>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEbookCover("");
+                                }}
+                                className="text-[10px] text-red-500 hover:underline mt-1 font-mono"
+                              >
+                                Remove Cover
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <Upload className="text-neutral-500 mb-1.5 group-hover:text-red-500 transition" size={20} />
+                            <span className="text-xs font-bold text-neutral-300">Drop Cover Image or Click</span>
+                            <span className="text-[9px] text-neutral-500 mt-0.5">JPEG, PNG, WEBP (Supports automated Base64 encoding)</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* PDF Ebook Drag and Drop */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-neutral-400 font-mono uppercase">PDF E-Book Document (Drag & Drop or Click) *</label>
+                      <div
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (e.dataTransfer.files?.[0]) {
+                            const file = e.dataTransfer.files[0];
+                            if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+                              if (file.size > 500 * 1024 * 1024) {
+                                alert("Document size exceeds 500MB threshold limit. Please compress.");
+                                return;
+                              }
+                              const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+                              setEbookSize(`${sizeInMB} MB`);
+                              setEbookPdfName(file.name);
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                if (event.target?.result) setEbookPdf(event.target.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            } else {
+                              alert("Please drop a valid PDF file.");
+                            }
+                          }
+                        }}
+                        className="border border-dashed border-neutral-800 hover:border-red-700/60 bg-neutral-900/60 p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer min-h-[110px] transition relative group"
+                        onClick={() => {
+                          const input = document.createElement("input");
+                          input.type = "file";
+                          input.accept = ".pdf,application/pdf";
+                          input.onchange = (e: any) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              if (file.size > 500 * 1024 * 1024) {
+                                alert("Document size exceeds 500MB threshold limit. Please compress.");
+                                return;
+                              }
+                              const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+                              setEbookSize(`${sizeInMB} MB`);
+                              setEbookPdfName(file.name);
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                if (event.target?.result) setEbookPdf(event.target.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          };
+                          input.click();
+                        }}
+                      >
+                        {ebookPdf ? (
+                          <div className="flex items-center gap-3 w-full">
+                            <div className="w-10 h-12 bg-red-950 border border-red-800 rounded flex items-center justify-center text-red-400 font-black text-xs shrink-0 font-mono">
+                              PDF
+                            </div>
+                            <div className="text-left overflow-hidden flex-1">
+                              <p className="text-xs text-white font-bold font-mono truncate">{ebookPdfName}</p>
+                              <p className="text-[10px] text-neutral-400">Size: {ebookSize} &bull; Loaded successfully</p>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEbookPdf("");
+                                  setEbookPdfName("");
+                                  setEbookSize("");
+                                }}
+                                className="text-[10px] text-red-500 hover:underline mt-1 font-mono"
+                              >
+                                Remove Document
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <Upload className="text-neutral-500 mb-1.5 group-hover:text-red-500 transition" size={20} />
+                            <span className="text-xs font-bold text-neutral-300">Drop E-Book PDF or Click</span>
+                            <span className="text-[9px] text-neutral-500 mt-0.5">Maximum size: 500 MB (Optimized server sync pipeline)</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              {/* Published eBooks Directory */}
+              <div className="bg-neutral-950 border border-neutral-800/80 p-6 rounded-lg space-y-4">
+                <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-neutral-400 select-none pb-2 border-b border-neutral-800">
+                  Published E-Books Directory ({ebooks.length})
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {ebooks.map((b) => (
+                    <div key={b.id} className="bg-neutral-900 border border-neutral-800/70 rounded-lg p-4 flex gap-4 hover:border-neutral-700/80 transition relative group">
+                      <img
+                        src={b.coverUrl || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400"}
+                        alt={b.title}
+                        className="w-16 h-24 object-cover rounded border border-neutral-800 shadow shrink-0"
+                      />
+                      <div className="flex-1 flex flex-col justify-between overflow-hidden">
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-extrabold text-neutral-200 line-clamp-1 truncate" title={b.title}>
+                            {b.title}
+                          </h4>
+                          <p className="text-[10px] text-neutral-400 font-mono font-bold">
+                            By {b.author}
+                          </p>
+                          <div className="pt-0.5 select-none">
+                            <span className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded ${b.allowDownload ? 'bg-green-950 text-green-400 border border-green-900/40' : 'bg-amber-950 text-amber-400 border border-amber-900/40'}`}>
+                              {b.allowDownload ? "DOWNLOAD ALLOWED" : "VIEW ONLY"}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-neutral-500 line-clamp-2 leading-relaxed">
+                            {b.description || "No description provided."}
+                          </p>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 border-t border-neutral-800/40 mt-1">
+                          <span className="text-[9px] text-neutral-500 font-mono">
+                            {b.fileSize} &bull; {b.downloadCount || 0} DLs
+                          </span>
+                          {deleteConfirmEbookId === b.id ? (
+                            <div className="inline-flex items-center gap-1 bg-neutral-950 p-1 border border-red-900/30 rounded text-[9px] select-none font-mono">
+                              <span className="text-red-400 px-1 font-bold">DELETE?</span>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await handleDeleteEBook(b.id);
+                                  } catch (err) {
+                                    console.error(err);
+                                  } finally {
+                                    setDeleteConfirmEbookId(null);
+                                  }
+                                }}
+                                className="bg-red-700 hover:bg-red-800 text-white font-bold px-1.5 py-0.5 rounded transition cursor-pointer"
+                              >
+                                YES
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmEbookId(null)}
+                                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold px-1.5 py-0.5 rounded transition cursor-pointer"
+                              >
+                                NO
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmEbookId(b.id)}
+                              className="px-2 py-1 bg-red-950/50 hover:bg-red-800 border border-red-900/30 text-red-400 hover:text-white rounded text-[9px] font-mono font-bold uppercase transition flex items-center gap-1 cursor-pointer"
+                              title="Delete E-Book"
+                            >
+                              <Trash2 size={10} />
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {ebooks.length === 0 && (
+                    <div className="col-span-full py-12 text-center text-neutral-500 text-xs italic">
+                      No e-books published yet. Use the uploader above to share your first PDF magazine.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </main>
       </div>

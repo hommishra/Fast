@@ -181,9 +181,31 @@
         "createdAt": { "type": "string" }
       },
       "required": ["email", "code", "expiresAt", "createdAt"]
+    },
+    "EBook": {
+      "title": "EBook",
+      "description": "Stored e-books available for download",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "author": { "type": "string" },
+        "description": { "type": "string" },
+        "pdfUrl": { "type": "string" },
+        "coverUrl": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "publishDate": { "type": "string" },
+        "downloadCount": { "type": "number" },
+        "allowDownload": { "type": "boolean" }
+      },
+      "required": ["id", "title", "author", "pdfUrl", "publishDate", "downloadCount", "allowDownload"]
     }
   },
   "firestore": {
+    "/ebooks/{ebookId}": {
+      "schema": "EBook",
+      "description": "Store all downloadable e-books"
+    },
     "/admin_verification_codes/{codeId}": {
       "schema": "VerificationCode",
       "description": "All generated admin email verification codes"
