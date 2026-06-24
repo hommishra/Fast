@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, limit, doc, getDoc, updateDoc, where, setDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, limit, doc, getDoc, updateDoc, where, setDoc, deleteDoc, addDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { db, auth } from "./firebase";
 import { Article, Category, WebSettings, VideoItem, CoverageZone, Bookmark } from "./types";
@@ -172,6 +172,30 @@ export default function App() {
     const initApp = async () => {
       // Trigger automatic starting seeding to guarantee beautiful layouts right away
       await seedDatabaseIfEmpty();
+
+      // Log real-time website traffic visit
+      try {
+        let visitorId = localStorage.getItem("fc_visitor_id");
+        if (!visitorId) {
+          visitorId = "visitor_" + Math.random().toString(36).substring(2, 11);
+          localStorage.setItem("fc_visitor_id", visitorId);
+        }
+
+        const now = new Date();
+        const utcHour = now.getUTCHours();
+        const hourBucket = String(Math.floor(utcHour / 4) * 4).padStart(2, "0") + ":00";
+
+        await addDoc(collection(db, "traffic_logs"), {
+          visitorId,
+          timestamp: now.toISOString(),
+          hour: hourBucket,
+          path: window.location.hash || "/",
+          userAgent: navigator.userAgent
+        });
+        console.log("Logged real-time website traffic in hour bucket:", hourBucket);
+      } catch (err) {
+        console.error("Failed to log real-time website traffic:", err);
+      }
 
       // Ensure the Security Ops email is updated to fastcoveragenews@gmail.com
       try {

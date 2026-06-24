@@ -154,9 +154,44 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "name", "x", "y", "status", "createdAt"]
+    },
+    "TrafficLog": {
+      "title": "TrafficLog",
+      "description": "Log of website visits and pageviews",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "visitorId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "hour": { "type": "string" },
+        "path": { "type": "string" },
+        "userAgent": { "type": "string" }
+      },
+      "required": ["visitorId", "timestamp", "hour"]
+    },
+    "VerificationCode": {
+      "title": "VerificationCode",
+      "description": "Administrative email 2FA verification code logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "code": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "code", "expiresAt", "createdAt"]
     }
   },
   "firestore": {
+    "/admin_verification_codes/{codeId}": {
+      "schema": "VerificationCode",
+      "description": "All generated admin email verification codes"
+    },
+    "/traffic_logs/{logId}": {
+      "schema": "TrafficLog",
+      "description": "Store live anonymous website visit and traffic logs"
+    },
     "/articles/{articleId}": {
       "schema": "Article",
       "description": "Store all news articles"
