@@ -51,6 +51,7 @@ export default function SmartVideoPlayer({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPseudoFullscreen, setIsPseudoFullscreen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [videoQuality, setVideoQuality] = useState("Auto (1080p)");
   const [isChangingQuality, setIsChangingQuality] = useState(false);
@@ -168,6 +169,93 @@ export default function SmartVideoPlayer({
     };
   }, [isPlaying]);
 
+  // Synchronize fullscreen state with browser document state
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFull = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isCurrentlyFull);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+    };
+  }, []);
+
+  // YouTube-like keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.key === "Escape" && isPseudoFullscreen) {
+        e.preventDefault();
+        setIsPseudoFullscreen(false);
+        setIsFullscreen(false);
+        return;
+      }
+
+      if (!isPlaying) return;
+
+      switch (e.key.toLowerCase()) {
+        case " ":
+        case "k":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "f":
+          e.preventDefault();
+          triggerFullscreen();
+          break;
+        case "m":
+          e.preventDefault();
+          if (videoRef.current) {
+            const newMuted = !isMuted;
+            setIsMuted(newMuted);
+            videoRef.current.muted = newMuted;
+            videoRef.current.volume = newMuted ? 0 : volume || 0.5;
+          }
+          break;
+        case "arrowleft":
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
+          }
+          break;
+        case "arrowright":
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 5);
+          }
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isPlaying, isMuted, volume, duration, isPseudoFullscreen]);
+
   const handleVideoError = async () => {
     if (fallbackFileName && resolvedSrc !== `/uploads/${fallbackFileName}`) {
       try {
@@ -268,19 +356,131 @@ export default function SmartVideoPlayer({
     }, 600);
   };
 
-  const toggleFullscreen = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!containerRef.current) return;
+  const triggerFullscreen = () => {
+    const container = containerRef.current;
+    const video = videoRef.current;
+    if (!container) return;
 
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen()
-        .then(() => setIsFullscreen(true))
-        .catch(err => console.error("Fullscreen failed:", err));
+    const isCurrentlyFull = !!(
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      (document as any).mozFullScreenElement ||
+      (document as any).msFullscreenElement ||
+      isPseudoFullscreen
+    );
+
+    if (!isCurrentlyFull) {
+      const req =
+        container.requestFullscreen ||
+        (container as any).webkitRequestFullscreen ||
+        (container as any).mozRequestFullScreen ||
+        (container as any).msRequestFullscreen;
+
+      if (req) {
+        const promise = req.call(container);
+        if (promise && promise.then) {
+          promise
+            .then(() => {
+              setIsFullscreen(true);
+              setIsPseudoFullscreen(false);
+              try {
+                if (screen.orientation && (screen.orientation as any).lock) {
+                  (screen.orientation as any).lock("landscape").catch(() => {});
+                }
+              } catch (e) {}
+            })
+            .catch((err: any) => {
+              console.error("Fullscreen request failed, trying pseudo fallback:", err);
+              setIsPseudoFullscreen(true);
+              setIsFullscreen(true);
+            });
+        } else {
+          // Synchronous fallback / older browsers
+          setIsFullscreen(true);
+          setIsPseudoFullscreen(false);
+          try {
+            if (screen.orientation && (screen.orientation as any).lock) {
+              (screen.orientation as any).lock("landscape").catch(() => {});
+            }
+          } catch (e) {}
+        }
+      } else if (video && (video as any).webkitEnterFullscreen) {
+        try {
+          (video as any).webkitEnterFullscreen();
+          setIsFullscreen(true);
+          setIsPseudoFullscreen(false);
+        } catch (err) {
+          console.error("webkitEnterFullscreen failed, trying pseudo:", err);
+          setIsPseudoFullscreen(true);
+          setIsFullscreen(true);
+        }
+      } else {
+        setIsPseudoFullscreen(true);
+        setIsFullscreen(true);
+      }
     } else {
-      document.exitFullscreen()
-        .then(() => setIsFullscreen(false))
-        .catch(err => console.error("Exit fullscreen failed:", err));
+      if (isPseudoFullscreen) {
+        setIsPseudoFullscreen(false);
+        setIsFullscreen(false);
+      } else {
+        const exit =
+          document.exitFullscreen ||
+          (document as any).webkitExitFullscreen ||
+          (document as any).mozCancelFullScreen ||
+          (document as any).msExitFullscreen;
+
+        if (exit) {
+          const promise = exit.call(document);
+          if (promise && promise.then) {
+            promise
+              .then(() => {
+                setIsFullscreen(false);
+                setIsPseudoFullscreen(false);
+                try {
+                  if (screen.orientation && (screen.orientation as any).unlock) {
+                    (screen.orientation as any).unlock();
+                  }
+                } catch (e) {}
+              })
+              .catch((err: any) => {
+                console.error("Exit fullscreen failed, forcing pseudo off:", err);
+                setIsPseudoFullscreen(false);
+                setIsFullscreen(false);
+              });
+          } else {
+            setIsFullscreen(false);
+            setIsPseudoFullscreen(false);
+            try {
+              if (screen.orientation && (screen.orientation as any).unlock) {
+                (screen.orientation as any).unlock();
+              }
+            } catch (e) {}
+          }
+        } else {
+          setIsPseudoFullscreen(false);
+          setIsFullscreen(false);
+        }
+      }
     }
+  };
+
+  const toggleFullscreen = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    triggerFullscreen();
+  };
+
+  const lastTapRef = useRef<number>(0);
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300;
+    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+      e.preventDefault();
+      toggleFullscreen(e);
+    }
+    lastTapRef.current = now;
   };
 
   const handlePiP = async (e: React.MouseEvent) => {
@@ -389,7 +589,10 @@ export default function SmartVideoPlayer({
     <div 
       ref={containerRef}
       onMouseMove={handleMouseMove}
-      className={`relative w-full h-full bg-neutral-950 group rounded-lg overflow-hidden aspect-video ${className}`}
+      className={isPseudoFullscreen
+        ? "fixed inset-0 w-screen h-screen bg-black z-[99999] flex items-center justify-center select-none"
+        : `relative w-full h-full bg-neutral-950 group rounded-lg overflow-hidden aspect-video ${className}`
+      }
       style={{ userSelect: "none" }}
     >
       {/* Video Content */}
@@ -412,6 +615,8 @@ export default function SmartVideoPlayer({
           src={resolvedSrc}
           autoPlay={isPlaying}
           onClick={() => togglePlay()}
+          onDoubleClick={(e) => toggleFullscreen(e)}
+          onTouchEnd={handleTouchEnd}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onError={handleVideoError}
@@ -428,6 +633,18 @@ export default function SmartVideoPlayer({
           <span className="font-mono tracking-wider uppercase text-slate-200">Satellite Standby Feed</span>
         </div>
       )}
+
+      {/* Top Left Floating Fullscreen Button Overlay */}
+      <button
+        onClick={toggleFullscreen}
+        className={`absolute top-3 left-3 bg-red-600/95 hover:bg-red-600 border border-red-500/30 text-white text-[10px] font-bold px-3 py-1.5 rounded-md shadow-xl flex items-center gap-1.5 backdrop-blur-md transition-all duration-300 z-20 cursor-pointer ${
+          showControls ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+        }`}
+        title="Toggle Fullscreen"
+      >
+        {isFullscreen ? <Minimize size={12} className="text-white" /> : <Maximize size={12} className="text-white" />}
+        <span className="font-mono tracking-wider uppercase">{isFullscreen ? "Exit Fullscreen" : "Full Screen"}</span>
+      </button>
 
       {/* Bottom Custom Playback Bar Overlay */}
       <div 

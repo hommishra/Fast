@@ -66,7 +66,7 @@ export default function VideoHubView({ videos = [], currentUser }: VideoHubViewP
 
   // Available Categories (Clean, TOI/CNN Standard capitalization)
   const videoCategories = [
-    "All", "Top", "Trending", "Viral", "Politics", "World", "Business", "Technology", "Sports", "Entertainment"
+    "All", "Politics", "World", "Business", "Technology", "Sports", "Entertainment"
   ];
 
   // Map user categories to match database categorization (which may be lowercase)
@@ -78,9 +78,6 @@ export default function VideoHubView({ videos = [], currentUser }: VideoHubViewP
     const normFilterCat = filterCat.toLowerCase();
 
     if (normVidCat === normFilterCat) return true;
-    if (normFilterCat === "top" && vidCat.toLowerCase().includes("top")) return true;
-    if (normFilterCat === "trending" && vidCat.toLowerCase().includes("trend")) return true;
-    if (normFilterCat === "viral" && vidCat.toLowerCase().includes("viral")) return true;
 
     return false;
   };
@@ -222,7 +219,7 @@ export default function VideoHubView({ videos = [], currentUser }: VideoHubViewP
               </span>
             </h1>
             <p className="text-[11px] text-slate-500 font-mono tracking-wider mt-0.5 uppercase">
-              {t("Premium Ground Reports, Political Analyses, & Viral Editorial Feeds")}
+              {t("Premium Ground Reports, Political Analyses, & Global Editorial Feeds")}
             </p>
           </div>
         </div>
@@ -307,7 +304,7 @@ export default function VideoHubView({ videos = [], currentUser }: VideoHubViewP
                   <div className="absolute top-3 left-3 flex gap-2 pointer-events-none z-10">
                     <span className="bg-red-600 text-white text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded shadow-md flex items-center gap-1">
                       <Sparkles size={9} className="fill-current text-white animate-pulse" />
-                      {t("TOP BULLETIN")}
+                      {t("FEATURED BULLETIN")}
                     </span>
                     {heroVideo.category && (
                       <span className="bg-slate-900/85 backdrop-blur-[2px] border border-neutral-700/30 text-white text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded shadow">
