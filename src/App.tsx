@@ -18,6 +18,7 @@ import MarketDashboard from "./components/MarketDashboard";
 import AuthModal from "./components/AuthModal";
 import SavedArticlesModal from "./components/SavedArticlesModal";
 import VideoHubView from "./components/VideoHubView";
+import AdSlot from "./components/AdSlot";
 
 
 export default function App() {
@@ -467,6 +468,11 @@ export default function App() {
       {/* Dynamic scrolling breaking bulletin ticker */}
       <BreakingNewsTicker />
 
+      {/* Top Banner Ad Slot */}
+      <div className="max-w-7xl mx-auto w-full px-6 mt-4">
+        <AdSlot placement="Top Banner" />
+      </div>
+
       {/* Brand headers with global live UTC widgets */}
       <Header
         categories={categories}
@@ -529,6 +535,14 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Footer Banner Ad Slot */}
+      <div className="max-w-7xl mx-auto w-full px-6 mb-4">
+        <AdSlot placement="Footer Banner" />
+      </div>
+
+      {/* Sticky Bottom Floating Ads */}
+      <AdSlot placement="Sticky Ads" />
 
       {/* Professional global footers */}
       <Footer

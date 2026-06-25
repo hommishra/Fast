@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, where, getDocs, doc } from "firebase/firestore";
 import { db } from "../firebase";
 import { BreakingNews, Article } from "../types";
 import { 
@@ -28,6 +28,20 @@ export default function BreakingNewsTicker() {
   const [currentTime, setCurrentTime] = useState("");
   const [hasNewAlert, setHasNewAlert] = useState(false);
   const [lastItemCount, setLastItemCount] = useState(0);
+
+  // Real-time listener for ticker settings
+  useEffect(() => {
+    const unsubscribeTicker = onSnapshot(doc(db, "settings", "ticker"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.mode) setTickerMode(data.mode);
+        if (data.speed) setScrollSpeed(data.speed);
+      }
+    }, (error) => {
+      console.error("BreakingNewsTicker settings subscription failed:", error);
+    });
+    return () => unsubscribeTicker();
+  }, []);
 
   // Real-time listener for breaking news items
   useEffect(() => {
@@ -268,50 +282,12 @@ export default function BreakingNewsTicker() {
           </div>
         </div>
 
-        {/* Interactive Controls & Settings Drawer Ribbon */}
+        {/* UTC Clock validation widget */}
         <div className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 md:py-0 border-t md:border-t-0 md:border-l border-slate-950 bg-slate-950 text-slate-400 text-[10px] font-mono select-none">
-
-          {/* Toggle crawler styles */}
-          <button
-            onClick={() => setTickerMode(tickerMode === "marquee" ? "carousel" : "marquee")}
-            className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-slate-700 transition cursor-pointer flex items-center gap-1.5 text-[9px]"
-            title="Switch news stream presentation type"
-          >
-            <SlidersHorizontal size={9} className="text-blue-500" />
-            <span>{tickerMode === "marquee" ? "STREAM" : "SLIDER"}</span>
-          </button>
-
-          <span className="text-slate-800 font-sans">|</span>
-
-          {/* Speed settings dropdown (only for marquee stream) */}
-          {tickerMode === "marquee" && (
-            <>
-              <div className="flex items-center gap-1 text-[9px]">
-                <span className="text-slate-600">SPEED:</span>
-                {(["slow", "normal", "fast"] as const).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setScrollSpeed(s)}
-                    className={`px-1 rounded uppercase font-extrabold text-[8px] transition cursor-pointer ${
-                      scrollSpeed === s 
-                        ? "bg-blue-900/70 text-blue-300 border border-blue-800/60" 
-                        : "text-slate-500 hover:text-slate-300"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-              <span className="text-slate-800 font-sans">|</span>
-            </>
-          )}
-
-          {/* UTC Clock validation widget */}
           <div className="flex items-center gap-1 text-slate-500 text-[9px]">
             <Clock size={10} className="text-teal-500" />
             <span className="font-bold tracking-tight">{currentTime || "LIVE STREAM"}</span>
           </div>
-
         </div>
 
       </div>

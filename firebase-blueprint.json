@@ -199,9 +199,124 @@
         "allowDownload": { "type": "boolean" }
       },
       "required": ["id", "title", "author", "pdfUrl", "publishDate", "downloadCount", "allowDownload"]
+    },
+    "AdCampaign": {
+      "title": "AdCampaign",
+      "description": "Ad campaigns organizing multiple advertisements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "advertiserName": { "type": "string" },
+        "budget": { "type": "number" },
+        "status": { "type": "string", "enum": ["Active", "Paused", "Ended"] },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "advertiserName", "status", "startDate", "endDate", "createdAt"]
+    },
+    "Ad": {
+      "title": "Ad",
+      "description": "An individual advertisement instance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "advertiserName": { "type": "string" },
+        "destinationUrl": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "adType": { "type": "string", "enum": ["Banner", "Video", "Popup", "Sticky", "Native"] },
+        "adPlacement": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Paused", "Scheduled", "Ended"] },
+        "deviceTargeting": { "type": "array", "items": { "type": "string" } },
+        "categoryTargeting": { "type": "array", "items": { "type": "string" } },
+        "countries": { "type": "array", "items": { "type": "string" } },
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "campaignId": { "type": "string" },
+        "impressions": { "type": "number" },
+        "clicks": { "type": "number" },
+        "ctr": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "advertiserName", "destinationUrl", "adType", "adPlacement", "startDate", "endDate", "status", "deviceTargeting", "categoryTargeting", "impressions", "clicks", "ctr", "createdAt"]
+    },
+    "AdPosition": {
+      "title": "AdPosition",
+      "description": "Ad slot configurations on the website",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "provider": { "type": "string", "enum": ["custom", "adsense"] },
+        "adsenseCode": { "type": "string" },
+        "lazyLoad": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "enabled", "provider", "lazyLoad", "createdAt"]
+    },
+    "AdClick": {
+      "title": "AdClick",
+      "description": "Log of a single ad click",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adId": { "type": "string" },
+        "campaignId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "country": { "type": "string" },
+        "language": { "type": "string" },
+        "device": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "ip": { "type": "string" }
+      },
+      "required": ["id", "adId", "timestamp"]
+    },
+    "AdImpression": {
+      "title": "AdImpression",
+      "description": "Log of a single ad impression",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adId": { "type": "string" },
+        "campaignId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "country": { "type": "string" },
+        "language": { "type": "string" },
+        "device": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "ip": { "type": "string" }
+      },
+      "required": ["id", "adId", "timestamp"]
     }
   },
   "firestore": {
+    "/ads/{adId}": {
+      "schema": "Ad",
+      "description": "Store all individual ads"
+    },
+    "/ad_campaigns/{campaignId}": {
+      "schema": "AdCampaign",
+      "description": "Store ad campaigns"
+    },
+    "/ad_positions/{positionId}": {
+      "schema": "AdPosition",
+      "description": "Ad slot configurations and placements"
+    },
+    "/ad_clicks/{clickId}": {
+      "schema": "AdClick",
+      "description": "Log of ad clicks for reporting"
+    },
+    "/ad_impressions/{impressionId}": {
+      "schema": "AdImpression",
+      "description": "Log of ad impressions for reporting"
+    },
     "/ebooks/{ebookId}": {
       "schema": "EBook",
       "description": "Store all downloadable e-books"

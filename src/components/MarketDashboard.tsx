@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   ResponsiveContainer, 
   AreaChart, 
@@ -250,6 +250,85 @@ export default function MarketDashboard() {
   const [chartPeriod, setChartPeriod] = useState<"1D" | "5D" | "1M" | "1Y">("1D");
   const [sectors, setSectors] = useState<SectorItem[]>(INITIAL_SECTORS);
   const [searchQuery, setSearchQuery] = useState("");
+  const [useTradingViewChart, setUseTradingViewChart] = useState(true);
+
+  const tvSymbol = useMemo(() => {
+    switch (selectedSymbol.toUpperCase()) {
+      case "SPX": return "FOREXCOM:SPX500";
+      case "DJI": return "FOREXCOM:DJI";
+      case "IXIC": return "FOREXCOM:NSXUSD";
+      case "RUT": return "INDEX:RUT";
+      case "BTC": return "COINBASE:BTC-USD";
+      case "ETH": return "COINBASE:ETH-USD";
+      case "SOL": return "COINBASE:SOL-USD";
+      case "XAU": return "TVC:GOLD";
+      case "CL": return "TVC:USOIL";
+      case "EURUSD": return "OANDA:EURUSD";
+      case "GBPUSD": return "OANDA:GBPUSD";
+      default:
+        return `NASDAQ:${selectedSymbol.toUpperCase()}`;
+    }
+  }, [selectedSymbol]);
+
+  const chartSrcDoc = useMemo(() => {
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body, html {
+              margin: 0;
+              padding: 0;
+              overflow: hidden;
+              background: #ffffff;
+              height: 100%;
+              width: 100%;
+            }
+            .tradingview-widget-container {
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+              position: relative;
+            }
+            /* Completely strip and suppress any copyright links, brand logos, or 1% watermarks */
+            .tradingview-widget-copyright,
+            [class*="copyright"],
+            [class*="branding"],
+            [class*="watermark"],
+            a[href*="tradingview.com"],
+            iframe[src*="logo"],
+            div[class*="logo"] {
+              display: none !important;
+              visibility: hidden !important;
+              opacity: 0 !important;
+              height: 0 !important;
+              pointer-events: none !important;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="tradingview-widget-container">
+            <div class="tradingview-widget-container__widget" style="height: 100%; width: 100%;"></div>
+            <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+            {
+              "autosize": true,
+              "symbol": "${tvSymbol}",
+              "interval": "D",
+              "timezone": "Etc/UTC",
+              "theme": "light",
+              "style": "1",
+              "locale": "en",
+              "enable_publishing": false,
+              "allow_symbol_change": true,
+              "calendar": false,
+              "support_host": "https://www.tradingview.com"
+            }
+            </script>
+          </div>
+        </body>
+      </html>
+    `;
+  }, [tvSymbol]);
 
   const feedMode = "Real-World";
   const [isFetching, setIsFetching] = useState(false);
@@ -508,21 +587,51 @@ export default function MarketDashboard() {
                 </h2>
               </div>
 
-              {/* Chart range selectors */}
-              <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200/40 select-none">
-                {(["1D", "5D", "1M", "1Y"] as const).map((period) => (
+              <div className="flex flex-wrap gap-2 items-center">
+                {/* Chart Mode Toggle */}
+                <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200/40 select-none text-[11px] font-bold">
                   <button
-                    key={period}
-                    onClick={() => setChartPeriod(period)}
-                    className={`px-3 py-1.5 text-xs font-mono font-bold rounded-md transition ${
-                      chartPeriod === period
-                        ? "bg-slate-900 text-white shadow-xs"
-                        : "text-slate-500 hover:text-slate-950 cursor-pointer"
+                    onClick={() => setUseTradingViewChart(true)}
+                    className={`px-3 py-1.5 rounded-md transition duration-150 flex items-center gap-1 cursor-pointer ${
+                      useTradingViewChart
+                        ? "bg-emerald-600 text-white shadow-xs font-black"
+                        : "text-slate-500 hover:text-slate-950"
                     }`}
                   >
-                    {period}
+                    <Globe size={11} />
+                    <span>TRADINGVIEW (LIVE)</span>
                   </button>
-                ))}
+                  <button
+                    onClick={() => setUseTradingViewChart(false)}
+                    className={`px-3 py-1.5 rounded-md transition duration-150 flex items-center gap-1 cursor-pointer ${
+                      !useTradingViewChart
+                        ? "bg-slate-900 text-white shadow-xs font-black"
+                        : "text-slate-500 hover:text-slate-950"
+                    }`}
+                  >
+                    <Activity size={11} />
+                    <span>LOCAL STREAM</span>
+                  </button>
+                </div>
+
+                {/* Chart range selectors */}
+                {!useTradingViewChart && (
+                  <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200/40 select-none">
+                    {(["1D", "5D", "1M", "1Y"] as const).map((period) => (
+                      <button
+                        key={period}
+                        onClick={() => setChartPeriod(period)}
+                        className={`px-3 py-1.5 text-xs font-mono font-bold rounded-md transition ${
+                          chartPeriod === period
+                            ? "bg-slate-900 text-white shadow-xs"
+                            : "text-slate-500 hover:text-slate-950 cursor-pointer"
+                        }`}
+                      >
+                        {period}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -555,52 +664,65 @@ export default function MarketDashboard() {
               </div>
             </div>
 
-            {/* Actual Recharts Area Chart */}
-            <div className="h-72 w-full mt-4" id="cnn_stock_recharts_container">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={chartData}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
-                  <defs>
-                    <linearGradient id="colorStockCurve" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={activeColor} stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor={activeColor} stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis 
-                    dataKey="timeLabel" 
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: "#64748B", fontSize: 10, fontFamily: "monospace" }}
+            {/* Actual Recharts Area Chart or TradingView Widget */}
+            <div className="h-80 w-full mt-4 relative overflow-hidden" id="cnn_stock_chart_container">
+              {useTradingViewChart ? (
+                <>
+                  <iframe
+                    srcDoc={chartSrcDoc}
+                    className="w-full h-full rounded-xl overflow-hidden border border-slate-200 relative z-0"
+                    title={`TradingView Advanced Chart for ${tvSymbol}`}
+                    sandbox="allow-scripts allow-same-origin"
                   />
-                  <YAxis 
-                    domain={["auto", "auto"]}
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: "#64748B", fontSize: 10, fontFamily: "monospace" }}
-                  />
-                  <Tooltip
-                    contentStyle={{ 
-                      backgroundColor: "#0F172A", 
-                      color: "#F8FAFC", 
-                      borderRadius: "10px", 
-                      border: "none",
-                      fontSize: "12px",
-                      fontFamily: "sans-serif"
-                    }}
-                    labelStyle={{ opacity: 0.6 }}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="price" 
-                    stroke={activeColor} 
-                    strokeWidth={2.5}
-                    fillOpacity={1} 
-                    fill="url(#colorStockCurve)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+                  {/* Seamless overlay cover to mask the bottom-left canvas branding watermark */}
+                  <div className="absolute bottom-[36px] left-[10px] w-[130px] h-[24px] bg-white pointer-events-none z-10" />
+                </>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={chartData}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorStockCurve" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={activeColor} stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor={activeColor} stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis 
+                      dataKey="timeLabel" 
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fill: "#64748B", fontSize: 10, fontFamily: "monospace" }}
+                    />
+                    <YAxis 
+                      domain={["auto", "auto"]}
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fill: "#64748B", fontSize: 10, fontFamily: "monospace" }}
+                    />
+                    <Tooltip
+                      contentStyle={{ 
+                        backgroundColor: "#0F172A", 
+                        color: "#F8FAFC", 
+                        borderRadius: "10px", 
+                        border: "none",
+                        fontSize: "12px",
+                        fontFamily: "sans-serif"
+                      }}
+                      labelStyle={{ opacity: 0.6 }}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="price" 
+                      stroke={activeColor} 
+                      strokeWidth={2.5}
+                      fillOpacity={1} 
+                      fill="url(#colorStockCurve)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 

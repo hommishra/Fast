@@ -6,6 +6,7 @@ import { Clock, User, ArrowLeft, Send, MessageSquare, Flame, Bookmark as Bookmar
 import { getFallbackImage } from "../utils/imageHelpers";
 import { AnimatePresence, motion } from "motion/react";
 import { useLanguage } from "../utils/LanguageContext";
+import AdSlot from "./AdSlot";
 
 interface ArticleViewProps {
   article: Article;
@@ -374,6 +375,9 @@ export default function ArticleView({
           <div className="text-slate-800 text-sm md:text-base leading-relaxed whitespace-pre-line space-y-4 max-w-none font-sans">
             {displayContent}
           </div>
+
+          {/* In-Article Banner Advertisement */}
+          <AdSlot placement="In-Article Banner" category={article.categoryId} />
 
           {/* GALLERY SPOTLIGHT COMPONENT */}
           {articleImages.length > 1 && (

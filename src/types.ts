@@ -172,6 +172,88 @@ export interface EBook {
   allowDownload: boolean;
 }
 
+export interface AdCampaign {
+  id: string;
+  name: string;
+  advertiserName: string;
+  budget?: number;
+  status: "Active" | "Paused" | "Ended";
+  startDate: string;
+  endDate: string;
+  createdAt: string;
+}
+
+export interface Ad {
+  id: string;
+  title: string;
+  description?: string;
+  advertiserName: string;
+  destinationUrl: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  adType: "Banner" | "Video" | "Popup" | "Sticky" | "Native";
+  adPlacement:
+    | "Top Banner"
+    | "Header Banner"
+    | "Footer Banner"
+    | "Sidebar Banner"
+    | "In-Article Banner"
+    | "Homepage Banner"
+    | "Pre-roll Ads"
+    | "Mid-roll Ads"
+    | "Post-roll Ads"
+    | "Popup Ads"
+    | "Sticky Ads"
+    | "Native Ads";
+  startDate: string;
+  endDate: string;
+  status: "Active" | "Paused" | "Scheduled" | "Ended";
+  deviceTargeting: ("Mobile" | "Desktop" | "Tablet")[];
+  categoryTargeting: string[];
+  countries: string[];
+  languages: string[];
+  campaignId?: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AdPosition {
+  id: string;
+  name: string;
+  enabled: boolean;
+  provider: "custom" | "adsense";
+  adsenseCode?: string;
+  lazyLoad: boolean;
+  createdAt: string;
+}
+
+export interface AdClick {
+  id: string;
+  adId: string;
+  campaignId?: string;
+  timestamp: string;
+  country?: string;
+  language?: string;
+  device?: string;
+  userAgent?: string;
+  ip?: string;
+}
+
+export interface AdImpression {
+  id: string;
+  adId: string;
+  campaignId?: string;
+  timestamp: string;
+  country?: string;
+  language?: string;
+  device?: string;
+  userAgent?: string;
+  ip?: string;
+}
+
 
 
 

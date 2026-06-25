@@ -113,7 +113,7 @@ export default function EBookReaderModal({
 
             {/* Bottom Actions of Left Column */}
             <div className="pt-6 lg:pt-0 space-y-3">
-              {book.allowDownload ? (
+              {book.allowDownload !== false ? (
                 <div className="space-y-1">
                   <button
                     onClick={() => onDownload(book)}
@@ -168,7 +168,7 @@ export default function EBookReaderModal({
                       <ExternalLink size={12} />
                       {t("Open in New Tab")}
                     </button>
-                    {book.allowDownload && (
+                    {book.allowDownload !== false && (
                       <button 
                         onClick={() => onDownload(book)}
                         className="bg-red-700 hover:bg-red-800 text-white font-mono text-[10px] font-bold py-2 px-4 rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
@@ -199,7 +199,7 @@ export default function EBookReaderModal({
                   <ExternalLink size={10} />
                   {t("Full View")}
                 </button>
-                {book.allowDownload && (
+                {book.allowDownload !== false && (
                   <button 
                     onClick={() => onDownload(book)}
                     className="bg-red-700 hover:bg-red-800 text-white font-extrabold transition flex items-center gap-1 cursor-pointer uppercase text-[9px] px-3 py-1 rounded shadow-md"

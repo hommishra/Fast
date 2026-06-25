@@ -4,6 +4,7 @@ import { Clock, Eye, TrendingUp, Tv, Camera, ChevronLeft, ChevronRight, BookOpen
 import ActiveSectionsMap from "./ActiveSectionsMap";
 import SmartVideoPlayer from "./SmartVideoPlayer";
 import EBookReaderModal from "./EBookReaderModal";
+import AdSlot from "./AdSlot";
 import { getFallbackImage } from "../utils/imageHelpers";
 import { useLanguage } from "../utils/LanguageContext";
 
@@ -501,6 +502,9 @@ export default function FCLayout({
         </div>
       )}
 
+      {/* Homepage Banner Advertisement Slot */}
+      <AdSlot placement="Homepage Banner" category={selectedCategory || "all"} />
+
       {/* SECTION 4: Interactive Coverage Zone Map */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col gap-4 animate-fadeIn" id="news_coverage_geomap_section">
         <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-light pb-4 mb-2">
@@ -547,11 +551,10 @@ export default function FCLayout({
               <div 
                 key={book.id} 
                 onClick={() => {
-                  setSelectedEbook(book);
-                  setIsReaderOpen(true);
+                  handleDownloadEbook(book);
                 }}
                 className="bg-slate-50/50 hover:bg-white border border-slate-100 hover:border-slate-300 rounded-2xl p-4 flex gap-4 transition-all duration-300 hover:shadow-md relative group cursor-pointer"
-                title={t("Click to Open and Read Publication")}
+                title={t("Click to Download PDF")}
               >
                 <div className="w-20 h-28 shrink-0 overflow-hidden rounded-xl bg-slate-100 shadow border border-slate-200 relative select-none">
                   <img 
@@ -568,7 +571,7 @@ export default function FCLayout({
                 <div className="flex-1 flex flex-col justify-between overflow-hidden">
                   <div className="space-y-1">
                     <span className="text-[9px] font-mono uppercase font-bold text-red-650 tracking-wider flex items-center gap-1">
-                      <BookOpen size={8} /> {t("CLICK TO READ")}
+                      <Download size={8} /> {t("CLICK TO DOWNLOAD")}
                     </span>
                     <h4 className="text-xs md:text-sm font-extrabold text-slate-900 line-clamp-1 leading-tight group-hover:text-red-700 transition-colors duration-200">
                       {book.title}
@@ -596,16 +599,6 @@ export default function FCLayout({
                       >
                         <BookOpen size={10} />
                         {t("Read")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleDownloadEbook(book);
-                        }}
-                        className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-850 font-mono text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all duration-200 flex items-center gap-1 cursor-pointer active:scale-95"
-                      >
-                        <Download size={10} />
-                        {t("Download")}
                       </button>
                     </div>
                   </div>

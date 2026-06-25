@@ -14,6 +14,7 @@ import {
 import { db } from "../firebase";
 import {
   LayoutDashboard,
+  Megaphone,
   FileText,
   MessageSquare,
   FolderTree,
@@ -33,6 +34,7 @@ import {
   Download,
   Trash2,
   Plus,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -49,6 +51,7 @@ import AdminCategories from "./AdminCategories";
 import AdminComments from "./AdminComments";
 import AdminSettings from "./AdminSettings";
 import AdminVideos from "./AdminVideos";
+import AdminAds from "./AdminAds";
 
 const cleanUndefined = <T extends Record<string, any>>(obj: T): T => {
   const newObj = { ...obj };
@@ -76,7 +79,7 @@ export default function AdminPanel({
   coverageZones,
 }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings" | "videos" | "ebooks"
+    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings" | "videos" | "ebooks" | "ads"
   >("dashboard");
 
   // Real-time Database Collections State
@@ -85,6 +88,8 @@ export default function AdminPanel({
   const [breakingLogs, setBreakingLogs] = useState<BreakingNews[]>([]);
   const [globalSettings, setGlobalSettings] = useState<WebSettings | null>(null);
   const [ebooks, setEbooks] = useState<EBook[]>([]);
+  const [tickerMode, setTickerMode] = useState<"marquee" | "carousel">("marquee");
+  const [tickerSpeed, setTickerSpeed] = useState<"slow" | "normal" | "fast">("normal");
   
   // Security operations items
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -219,6 +224,17 @@ export default function AdminPanel({
       console.error("AdminPanel ebooks onSnapshot subscription failed:", error);
     });
 
+    // 8. Ticker settings subscription
+    const unsubscribeTicker = onSnapshot(doc(db, "settings", "ticker"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.mode) setTickerMode(data.mode);
+        if (data.speed) setTickerSpeed(data.speed);
+      }
+    }, (error) => {
+      console.error("AdminPanel ticker settings onSnapshot subscription failed:", error);
+    });
+
     return () => {
       unsubscribeComments();
       unsubscribeUsers();
@@ -227,6 +243,7 @@ export default function AdminPanel({
       unsubscribeLogs();
       unsubscribeTraffic();
       unsubscribeEbooks();
+      unsubscribeTicker();
     };
   }, []);
 
@@ -444,6 +461,20 @@ export default function AdminPanel({
       await logAuditActivity(`Erased breaking news ticker entry code: ${id}`);
     } catch (err) {
       handleFirestoreErrorLocal(err, "delete", `breaking_news/${id}`);
+    }
+  };
+
+  const handleUpdateTickerSettings = async (mode: "marquee" | "carousel", speed: "slow" | "normal" | "fast") => {
+    try {
+      await setDoc(doc(db, "settings", "ticker"), {
+        mode,
+        speed,
+        updatedAt: new Date().toISOString(),
+        updatedBy: adminSession.name
+      }, { merge: true });
+      await logAuditActivity(`Updated breaking news ticker settings to - Mode: ${mode}, Speed: ${speed}`);
+    } catch (err) {
+      handleFirestoreErrorLocal(err, "update", "settings/ticker");
     }
   };
 
@@ -736,6 +767,17 @@ export default function AdminPanel({
             <BookOpen size={15} /> E-Books Manager ({ebooks.length})
           </button>
 
+          {adminSession.role === "Admin" && (
+            <button
+              onClick={() => setActiveTab("ads")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded text-xs font-bold uppercase tracking-wider transition ${
+                activeTab === "ads" ? "bg-red-800 text-white" : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
+              }`}
+            >
+              <Megaphone size={15} /> Ads Manager
+            </button>
+          )}
+
           <div className="pt-8 text-center select-none">
             <span className="text-[10px] text-neutral-600 block uppercase font-mono">INTEGRITY FIREWALL</span>
             <span className="text-[9px] text-green-500 font-bold bg-green-950/40 border border-green-950 px-2 py-0.5 rounded-full inline-block mt-1 uppercase">
@@ -950,6 +992,74 @@ export default function AdminPanel({
                   </button>
                 </div>
               </form>
+
+              {/* Ticker Settings */}
+              <div className="bg-neutral-950 border border-neutral-800/80 p-6 rounded-lg space-y-4 shadow-sm" id="ticker_settings_card">
+                <h3 className="text-sm font-mono tracking-widest text-neutral-400 uppercase border-b border-neutral-800 pb-3 flex items-center gap-1.5 select-none font-bold">
+                  <SlidersHorizontal size={14} className="text-blue-500" />
+                  Breaking Ticker Display Settings
+                </h3>
+                <p className="text-xs text-neutral-500 select-none">
+                  Configure how the breaking bulletins are displayed on the main page of the website. Changes apply immediately in real-time.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                  {/* Mode Selector */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-mono uppercase text-neutral-400 font-bold">
+                      Presentation Mode
+                    </label>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateTickerSettings("marquee", tickerSpeed)}
+                        className={`flex-1 py-3 px-4 rounded-md text-xs font-bold font-sans border flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                          tickerMode === "marquee"
+                            ? "bg-blue-950/40 text-blue-400 border-blue-800/80 ring-1 ring-blue-900 font-extrabold"
+                            : "bg-neutral-900 text-neutral-400 border-neutral-800 hover:border-neutral-700"
+                        }`}
+                      >
+                        <span className="font-bold uppercase tracking-wide">Continuous Stream</span>
+                        <span className="text-[10px] text-neutral-500 font-normal">Horizontal scrolling marquee ticker</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateTickerSettings("carousel", tickerSpeed)}
+                        className={`flex-1 py-3 px-4 rounded-md text-xs font-bold font-sans border flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                          tickerMode === "carousel"
+                            ? "bg-blue-950/40 text-blue-400 border-blue-800/80 ring-1 ring-blue-900 font-extrabold"
+                            : "bg-neutral-900 text-neutral-400 border-neutral-800 hover:border-neutral-700"
+                        }`}
+                      >
+                        <span className="font-bold uppercase tracking-wide">Manual Slider</span>
+                        <span className="text-[10px] text-neutral-500 font-normal">Carousel with manual left/right buttons</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Speed Selector */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-mono uppercase text-neutral-400 font-bold">
+                      Crawl/Transition Speed
+                    </label>
+                    <div className="flex gap-2">
+                      {(["slow", "normal", "fast"] as const).map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => handleUpdateTickerSettings(tickerMode, s)}
+                          className={`flex-1 py-3 rounded-md text-xs font-extrabold uppercase font-mono border transition-all cursor-pointer ${
+                            tickerSpeed === s
+                              ? "bg-blue-950/40 text-blue-300 border-blue-800/80 ring-1 ring-blue-900"
+                              : "bg-neutral-900 text-neutral-500 border-neutral-800 hover:border-neutral-700 hover:text-neutral-300"
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {/* Listing queue */}
               <div className="bg-neutral-950 border border-neutral-800/80 p-5 rounded-lg space-y-3">
@@ -1528,6 +1638,10 @@ export default function AdminPanel({
                 </div>
               </div>
             </div>
+          )}
+
+          {activeTab === "ads" && adminSession.role === "Admin" && (
+            <AdminAds adminSession={adminSession} />
           )}
         </main>
       </div>
