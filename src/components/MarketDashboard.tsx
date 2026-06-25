@@ -665,17 +665,17 @@ export default function MarketDashboard() {
             </div>
 
             {/* Actual Recharts Area Chart or TradingView Widget */}
-            <div className="h-80 w-full mt-4 relative overflow-hidden" id="cnn_stock_chart_container">
+            <div className="h-80 w-full mt-4 relative overflow-hidden rounded-xl border border-slate-200 bg-white" id="cnn_stock_chart_container">
               {useTradingViewChart ? (
                 <>
                   <iframe
                     srcDoc={chartSrcDoc}
-                    className="w-full h-full rounded-xl overflow-hidden border border-slate-200 relative z-0"
+                    className="w-full h-full overflow-hidden border-none relative z-0"
                     title={`TradingView Advanced Chart for ${tvSymbol}`}
                     sandbox="allow-scripts allow-same-origin"
                   />
-                  {/* Seamless overlay cover to mask the bottom-left canvas branding watermark */}
-                  <div className="absolute bottom-[36px] left-[10px] w-[130px] h-[24px] bg-white pointer-events-none z-10" />
+                  {/* Seamless overlay cover to mask all bottom-left branding, logo and watermarks completely */}
+                  <div className="absolute bottom-0 left-0 w-[150px] h-[65px] bg-white pointer-events-none z-10" />
                 </>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">

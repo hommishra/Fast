@@ -1705,11 +1705,11 @@ Return as a JSON object with keys:
 
     try {
       const lowerName = fileName.toLowerCase();
-      const validExtensions = [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv"];
+      const validExtensions = [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv", ".mp3", ".wav", ".m4a", ".aac", ".ogg"];
       const ext = path.extname(lowerName);
-      if (!validExtensions.includes(ext) && !lowerName.startsWith("video")) {
+      if (!validExtensions.includes(ext) && !lowerName.startsWith("video") && !lowerName.startsWith("audio")) {
         return res.status(400).json({ 
-          error: "Only standard video files are authorized." 
+          error: "Only standard audio or video files are authorized." 
         });
       }
 
@@ -1746,11 +1746,11 @@ Return as a JSON object with keys:
   app.post("/api/admin/upload-video-binary", authenticateJWT, (req: Request, res: Response) => {
     const fileName = req.headers["x-file-name"] as string || (req.query.fileName as string) || "video-" + Date.now() + ".mp4";
     const lowerName = fileName.toLowerCase();
-    const validExtensions = [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv"];
+    const validExtensions = [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".3gp", ".flv", ".ts", ".wmv", ".mp3", ".wav", ".m4a", ".aac", ".ogg"];
     const ext = path.extname(lowerName) || ".mp4";
-    if (!validExtensions.includes(ext) && !lowerName.startsWith("video")) {
+    if (!validExtensions.includes(ext) && !lowerName.startsWith("video") && !lowerName.startsWith("audio")) {
       return res.status(400).json({ 
-        error: "Only standard video files are authorized." 
+        error: "Only standard audio or video files are authorized." 
       });
     }
 

@@ -280,8 +280,10 @@ export default function AdminAds({ adminSession }: AdminAdsProps) {
         setImageFileLoading(false);
       }
     } else {
-      if (!file.type.startsWith("video/")) {
-        alert("Please upload a valid video file.");
+      const isVideo = file.type.startsWith("video/");
+      const isAudio = file.type.startsWith("audio/");
+      if (!isVideo && !isAudio) {
+        alert("Please upload a valid voice ad audio or video file.");
         return;
       }
       setVideoFileLoading(true);
@@ -1336,10 +1338,10 @@ export default function AdminAds({ adminSession }: AdminAdsProps) {
                     className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-[11px] text-white font-mono focus:border-red-650 focus:outline-none"
                   />
                   <div className="flex items-center justify-between gap-2 pt-1">
-                    <label className="text-[9px] text-neutral-500 font-mono">Or upload video file:</label>
+                    <label className="text-[9px] text-neutral-500 font-mono">Or upload voice/video file:</label>
                     <input
                       type="file"
-                      accept="video/*"
+                      accept="video/*,audio/*"
                       onChange={(e) => handleFileChange(e, "video")}
                       className="hidden"
                       id="ad-video-file-input"

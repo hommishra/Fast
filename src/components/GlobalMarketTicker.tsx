@@ -6,6 +6,7 @@ export default function GlobalMarketTicker() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Dynamic srcDoc template loading the official real-time TradingView widget
+  // We keep the widget height strictly 46px (the natural tape height) so it renders perfectly.
   const tickerSrcDoc = useMemo(() => {
     return `
       <!DOCTYPE html>
@@ -17,42 +18,17 @@ export default function GlobalMarketTicker() {
               padding: 0;
               overflow: hidden;
               background: #000000;
-              height: 100%;
+              height: 46px;
               width: 100%;
-              display: flex;
-              align-items: center;
-              justify-content: center;
             }
             .tradingview-widget-container {
               width: 100%;
-              height: 100%;
-              display: flex;
-              align-items: center;
-              justify-content: center;
+              height: 46px;
               overflow: hidden;
-              position: relative;
             }
-            /* Scale up the TradingView widget so the price digits look massive and premium */
             .tradingview-widget-container__widget {
-              width: 57.14% !important; /* 100 / 1.75 */
-              height: 57.14% !important;
-              transform: scale(1.75);
-              transform-origin: center center;
-              position: absolute;
-            }
-            /* Completely strip and suppress any copyright links, brand logos, or 1% watermarks */
-            .tradingview-widget-copyright,
-            [class*="copyright"],
-            [class*="branding"],
-            [class*="watermark"],
-            a[href*="tradingview.com"],
-            iframe[src*="logo"],
-            div[class*="logo"] {
-              display: none !important;
-              visibility: hidden !important;
-              opacity: 0 !important;
-              height: 0 !important;
-              pointer-events: none !important;
+              width: 100% !important;
+              height: 46px !important;
             }
           </style>
         </head>
@@ -95,20 +71,22 @@ export default function GlobalMarketTicker() {
 
   return (
     <div 
-      className="bg-black border-y border-zinc-950 select-none relative z-20 w-full h-[110px] overflow-hidden font-sans group" 
+      className="bg-black border-y border-zinc-950 select-none relative z-20 w-full h-[60px] flex items-center overflow-hidden font-sans group" 
       id="global_market_tv_slider_container"
     >
       {/* 
-        We use an absolute iframe with a larger height (170px) positioned at top: -30px 
-        inside a container of height 110px. This crops 30px off both the top and bottom of the iframe, 
-        completely cutting off and hiding any TradingView logo, branding watermarks, or copyrights 
-        while keeping the ticker tape perfectly centered.
+        We render the iframe with a natural height of 46px (where TradingView doesn't render any logo)
+        inside our normal sized 60px container, keeping it perfectly crisp and standard sized.
       */}
-      <div className="relative w-full h-[110px] overflow-hidden pointer-events-auto">
+      <div className="relative w-full h-[46px] flex items-center overflow-hidden pointer-events-auto">
         <iframe
           key={refreshKey}
           srcDoc={tickerSrcDoc}
-          className="absolute left-0 w-full h-[170px] top-[-30px] overflow-hidden border-none"
+          style={{
+            width: "100%",
+            height: "46px",
+          }}
+          className="overflow-hidden border-none"
           title="TradingView Live Ticker Tape Feed"
           sandbox="allow-scripts allow-same-origin"
           id="global_market_tv_iframe"
@@ -120,11 +98,11 @@ export default function GlobalMarketTicker() {
         <button
           onClick={handleRefresh}
           disabled={isRefreshing}
-          className="flex items-center justify-center p-3 rounded-full bg-zinc-900/95 border border-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-800 hover:border-zinc-700 transition-all duration-200 cursor-pointer disabled:opacity-50 shadow-[0_4px_20px_rgba(0,0,0,0.6)]"
+          className="flex items-center justify-center p-2 rounded-full bg-zinc-900/95 border border-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-800 hover:border-zinc-700 transition-all duration-200 cursor-pointer disabled:opacity-50 shadow-[0_4px_20px_rgba(0,0,0,0.6)]"
           title="Refresh live asset indices"
           id="global_market_refresh_button"
         >
-          <RefreshCw size={18} className={isRefreshing ? "animate-spin text-emerald-400" : ""} />
+          <RefreshCw size={14} className={isRefreshing ? "animate-spin text-emerald-400" : ""} />
         </button>
       </div>
     </div>

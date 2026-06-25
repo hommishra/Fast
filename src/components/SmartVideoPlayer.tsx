@@ -16,7 +16,8 @@ import {
   ChevronRight,
   Radio,
   FileVideo,
-  Loader2
+  Loader2,
+  Mic
 } from "lucide-react";
 
 interface SmartVideoPlayerProps {
@@ -41,6 +42,21 @@ export default function SmartVideoPlayer({
   fallbackFileName
 }: SmartVideoPlayerProps) {
   const [resolvedSrc, setResolvedSrc] = useState<string>("");
+  const isAudio = !!src && (
+    src.toLowerCase().endsWith(".mp3") || 
+    src.toLowerCase().endsWith(".wav") || 
+    src.toLowerCase().endsWith(".m4a") || 
+    src.toLowerCase().endsWith(".aac") || 
+    src.toLowerCase().endsWith(".ogg") ||
+    src.includes(".mp3?") ||
+    src.includes(".wav?") ||
+    src.includes(".m4a?") ||
+    (!!fallbackFileName && (
+      fallbackFileName.toLowerCase().endsWith(".mp3") ||
+      fallbackFileName.toLowerCase().endsWith(".wav") ||
+      fallbackFileName.toLowerCase().endsWith(".m4a")
+    ))
+  );
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -609,21 +625,81 @@ export default function SmartVideoPlayer({
           <span className="text-[10px] font-mono tracking-widest uppercase">Connecting...</span>
         </div>
       ) : (
-        <video
-          ref={videoRef}
-          key={resolvedSrc}
-          src={resolvedSrc}
-          autoPlay={isPlaying}
-          onClick={() => togglePlay()}
-          onDoubleClick={(e) => toggleFullscreen(e)}
-          onTouchEnd={handleTouchEnd}
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleLoadedMetadata}
-          onError={handleVideoError}
-          className="w-full h-full object-contain bg-black cursor-pointer"
-          preload="metadata"
-          referrerPolicy="no-referrer"
-        />
+        <>
+          <video
+            ref={videoRef}
+            key={resolvedSrc}
+            src={resolvedSrc}
+            autoPlay={isPlaying}
+            onClick={() => togglePlay()}
+            onDoubleClick={(e) => toggleFullscreen(e)}
+            onTouchEnd={handleTouchEnd}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onError={handleVideoError}
+            className={isAudio ? "hidden" : "w-full h-full object-contain bg-black cursor-pointer"}
+            preload="metadata"
+            referrerPolicy="no-referrer"
+          />
+          {isAudio && (
+            <div 
+              className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 p-6 select-none cursor-pointer"
+              onClick={() => togglePlay()}
+            >
+              {/* Voice wave animations styling */}
+              <style>{`
+                @keyframes voiceWave {
+                  0% { transform: scaleY(0.3); }
+                  100% { transform: scaleY(1.3); }
+                }
+              `}</style>
+
+              {/* Radial glow background */}
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.08)_0%,transparent_70%)] pointer-events-none" />
+              
+              {/* Cover image or fallback podcast cover with spinning/pulsing glow */}
+              <div className="relative z-10 flex flex-col items-center gap-3.5 text-center max-w-xs">
+                <div className={`relative h-24 w-24 md:h-32 md:w-32 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)] border border-emerald-500/20 transition-all duration-500 ${isPlaying ? "scale-105 shadow-emerald-500/10" : ""}`}>
+                  <img 
+                    src={thumbnailUrl || "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&q=80&w=400"} 
+                    alt="Podcast Cover" 
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <Mic size={24} className={`text-emerald-400 ${isPlaying ? "animate-bounce" : ""}`} />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="inline-block px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[9px] font-bold uppercase tracking-widest rounded">
+                    Voice ad Broadcast
+                  </span>
+                  <h4 className="text-xs md:text-sm font-bold text-neutral-100 line-clamp-1">{title}</h4>
+                  <p className="text-[9px] font-mono text-zinc-400">Fast Coverage Audio Network</p>
+                </div>
+
+                {/* Simulated Waveform lines with animated heights when playing */}
+                <div className="flex items-center justify-center gap-1.5 h-8 mt-1">
+                  {Array.from({ length: 15 }).map((_, idx) => {
+                    const delay = [100, 300, 500, 200, 400, 600, 150, 350, 550, 250, 450, 650, 180, 380, 580][idx];
+                    return (
+                      <div
+                        key={idx}
+                        className="w-1 rounded-full bg-emerald-500"
+                        style={{
+                          height: isPlaying ? "100%" : "4px",
+                          transformOrigin: "bottom",
+                          animation: isPlaying ? `voiceWave 0.6s ease-in-out infinite alternate` : "none",
+                          animationDelay: isPlaying ? `${delay}ms` : "0ms"
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Satellite fallback watermark if running */}
@@ -638,7 +714,7 @@ export default function SmartVideoPlayer({
       <button
         onClick={toggleFullscreen}
         className={`absolute top-3 left-3 bg-red-600/95 hover:bg-red-600 border border-red-500/30 text-white text-[10px] font-bold px-3 py-1.5 rounded-md shadow-xl flex items-center gap-1.5 backdrop-blur-md transition-all duration-300 z-20 cursor-pointer ${
-          showControls ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+          showControls && !isAudio ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
         }`}
         title="Toggle Fullscreen"
       >
@@ -716,32 +792,40 @@ export default function SmartVideoPlayer({
           <div className="flex items-center gap-3 relative">
             {/* Simulated Live status or quality */}
             <div className="relative">
-              <button
-                onClick={() => {
-                  setShowQualityMenu(!showQualityMenu);
-                  setShowSpeedMenu(false);
-                }}
-                className="text-[10px] font-mono font-bold bg-neutral-800 border border-neutral-700/80 px-2.5 py-0.5 rounded text-neutral-200 hover:bg-neutral-700 flex items-center gap-1 uppercase transition cursor-pointer"
-              >
-                <span>HD</span>
-                <span className="opacity-70 font-normal normal-case">{videoQuality}</span>
-              </button>
-
-              {/* Quality Selection Menu */}
-              {showQualityMenu && (
-                <div className="absolute bottom-7 right-0 bg-neutral-900 border border-neutral-850 rounded-lg py-1.5 text-xs text-white shadow-xl flex flex-col w-32 shrink-0 z-30">
-                  {["Auto (1080p)", "1080p Source", "720p HD", "480p Web", "360p Mobile"].map((q) => (
-                    <button
-                      key={q}
-                      onClick={() => changeQuality(q)}
-                      className={`text-left px-3 py-1.5 hover:bg-neutral-800 text-[10px] uppercase font-mono font-bold tracking-wider ${
-                        videoQuality === q ? "text-red-500" : "text-neutral-300"
-                      }`}
-                    >
-                      {q}
-                    </button>
-                  ))}
+              {isAudio ? (
+                <div className="text-[10px] font-mono font-bold bg-emerald-950 border border-emerald-800/80 px-2.5 py-0.5 rounded text-emerald-400 flex items-center gap-1 uppercase select-none">
+                  <span>HQ AUDIO</span>
                 </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setShowQualityMenu(!showQualityMenu);
+                      setShowSpeedMenu(false);
+                    }}
+                    className="text-[10px] font-mono font-bold bg-neutral-800 border border-neutral-700/80 px-2.5 py-0.5 rounded text-neutral-200 hover:bg-neutral-700 flex items-center gap-1 uppercase transition cursor-pointer"
+                  >
+                    <span>HD</span>
+                    <span className="opacity-70 font-normal normal-case">{videoQuality}</span>
+                  </button>
+
+                  {/* Quality Selection Menu */}
+                  {showQualityMenu && (
+                    <div className="absolute bottom-7 right-0 bg-neutral-900 border border-neutral-850 rounded-lg py-1.5 text-xs text-white shadow-xl flex flex-col w-32 shrink-0 z-30">
+                      {["Auto (1080p)", "1080p Source", "720p HD", "480p Web", "360p Mobile"].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => changeQuality(q)}
+                          className={`text-left px-3 py-1.5 hover:bg-neutral-800 text-[10px] uppercase font-mono font-bold tracking-wider ${
+                            videoQuality === q ? "text-red-500" : "text-neutral-300"
+                          }`}
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

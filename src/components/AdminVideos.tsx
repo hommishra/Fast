@@ -18,7 +18,9 @@ import {
   Calendar,
   Lock,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Music,
+  Mic
 } from "lucide-react";
 import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc, setDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
@@ -36,6 +38,7 @@ const VIDEO_CATEGORIES = [
   { id: "finance", name: "Finance & Economy" },
   { id: "sports", name: "Sports Arena" },
   { id: "climate", name: "Climate & Science" },
+  { id: "audio", name: "Voice & Podcasts" },
   { id: "general", name: "General Broadcast" }
 ];
 
@@ -263,29 +266,31 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
     return parts.length > 1 ? `.${parts.pop()}` : "";
   };
 
-  // Video format, integrity validation and duration extraction
+  // Video/Audio format, integrity validation and duration extraction
   const validateAndGetVideoMetadata = (file: File): Promise<{ duration: string; durationSeconds: number }> => {
     return new Promise((resolve, reject) => {
       // 1. Verify file format extension & MIME type representation
-      const validExtensions = [".mp4", ".webm", ".mov", ".avi"];
+      const validVideoExtensions = [".mp4", ".webm", ".mov", ".avi"];
+      const validAudioExtensions = [".mp3", ".wav", ".m4a", ".aac", ".ogg"];
       const ext = pathExt(file.name).toLowerCase();
       
-      if (!validExtensions.includes(ext) && !file.type.startsWith("video/")) {
-        reject(new Error("Unsupported video format. Highly authorized formats include MP4, WebM, MOV, and AVI."));
+      const isVideo = validVideoExtensions.includes(ext) || file.type.startsWith("video/");
+      const isAudio = validAudioExtensions.includes(ext) || file.type.startsWith("audio/");
+      
+      if (!isVideo && !isAudio) {
+        reject(new Error("Unsupported file format. Supported video formats: MP4, WebM, MOV, AVI. Supported audio/voice formats: MP3, WAV, M4A, AAC, OGG."));
         return;
       }
       
-      const video = document.createElement("video");
-      video.preload = "metadata";
-      video.muted = true;
-      video.playsInline = true;
+      const mediaElement = document.createElement(isAudio ? "audio" : "video");
+      mediaElement.preload = "metadata";
       
       let objectUrl: string | null = null;
       try {
         objectUrl = URL.createObjectURL(file);
-        video.src = objectUrl;
+        mediaElement.src = objectUrl;
       } catch (e) {
-        reject(new Error("Invalid or corrupted video file. Please test and choose another file."));
+        reject(new Error("Invalid or corrupted media file. Please test and choose another file."));
         return;
       }
       
@@ -295,11 +300,11 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         reject(new Error("File validation timeout. This file may be corrupt, DRM-protected, or encoded in an unsupported container format."));
       }, timeoutSecs);
       
-      video.onloadedmetadata = () => {
+      mediaElement.onloadedmetadata = () => {
         clearTimeout(loadTimeout);
         if (objectUrl) URL.revokeObjectURL(objectUrl);
         
-        const seconds = video.duration;
+        const seconds = mediaElement.duration;
         if (isNaN(seconds) || seconds === Infinity || seconds <= 0) {
           reject(new Error("File format integrity failed: zero-duration or corrupted/empty audio/video stream."));
           return;
@@ -315,10 +320,10 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
         });
       };
       
-      video.onerror = () => {
+      mediaElement.onerror = () => {
         clearTimeout(loadTimeout);
         if (objectUrl) URL.revokeObjectURL(objectUrl);
-        reject(new Error("Corrupt or invalid video format. This file failed native HTML5 decoding check."));
+        reject(new Error(`Corrupt or invalid ${isAudio ? "audio" : "video"} format. This file failed native HTML5 decoding check.`));
       };
     });
   };
@@ -394,6 +399,88 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
   const generateAutomaticThumbnail = (file: File): Promise<string> => {
     return new Promise((resolve) => {
       try {
+        const isAudio = file.type.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".aac", ".ogg"].some(ext => file.name.toLowerCase().endsWith(ext));
+        
+        if (isAudio) {
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 640;
+            canvas.height = 360;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              // Draw a beautiful dark slate / emerald radial gradient background
+              const grad = ctx.createRadialGradient(320, 180, 50, 320, 180, 360);
+              grad.addColorStop(0, "#064e3b"); // emerald-900
+              grad.addColorStop(0.5, "#022c22"); // emerald-950
+              grad.addColorStop(1, "#09090b"); // zinc-950
+              ctx.fillStyle = grad;
+              ctx.fillRect(0, 0, 640, 360);
+
+              // Draw a subtle background grid
+              ctx.strokeStyle = "rgba(16, 185, 129, 0.05)"; // emerald-500 low opacity
+              ctx.lineWidth = 1;
+              for (let x = 0; x < 640; x += 40) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, 360);
+                ctx.stroke();
+              }
+              for (let y = 0; y < 360; y += 40) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(640, y);
+                ctx.stroke();
+              }
+
+              // Draw audio wave visual bars in the middle
+              ctx.fillStyle = "#10b981"; // emerald-500
+              const barWidth = 6;
+              const gap = 4;
+              const barCount = 31;
+              const startX = 320 - ((barCount * (barWidth + gap)) - gap) / 2;
+              const centerY = 160;
+
+              for (let i = 0; i < barCount; i++) {
+                // Generate an elegant symmetrical wave height
+                const distFromCenter = Math.abs(i - 15);
+                const factor = Math.max(0.1, 1 - distFromCenter / 15);
+                // Pseudo-random but consistent heights for a cool look
+                const pseudoRandom = Math.sin(i * 0.8) * 0.3 + 0.7;
+                const barHeight = 80 * factor * pseudoRandom;
+                const x = startX + i * (barWidth + gap);
+                const y = centerY - barHeight / 2;
+
+                // Draw rounded rect bar
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                  ctx.roundRect(x, y, barWidth, barHeight, 3);
+                } else {
+                  ctx.rect(x, y, barWidth, barHeight);
+                }
+                ctx.fill();
+              }
+
+              // Draw text label
+              ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+              ctx.font = "bold 20px system-ui, -apple-system, sans-serif";
+              ctx.textAlign = "center";
+              ctx.fillText("VOICE BROADCAST", 320, 260);
+
+              ctx.fillStyle = "rgba(16, 185, 129, 0.85)";
+              ctx.font = "bold 12px monospace";
+              ctx.fillText("FAST COVERAGE DIGITAL PODCAST", 320, 285);
+
+              resolve(canvas.toDataURL("image/jpeg", 0.75));
+            } else {
+              resolve("");
+            }
+          } catch (canvasErr) {
+            console.error("Audio thumbnail canvas draw failure:", canvasErr);
+            resolve("");
+          }
+          return;
+        }
+
         const video = document.createElement("video");
         video.preload = "metadata";
         video.muted = true;
@@ -1285,10 +1372,10 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
               {/* Replace Video Optionally */}
               <div className="border border-neutral-100 p-3 rounded bg-neutral-50 space-y-2">
-                <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Replace Video File (Optional)</span>
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Replace Voice/Video File (Optional)</span>
                 <input
                   type="file"
-                  accept="video/*"
+                  accept="video/*,audio/*"
                   onChange={handleEditVideoFileChange}
                   disabled={editVideoUploading}
                   className="text-xs text-neutral-600 block w-full file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-neutral-200 file:text-neutral-700 hover:file:bg-neutral-300 file:cursor-pointer"
@@ -1296,7 +1383,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                 {editVideoUploading && (
                   <div className="space-y-1 pt-1.5 progress-container">
                     <div className="flex justify-between text-[9px] font-semibold text-neutral-500">
-                      <span>Uploading Replacement Video...</span>
+                      <span>Uploading Replacement File...</span>
                       <span>{editVideoProgress}%</span>
                     </div>
                     <div className="w-full h-1 bg-neutral-200 rounded-full overflow-hidden">
@@ -1304,7 +1391,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                     </div>
                   </div>
                 )}
-                {editVideoUrl && <p className="text-[9px] text-green-600 font-bold">✓ Replacement video successfully cached.</p>}
+                {editVideoUrl && <p className="text-[9px] text-green-600 font-bold">✓ Replacement file successfully cached.</p>}
               </div>
 
               {/* Replace Thumbnail Optionally */}
@@ -1402,7 +1489,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
               {/* Select Video Input Box (Drag and Drop is fully active) */}
               <div className="space-y-1">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Select Video File *</label>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500">Select Voice Audio or Video File *</label>
                 <div 
                   onDragEnter={handleDrag}
                   onDragOver={handleDrag}
@@ -1420,7 +1507,7 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="video/*"
+                    accept="video/*,audio/*"
                     onChange={handleFileChange}
                     disabled={uploading}
                     className="hidden"
@@ -1428,7 +1515,11 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
 
                   {selectedFile ? (
                     <div className="space-y-1.5">
-                      <FileVideo className="mx-auto text-green-500" size={24} />
+                      {selectedFile.type.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".aac", ".ogg"].some(ext => selectedFile.name.toLowerCase().endsWith(ext)) ? (
+                        <Mic className="mx-auto text-emerald-500 animate-pulse" size={24} />
+                      ) : (
+                        <FileVideo className="mx-auto text-green-500" size={24} />
+                      )}
                       <p className="text-xs font-semibold text-neutral-800 break-all">{selectedFile.name}</p>
                       <p className="text-[9px] text-neutral-450 font-mono">
                         {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB
@@ -1440,8 +1531,8 @@ export default function AdminVideos({ adminToken, adminSession }: AdminVideosPro
                   ) : (
                     <div className="space-y-1 text-neutral-450">
                       <Upload className="mx-auto text-neutral-400 mb-0.5" size={20} />
-                      <p className="text-xs font-bold text-neutral-700">Drag & Drop HD Video, or Browse</p>
-                      <p className="text-[9px] font-medium text-neutral-400 font-mono">Any standard HD video clip</p>
+                      <p className="text-xs font-bold text-neutral-700">Drag & Drop Voice Clip or HD Video, or Browse</p>
+                      <p className="text-[9px] font-medium text-neutral-400 font-mono">MP3, WAV, M4A, or standard MP4, WebM clips</p>
                     </div>
                   )}
                 </div>

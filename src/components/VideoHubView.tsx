@@ -66,7 +66,7 @@ export default function VideoHubView({ videos = [], currentUser }: VideoHubViewP
 
   // Available Categories (Clean, TOI/CNN Standard capitalization)
   const videoCategories = [
-    "All", "Politics", "World", "Business", "Technology", "Sports", "Entertainment"
+    "All", "Politics", "World", "Business", "Technology", "Sports", "Entertainment", "Audio"
   ];
 
   // Map user categories to match database categorization (which may be lowercase)
@@ -78,6 +78,7 @@ export default function VideoHubView({ videos = [], currentUser }: VideoHubViewP
     const normFilterCat = filterCat.toLowerCase();
 
     if (normVidCat === normFilterCat) return true;
+    if (normVidCat === "finance" && normFilterCat === "business") return true;
 
     return false;
   };
