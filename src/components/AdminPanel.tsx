@@ -14,7 +14,6 @@ import {
 import { db } from "../firebase";
 import {
   LayoutDashboard,
-  Megaphone,
   FileText,
   MessageSquare,
   FolderTree,
@@ -51,7 +50,7 @@ import AdminCategories from "./AdminCategories";
 import AdminComments from "./AdminComments";
 import AdminSettings from "./AdminSettings";
 import AdminVideos from "./AdminVideos";
-import AdminAds from "./AdminAds";
+import AdminVideoAds from "./AdminVideoAds";
 
 const cleanUndefined = <T extends Record<string, any>>(obj: T): T => {
   const newObj = { ...obj };
@@ -79,7 +78,7 @@ export default function AdminPanel({
   coverageZones,
 }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings" | "videos" | "ebooks" | "ads"
+    "dashboard" | "articles" | "categories" | "comments" | "breaking" | "users" | "security" | "settings" | "videos" | "ebooks" | "video-ads"
   >("dashboard");
 
   // Real-time Database Collections State
@@ -769,12 +768,12 @@ export default function AdminPanel({
 
           {adminSession.role === "Admin" && (
             <button
-              onClick={() => setActiveTab("ads")}
+              onClick={() => setActiveTab("video-ads")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded text-xs font-bold uppercase tracking-wider transition ${
-                activeTab === "ads" ? "bg-red-800 text-white" : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
+                activeTab === "video-ads" ? "bg-red-800 text-white" : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
               }`}
             >
-              <Megaphone size={15} /> Ads Manager
+              <Video size={15} /> Video Ads Manager
             </button>
           )}
 
@@ -1640,8 +1639,8 @@ export default function AdminPanel({
             </div>
           )}
 
-          {activeTab === "ads" && adminSession.role === "Admin" && (
-            <AdminAds adminSession={adminSession} />
+          {activeTab === "video-ads" && adminSession.role === "Admin" && (
+            <AdminVideoAds adminSession={adminSession} />
           )}
         </main>
       </div>

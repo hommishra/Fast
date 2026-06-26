@@ -1719,10 +1719,10 @@ Return as a JSON object with keys:
         : fileData;
       const buffer = Buffer.from(base64Data, "base64");
 
-      // Limit file size to 150MB
-      const MAX_SIZE = 150 * 1024 * 1024;
+      // Limit file size to 500MB
+      const MAX_SIZE = 500 * 1024 * 1024;
       if (buffer.length > MAX_SIZE) {
-        return res.status(400).json({ error: "Video file exceeds the 150MB admin preview uploads cap." });
+        return res.status(400).json({ error: "Video file exceeds the 500MB admin preview uploads cap." });
       }
 
       const safeName = "video-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + ext;
@@ -1757,17 +1757,67 @@ Return as a JSON object with keys:
     const safeName = "video-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + ext;
     const targetPath = path.join(uploadsDir, safeName);
 
+    // Validate request size against 500MB limit before streaming to disk
+    const contentLength = req.headers["content-length"];
+    if (contentLength) {
+      const sizeBytes = parseInt(contentLength, 10);
+      const MAX_SIZE = 500 * 1024 * 1024; // 500MB
+      if (sizeBytes > MAX_SIZE) {
+        return res.status(400).json({ 
+          error: "Video file exceeds the 500MB admin preview uploads cap." 
+        });
+      }
+    }
+
     const writeStream = fs.createWriteStream(targetPath);
 
     req.pipe(writeStream);
 
-    writeStream.on("finish", () => {
+    writeStream.on("finish", async () => {
       const fileUrl = `/uploads/${safeName}`;
-      return res.json({
-        success: true,
-        url: fileUrl,
-        name: safeName
-      });
+      
+      try {
+        console.log(`[Video Ads Upload] Uploading ${safeName} to Firebase Storage...`);
+        const fileBuffer = fs.readFileSync(targetPath);
+        const storageInstance = getStorage(firebaseApp);
+        const storageRef = ref(storageInstance, `videoAds/videos/${safeName}`);
+        
+        let contentType = "video/mp4";
+        if (ext === ".mov") contentType = "video/quicktime";
+        else if (ext === ".webm") contentType = "video/webm";
+        else if (ext === ".avi") contentType = "video/x-msvideo";
+        else if (ext === ".m4v") contentType = "video/x-m4v";
+        
+        await uploadBytes(storageRef, fileBuffer, { contentType });
+        const permanentDownloadUrl = await getDownloadURL(storageRef);
+        console.log(`[Video Ads Upload] Successful upload to Firebase Storage: ${permanentDownloadUrl}`);
+        
+        // Also replicate the video file durably in chunks to Firestore so it is never lost on restarts/scaling
+        await saveFileToDurableFirestore(targetPath, safeName).catch((err) => {
+          console.error(`[Durable Store error] Failed to replicate uploaded video ${safeName} to Firestore:`, err);
+        });
+
+        return res.json({
+          success: true,
+          url: permanentDownloadUrl,
+          localUrl: fileUrl,
+          name: safeName
+        });
+      } catch (storageErr: any) {
+        console.error(`[Video Ads Upload Warning] Firebase Storage upload failed, falling back to local:`, storageErr);
+        
+        await saveFileToDurableFirestore(targetPath, safeName).then(() => {
+          console.log(`[Durable Store success] Successfully replicated uploaded video ${safeName} to Firestore.`);
+        }).catch((err) => {
+          console.error(`[Durable Store error] Failed to replicate uploaded video ${safeName} to Firestore:`, err);
+        });
+
+        return res.json({
+          success: true,
+          url: fileUrl,
+          name: safeName
+        });
+      }
     });
 
     writeStream.on("error", (err: any) => {

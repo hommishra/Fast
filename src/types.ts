@@ -254,6 +254,72 @@ export interface AdImpression {
   ip?: string;
 }
 
+export interface VideoAd {
+  id: string;
+  title: string;
+  description?: string;
+  advertiserName: string;
+  videoUrl: string;
+  thumbnailUrl?: string;
+  destinationUrl: string;
+  placement: "Pre-roll" | "Mid-roll" | "Post-roll" | "Homepage Banner" | "In-Article" | "Sticky" | "Fullscreen";
+  enabled: boolean;
+  priority: number; // 1-5
+  frequencyCap: number; // Max views per session/user
+  startDate: string;
+  endDate: string;
+  deviceTargeting: ("Mobile" | "Desktop" | "Tablet")[];
+  categoryTargeting: string[];
+  countryTargeting: string;
+  languageTargeting: string;
+  campaignId?: string;
+  duration: number; // seconds
+  impressions: number;
+  clicks: number;
+  completions: number;
+  totalWatchTime: number; // in seconds
+  createdAt: string;
+  updatedAt?: string;
+}
 
+export interface VideoAdCampaign {
+  id: string;
+  name: string;
+  advertiser: string;
+  budget: number;
+  startDate: string;
+  endDate: string;
+  enabled: boolean;
+  createdAt: string;
+}
 
+export interface VideoAdView {
+  id: string;
+  adId: string;
+  campaignId?: string;
+  timestamp: string;
+  watchTime: number;
+  completed: boolean;
+  device: "Mobile" | "Desktop" | "Tablet";
+  country: string;
+  language: string;
+}
 
+export interface VideoAdClick {
+  id: string;
+  adId: string;
+  campaignId?: string;
+  timestamp: string;
+  device: "Mobile" | "Desktop" | "Tablet";
+  country: string;
+  language: string;
+}
+
+export interface VideoAdSettings {
+  id: string;
+  autoplayBehavior: "muted" | "allowed";
+  lazyLoad: boolean;
+  frequencyCheckEnabled: boolean;
+  optimizedCompression: boolean;
+  updatedAt: string;
+}

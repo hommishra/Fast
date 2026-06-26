@@ -620,6 +620,10 @@ export default function FCLayout({
         onDownload={handleDownloadEbook}
       />
 
+      {/* Sticky & Fullscreen Video Ad Slots */}
+      <AdSlot placement="Sticky" />
+      <AdSlot placement="Fullscreen" />
+
     </div>
   );
 }

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { getVideoFile } from "../indexedDB";
+import { db } from "../firebase";
+import { collection, onSnapshot, updateDoc, doc, addDoc, increment } from "firebase/firestore";
+import { VideoAd } from "../types";
 import { 
   Play, 
   Pause, 
@@ -60,6 +63,21 @@ export default function SmartVideoPlayer({
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // New Video Ads Integration states
+  const [videoAds, setVideoAds] = useState<VideoAd[]>([]);
+  const [activeAd, setActiveAd] = useState<VideoAd | null>(null);
+  const [isAdPlaying, setIsAdPlaying] = useState(false);
+  const [adTime, setAdTime] = useState(0);
+  const [adDuration, setAdDuration] = useState(15);
+  const [adMuted, setAdMuted] = useState(true);
+  const [skipCountdown, setSkipCountdown] = useState(5);
+
+  const [hasPlayedPreroll, setHasPlayedPreroll] = useState(false);
+  const [hasPlayedMidroll, setHasPlayedMidroll] = useState(false);
+  const [hasPlayedPostroll, setHasPlayedPostroll] = useState(false);
+
+  const adVideoRef = useRef<HTMLVideoElement>(null);
   
   // Custom HTML5 controls state
   const [currentTime, setCurrentTime] = useState(0);
@@ -293,11 +311,163 @@ export default function SmartVideoPlayer({
   };
 
   // HTML5 Player handlers
+  const startAd = (ad: VideoAd, placement: "Pre-roll" | "Mid-roll" | "Post-roll") => {
+    setActiveAd(ad);
+    setIsAdPlaying(true);
+    setAdTime(0);
+    setAdDuration(ad.duration || 15);
+    setSkipCountdown(5);
+    setAdMuted(true); // default mute for autoplay/policy bypass
+
+    if (videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
+    setIsPlaying(false);
+
+    try {
+      updateDoc(doc(db, "video_ads", ad.id), {
+        impressions: increment(1)
+      }).catch(err => console.log("Ad impression counter error:", err));
+
+      addDoc(collection(db, "video_ad_views"), {
+        adId: ad.id,
+        campaignId: ad.campaignId || "",
+        timestamp: new Date().toISOString(),
+        completed: false,
+        watchTime: 0,
+        device: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
+        country: "US",
+        language: "en"
+      }).catch(err => console.log("Ad impression logger error:", err));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const completeAd = () => {
+    if (!activeAd) return;
+    try {
+      updateDoc(doc(db, "video_ads", activeAd.id), {
+        completions: increment(1),
+        totalWatchTime: increment(activeAd.duration || 15)
+      }).catch(err => console.log("Ad completion counter error:", err));
+    } catch (err) {
+      console.error(err);
+    }
+    setActiveAd(null);
+    setIsAdPlaying(false);
+
+    if (videoRef.current) {
+      videoRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch(err => console.log("Resume player error:", err));
+    }
+  };
+
+  const skipAd = () => {
+    if (!activeAd) return;
+    try {
+      updateDoc(doc(db, "video_ads", activeAd.id), {
+        totalWatchTime: increment(Math.round(adTime))
+      }).catch(err => console.log("Ad skip counter error:", err));
+    } catch (err) {
+      console.error(err);
+    }
+    setActiveAd(null);
+    setIsAdPlaying(false);
+
+    if (videoRef.current) {
+      videoRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch(err => console.log("Resume after skip error:", err));
+    }
+  };
+
+  const handleAdClick = (e: React.MouseEvent) => {
+    if (!activeAd) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    try {
+      updateDoc(doc(db, "video_ads", activeAd.id), {
+        clicks: increment(1)
+      }).catch(err => console.log("Ad click counter error:", err));
+
+      addDoc(collection(db, "video_ad_clicks"), {
+        adId: activeAd.id,
+        campaignId: activeAd.campaignId || "",
+        timestamp: new Date().toISOString(),
+        device: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
+        country: "US",
+        language: "en"
+      }).catch(err => console.log("Ad click logger error:", err));
+    } catch (err) {
+      console.error(err);
+    }
+
+    window.open(activeAd.destinationUrl, "_blank", "noopener,noreferrer");
+  };
+
+  // Listen to active Video Ads in real time
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "video_ads"), (snap) => {
+      const list: VideoAd[] = [];
+      const now = new Date();
+      snap.forEach((doc) => {
+        const d = doc.data() as VideoAd;
+        const start = new Date(d.startDate);
+        const end = new Date(d.endDate);
+        if (d.enabled && now >= start && now <= end) {
+          list.push({ ...d, id: doc.id });
+        }
+      });
+      setVideoAds(list.sort((a, b) => b.priority - a.priority));
+    });
+    return () => unsub();
+  }, []);
+
+  // Ad skip countdown timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (activeAd && isAdPlaying) {
+      interval = setInterval(() => {
+        setSkipCountdown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [activeAd, isAdPlaying]);
+
   const togglePlay = (e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
+
+    // Intercept with Video Ad play/pause
+    if (activeAd) {
+      if (adVideoRef.current) {
+        if (adVideoRef.current.paused) {
+          adVideoRef.current.play()
+            .then(() => setIsAdPlaying(true))
+            .catch(err => console.log("Ad play error:", err));
+        } else {
+          adVideoRef.current.pause();
+          setIsAdPlaying(false);
+        }
+      }
+      return;
+    }
+
+    // Preroll trigger check on play initiation
+    if (!hasPlayedPreroll) {
+      setHasPlayedPreroll(true);
+      const prerollAd = videoAds.find(a => a.placement === "Pre-roll");
+      if (prerollAd) {
+        startAd(prerollAd, "Pre-roll");
+        return;
+      }
+    }
+
     if (!videoRef.current) {
       setIsPlaying(true);
       return;
@@ -315,7 +485,27 @@ export default function SmartVideoPlayer({
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+      const current = videoRef.current.currentTime;
+      const total = videoRef.current.duration;
+      setCurrentTime(current);
+
+      // Mid-roll overlay at 50% playtime
+      if (total > 0 && current >= total / 2 && !hasPlayedMidroll) {
+        setHasPlayedMidroll(true);
+        const midrollAd = videoAds.find(a => a.placement === "Mid-roll");
+        if (midrollAd) {
+          startAd(midrollAd, "Mid-roll");
+        }
+      }
+
+      // Post-roll overlay near end of play
+      if (total > 0 && current >= total - 0.5 && !hasPlayedPostroll) {
+        setHasPlayedPostroll(true);
+        const postrollAd = videoAds.find(a => a.placement === "Post-roll");
+        if (postrollAd) {
+          startAd(postrollAd, "Post-roll");
+        }
+      }
     }
   };
 
@@ -611,6 +801,130 @@ export default function SmartVideoPlayer({
       }
       style={{ userSelect: "none" }}
     >
+      {/* Dynamic Video Ad Player Overlay */}
+      {activeAd && (
+        <div className="absolute inset-0 bg-black z-[40] flex flex-col justify-between">
+          {/* Ad click-through canvas container */}
+          <div 
+            onClick={handleAdClick}
+            className="absolute inset-0 cursor-pointer group flex items-center justify-center bg-black"
+          >
+            <video
+              ref={adVideoRef}
+              src={activeAd.videoUrl}
+              autoPlay
+              muted={adMuted}
+              onEnded={completeAd}
+              onTimeUpdate={() => {
+                if (adVideoRef.current) {
+                  setAdTime(adVideoRef.current.currentTime);
+                }
+              }}
+              onLoadedMetadata={() => {
+                if (adVideoRef.current) {
+                  setAdDuration(adVideoRef.current.duration || activeAd.duration || 15);
+                }
+              }}
+              className="w-full h-full object-cover"
+            />
+            
+            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+              <span className="p-4 bg-black/60 rounded-full border border-neutral-700/50 text-white shadow-xl">
+                {isAdPlaying ? <Pause size={28} /> : <Play size={28} />}
+              </span>
+            </div>
+          </div>
+
+          {/* Ad labels */}
+          <div className="absolute top-3 left-3 z-50 flex items-center gap-2 pointer-events-none">
+            <span className="px-2 py-1 bg-yellow-500 text-black text-[9px] font-extrabold uppercase rounded font-mono tracking-widest shadow-lg">
+              Ad
+            </span>
+            <span className="px-2.5 py-1 bg-black/75 border border-neutral-800 text-white text-[10px] font-bold rounded shadow-lg backdrop-blur-md">
+              {activeAd.advertiserName} • {activeAd.title}
+            </span>
+          </div>
+
+          {/* Skip Ad / Learn More trigger overlays */}
+          <div className="absolute bottom-16 right-3 z-50 flex items-center gap-2 font-mono">
+            <button
+              onClick={handleAdClick}
+              className="px-3.5 py-2 bg-black/80 hover:bg-black border border-neutral-800 text-white text-xs font-bold rounded shadow-xl flex items-center gap-1.5 backdrop-blur-md transition cursor-pointer font-sans"
+            >
+              Learn More <ExternalLink size={12} className="text-red-500" />
+            </button>
+
+            {skipCountdown > 0 ? (
+              <span className="px-3.5 py-2 bg-black/80 border border-neutral-850 text-neutral-400 text-xs font-bold rounded shadow-xl">
+                Skip Ad in {skipCountdown}s
+              </span>
+            ) : (
+              <button
+                onClick={skipAd}
+                className="px-4 py-2 bg-red-800 hover:bg-red-700 text-white text-xs font-bold rounded shadow-xl flex items-center gap-1 transition cursor-pointer"
+              >
+                Skip Ad ➔
+              </button>
+            )}
+          </div>
+
+          {/* Ad Volume and playback indicator bars */}
+          <div className="absolute bottom-3 left-3 right-3 z-50 bg-black/75 border border-neutral-850 p-2.5 rounded-lg backdrop-blur-md flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (adVideoRef.current) {
+                    if (isAdPlaying) {
+                      adVideoRef.current.pause();
+                      setIsAdPlaying(false);
+                    } else {
+                      adVideoRef.current.play()
+                        .then(() => setIsAdPlaying(true))
+                        .catch(err => console.log("Ad resume error:", err));
+                    }
+                  }
+                }}
+                className="text-white hover:text-red-500 transition cursor-pointer"
+              >
+                {isAdPlaying ? <Pause size={15} /> : <Play size={15} />}
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextMuted = !adMuted;
+                  setAdMuted(nextMuted);
+                  if (adVideoRef.current) {
+                    adVideoRef.current.muted = nextMuted;
+                  }
+                }}
+                className="text-white hover:text-red-500 transition cursor-pointer"
+                title={adMuted ? "Unmute sound" : "Mute sound"}
+              >
+                {adMuted ? <VolumeX size={15} className="text-red-500 animate-pulse" /> : <Volume2 size={15} />}
+              </button>
+
+              <span className="text-[9px] font-mono text-neutral-300">
+                Ad • ({Math.round(adTime)}s / {Math.round(adDuration)}s)
+              </span>
+            </div>
+
+            <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest hidden sm:block">
+              Fast Coverage Stream Ad
+            </div>
+          </div>
+
+          {/* Real-time ad progress timeline */}
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-900 z-50 pointer-events-none">
+            <div 
+              className="h-full bg-red-600 transition-all duration-100"
+              style={{ width: `${(adTime / adDuration) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Video Content */}
       {isChangingQuality ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black text-white gap-2 z-20">
