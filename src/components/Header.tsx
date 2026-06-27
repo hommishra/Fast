@@ -115,12 +115,6 @@ export default function Header({
       {/* Top Utility Bar */}
       <div className="bg-slate-905 text-slate-400 border-b border-slate-950 text-[10px] font-sans font-bold tracking-wider py-2 px-6 flex flex-col sm:flex-row justify-between items-center gap-2 select-none uppercase" style={{ backgroundColor: "#0f172a" }}>
         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
-          <span className="flex items-center gap-1.5 text-slate-300">
-            <Globe className="text-blue-500 animate-spin" size={12} style={{ animationDuration: "12s" }} />
-            {t("Fast Coverage Network Log")}
-          </span>
-          <span className="text-slate-705">|</span>
-          
           {/* Language Selector Dropdown */}
           <div className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-[10px] uppercase font-sans font-extrabold tracking-wider px-2 py-0.5 rounded cursor-pointer select-none relative group transition-colors">
             <span>{currentLang.flag} {currentLang.name}</span>

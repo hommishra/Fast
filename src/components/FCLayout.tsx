@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Article, Category, VideoItem, CoverageZone, EBook } from "../types";
-import { Clock, Eye, TrendingUp, Tv, Camera, ChevronLeft, ChevronRight, BookOpen, Download } from "lucide-react";
+import { Clock, Eye, TrendingUp, Tv, Camera, ChevronLeft, ChevronRight, BookOpen, Download, Play, Pause } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import ActiveSectionsMap from "./ActiveSectionsMap";
 import SmartVideoPlayer from "./SmartVideoPlayer";
 import EBookReaderModal from "./EBookReaderModal";
@@ -74,6 +75,11 @@ export default function FCLayout({
   const { t } = useLanguage();
   const [selectedEbook, setSelectedEbook] = useState<EBook | null>(null);
   const [isReaderOpen, setIsReaderOpen] = useState(false);
+
+  // Bulletins & Analysis Carousel States
+  const [currentSidebarIndex, setCurrentSidebarIndex] = useState(0);
+  const [sidebarDirection, setSidebarDirection] = useState(0);
+  const [sidebarAutoplay, setSidebarAutoplay] = useState(true);
 
   const handleDownloadEbook = async (book: EBook) => {
     try {
@@ -223,8 +229,63 @@ export default function FCLayout({
 
   // Classic FC Homepage Blueprint: Big spotlight, side list, bottom subgrids
   const featuredHero = filteredArticles[0];
-  const sidebarStories = filteredArticles.slice(1, 4);
+  const sidebarStories = filteredArticles.slice(1, 7);
   const coreFlow = filteredArticles.slice(4);
+
+  // Auto-advance bulletins and analysis slides smoothly
+  React.useEffect(() => {
+    if (!sidebarAutoplay || sidebarStories.length <= 1) return;
+    const interval = setInterval(() => {
+      setSidebarDirection(1);
+      setCurrentSidebarIndex((prev) => (prev + 1) % sidebarStories.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [sidebarAutoplay, sidebarStories.length]);
+
+  // Adjust index if list shrinks below active index
+  React.useEffect(() => {
+    if (currentSidebarIndex >= sidebarStories.length) {
+      setCurrentSidebarIndex(0);
+      setSidebarDirection(0);
+    }
+  }, [sidebarStories.length, currentSidebarIndex]);
+
+  const handleSidebarNext = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (sidebarStories.length <= 1) return;
+    setSidebarDirection(1);
+    setCurrentSidebarIndex((prev) => (prev + 1) % sidebarStories.length);
+  };
+
+  const handleSidebarPrev = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (sidebarStories.length <= 1) return;
+    setSidebarDirection(-1);
+    setCurrentSidebarIndex((prev) => (prev - 1 + sidebarStories.length) % sidebarStories.length);
+  };
+
+  const slideVariants = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? "100%" : "-100%",
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+      transition: {
+        x: { type: "spring", stiffness: 280, damping: 28, mass: 0.8 },
+        opacity: { duration: 0.2 },
+      },
+    },
+    exit: (direction: number) => ({
+      x: direction < 0 ? "100%" : "-100%",
+      opacity: 0,
+      transition: {
+        x: { type: "spring", stiffness: 280, damping: 28, mass: 0.8 },
+        opacity: { duration: 0.2 },
+      },
+    }),
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6 space-y-10 animate-in fade-in duration-300" id="fc_blueprint_view">
@@ -293,37 +354,168 @@ export default function FCLayout({
           </div>
         </div>
 
-        {/* Sidebar Headlines */}
-        <div className="space-y-4">
-          <h3 className="text-[11px] font-bold tracking-wider uppercase text-slate-900 border-l-3 border-blue-600 pl-2.5 flex items-center gap-1.5 font-sans select-none">
-            <TrendingUp size={13} className="text-blue-600" />
-            {t("Bulletins & Analysis")}
-          </h3>
-          <div className="divide-y divide-slate-100 bg-slate-50/50 p-4 rounded-xl border border-slate-150">
-            {sidebarStories.map((art) => (
-              <div
-                key={art.id}
-                onClick={() => onSelectArticle(art)}
-                className="py-3.5 hover:bg-white rounded-lg px-2.5 transition-all duration-150 group cursor-pointer space-y-1.5 first:pt-0"
-              >
-                <div className="flex justify-between items-baseline gap-2">
-                  <span className="text-[9px] uppercase tracking-wider text-red-600 font-extrabold font-sans">
-                    {t(art.categoryId)}
-                  </span>
-                  <span className="text-[9px] text-slate-400 font-mono shrink-0">
-                    {formatDate(art.publishDate)}
-                  </span>
-                </div>
-                <h4 className="font-bold text-slate-900 text-[12px] leading-snug group-hover:text-blue-600 transition-colors">
-                  {t(art.title)}
-                </h4>
-                <p className="text-slate-500 text-[11px] line-clamp-1 leading-relaxed">
-                  {t(art.excerpt)}
-                </p>
+        {/* Sidebar Headlines - Bulletins & Analysis Sliding Carousel */}
+        <div className="space-y-4 flex flex-col justify-between h-full min-h-[430px]" id="bulletins_analysis_carousel_section">
+          <div className="flex items-center justify-between select-none">
+            <h3 className="text-[11px] font-bold tracking-wider uppercase text-slate-900 border-l-3 border-blue-600 pl-2.5 flex items-center gap-1.5 font-sans">
+              <TrendingUp size={13} className="text-blue-600" />
+              {t("Bulletins & Analysis")}
+            </h3>
+            
+            {/* Carousel Controls */}
+            {sidebarStories.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSidebarAutoplay(!sidebarAutoplay)}
+                  className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 transition cursor-pointer"
+                  title={sidebarAutoplay ? t("Pause Autoplay") : t("Start Autoplay")}
+                >
+                  {sidebarAutoplay ? <Pause size={10} /> : <Play size={10} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSidebarPrev}
+                  className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 transition cursor-pointer"
+                  title={t("Previous Bulletin")}
+                >
+                  <ChevronLeft size={11} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSidebarNext}
+                  className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 transition cursor-pointer"
+                  title={t("Next Bulletin")}
+                >
+                  <ChevronRight size={11} />
+                </button>
               </div>
-            ))}
-            {sidebarStories.length === 0 && (
-              <p className="text-slate-400 text-xs italic py-4">{t("Updates pending. Connect server to sync.")}</p>
+            )}
+          </div>
+
+          <div 
+            className="relative bg-white border border-slate-200 rounded-2xl p-4.5 shadow-sm hover:shadow-md transition-shadow flex-1 flex flex-col justify-between overflow-hidden group/slider min-h-[360px]"
+            onMouseEnter={() => setSidebarAutoplay(false)}
+            onMouseLeave={() => setSidebarAutoplay(true)}
+          >
+            {sidebarStories.length > 0 ? (
+              <>
+                {/* Drag-to-slide wrapper with Framer Motion AnimatePresence */}
+                <div className="relative flex-1 flex flex-col justify-between overflow-hidden">
+                  <AnimatePresence initial={false} custom={sidebarDirection} mode="wait">
+                    {(() => {
+                      const art = sidebarStories[currentSidebarIndex];
+                      if (!art) return null;
+                      return (
+                        <motion.div
+                          key={art.id}
+                          custom={sidebarDirection}
+                          variants={slideVariants}
+                          initial="enter"
+                          animate="center"
+                          exit="exit"
+                          drag="x"
+                          dragConstraints={{ left: 0, right: 0 }}
+                          dragElastic={0.4}
+                          onDragEnd={(e, info) => {
+                            const swipe = info.offset.x;
+                            if (swipe < -50) {
+                              handleSidebarNext();
+                            } else if (swipe > 50) {
+                              handleSidebarPrev();
+                            }
+                          }}
+                          onClick={() => onSelectArticle(art)}
+                          className="w-full h-full flex flex-col justify-between cursor-pointer space-y-3.5 absolute inset-0"
+                        >
+                          <div className="space-y-3">
+                            {/* Slide Image */}
+                            <div className="aspect-[18/9] w-full overflow-hidden bg-slate-100 rounded-xl border border-slate-150 relative">
+                              <img
+                                src={getArticleThumb(art)}
+                                alt={t(art.title)}
+                                className="w-full h-full object-cover group-hover/slider:scale-104 transition-transform duration-700 select-none pointer-events-none"
+                                referrerPolicy="no-referrer"
+                                loading="lazy"
+                                onError={(e) => {
+                                  e.currentTarget.onerror = null;
+                                  e.currentTarget.src = getFallbackImage(art.title, art.categoryId);
+                                }}
+                              />
+                              <span className="absolute bottom-2 left-2 bg-slate-900/80 backdrop-blur-xs text-white text-[8px] font-mono uppercase tracking-wider font-extrabold px-2 py-0.5 rounded shadow select-none">
+                                {t(art.categoryId)}
+                              </span>
+                            </div>
+
+                            {/* Info */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center text-[9px] text-slate-400 font-mono select-none">
+                                <span className="flex items-center gap-1">
+                                  <Clock size={10} className="text-blue-500" />
+                                  {formatDate(art.publishDate)}
+                                </span>
+                                <span className="font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded text-[8px]">
+                                  {t("Analysis")}
+                                </span>
+                              </div>
+                              <h4 className="font-black text-slate-900 text-[13px] md:text-[14px] leading-snug group-hover/slider:text-blue-600 transition-colors line-clamp-3 select-none">
+                                {t(art.title)}
+                              </h4>
+                              <p className="text-slate-500 text-[11px] leading-relaxed line-clamp-3 select-none">
+                                {t(art.excerpt)}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Footer with views */}
+                          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-3 border-t border-slate-100 select-none">
+                            <span className="flex items-center gap-1 font-bold text-red-650">
+                              <Eye size={11} /> {art.views} {t("reads")}
+                            </span>
+                            <span className="text-[9px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                              {currentSidebarIndex + 1} / {sidebarStories.length}
+                            </span>
+                          </div>
+                        </motion.div>
+                      );
+                    })()}
+                  </AnimatePresence>
+                </div>
+
+                {/* Bullets navigation & autoplay visual bar */}
+                <div className="flex flex-col gap-2 mt-4 pt-3 border-t border-slate-100 select-none" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-center gap-2">
+                    {sidebarStories.map((_, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setSidebarDirection(idx > currentSidebarIndex ? 1 : -1);
+                          setCurrentSidebarIndex(idx);
+                        }}
+                        className={`h-2 rounded-full transition-all duration-300 ${
+                          idx === currentSidebarIndex ? "w-5 bg-blue-600" : "w-2 bg-slate-200 hover:bg-slate-300"
+                        }`}
+                        aria-label={`Slide ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+                  
+                  {/* Subtle autoplay countdown line */}
+                  {sidebarAutoplay && (
+                    <div className="w-full h-0.5 bg-slate-100 rounded-full overflow-hidden">
+                      <motion.div 
+                        key={currentSidebarIndex}
+                        initial={{ width: 0 }}
+                        animate={{ width: "100%" }}
+                        transition={{ duration: 6, ease: "linear" }}
+                        className="h-full bg-blue-500/60"
+                      />
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="text-slate-400 text-xs italic py-4 text-center">{t("Updates pending. Connect server to sync.")}</p>
             )}
           </div>
         </div>
