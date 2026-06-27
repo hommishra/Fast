@@ -3,10 +3,10 @@ import "./SplashScreen.css";
 
 interface SplashScreenProps {
   onComplete: () => void;
-  durationMs?: number; // default: 2600ms
+  durationMs?: number; // default: 1200ms for fast opening
 }
 
-export default function SplashScreen({ onComplete, durationMs = 2600 }: SplashScreenProps) {
+export default function SplashScreen({ onComplete, durationMs = 1200 }: SplashScreenProps) {
   const [isFading, setIsFading] = useState(false);
   const [shouldRender, setShouldRender] = useState(true);
 
@@ -42,7 +42,7 @@ export default function SplashScreen({ onComplete, durationMs = 2600 }: SplashSc
       sessionStorage.setItem("fc_splash_shown", "true");
       setShouldRender(false);
       onComplete();
-    }, durationMs + 600); // 600ms corresponds to transition duration in CSS
+    }, durationMs + 300); // 300ms corresponds to transition duration in CSS
 
     return () => {
       clearTimeout(fadeTimer);
@@ -78,7 +78,7 @@ export default function SplashScreen({ onComplete, durationMs = 2600 }: SplashSc
                 key={idx}
                 className="splash-letter"
                 style={{
-                  animationDelay: `${idx * 40 + 200}ms`,
+                  animationDelay: `${idx * 25 + 100}ms`,
                   // Add extra spacing for spaces dynamically based on CSS variables
                   marginRight: letter === " " ? "var(--word-spacing)" : "var(--letter-spacing)",
                 }}
