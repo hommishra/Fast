@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Article, Comment, Bookmark } from "../types";
 import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment } from "firebase/firestore";
 import { db } from "../firebase";
@@ -77,6 +77,112 @@ export default function ArticleView({
   const [copied, setCopied] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+  
+  // Advanced Lightbox Zoom & Panning State
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoomOrigin, setZoomOrigin] = useState("center");
+
+  const isPanning = useRef(false);
+  const panStart = useRef({ x: 0, y: 0 });
+  const initialPinchDistance = useRef<number | null>(null);
+
+  // Slideshow Autoplay Pause on hover and Drag/Swipe references
+  const slideDragStartX = useRef<number | null>(null);
+  const isSlideDragging = useRef<boolean>(false);
+  const [autoplayPaused, setAutoplayPaused] = useState(false);
+
+  // Reset zoom when lightbox active image changes
+  useEffect(() => {
+    setIsZoomed(false);
+    setZoomScale(1);
+    setPan({ x: 0, y: 0 });
+    setZoomOrigin("center");
+  }, [currentImageIndex]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isZoomed && zoomScale <= 1) return;
+    
+    if (isPanning.current) {
+      const nextX = e.clientX - panStart.current.x;
+      const nextY = e.clientY - panStart.current.y;
+      
+      const limitX = (zoomScale - 1) * 250;
+      const limitY = (zoomScale - 1) * 200;
+      const clampedX = Math.min(Math.max(nextX, -limitX), limitX);
+      const clampedY = Math.min(Math.max(nextY, -limitY), limitY);
+
+      setPan({ x: clampedX, y: clampedY });
+    } else {
+      const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+      const x = ((e.clientX - left) / width) * 100;
+      const y = ((e.clientY - top) / height) * 100;
+      setZoomOrigin(`${x}% ${y}%`);
+    }
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const zoomIntensity = 0.15;
+    const delta = e.deltaY < 0 ? 1 : -1;
+    setZoomScale((prev) => {
+      const nextScale = Math.min(Math.max(prev + delta * zoomIntensity, 1), 4);
+      const zoomActive = nextScale > 1;
+      setIsZoomed(zoomActive);
+      if (!zoomActive) {
+        setPan({ x: 0, y: 0 });
+      }
+      return nextScale;
+    });
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (zoomScale > 1 || isZoomed) {
+      setZoomScale(1);
+      setIsZoomed(false);
+      setPan({ x: 0, y: 0 });
+    } else {
+      setZoomScale(2.5);
+      setIsZoomed(true);
+      const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+      const x = ((e.clientX - left) / width - 0.5) * -150;
+      const y = ((e.clientY - top) / height - 0.5) * -150;
+      setPan({ x, y });
+    }
+  };
+
+  const handlePanStart = (clientX: number, clientY: number) => {
+    if (zoomScale <= 1 && !isZoomed) return;
+    isPanning.current = true;
+    panStart.current = { x: clientX - pan.x, y: clientY - pan.y };
+  };
+
+  const handlePanMove = (clientX: number, clientY: number) => {
+    if (!isPanning.current) return;
+    const nextX = clientX - panStart.current.x;
+    const nextY = clientY - panStart.current.y;
+    
+    const limitX = (zoomScale - 1) * 250;
+    const limitY = (zoomScale - 1) * 200;
+    const clampedX = Math.min(Math.max(nextX, -limitX), limitX);
+    const clampedY = Math.min(Math.max(nextY, -limitY), limitY);
+
+    setPan({ x: clampedX, y: clampedY });
+  };
+
+  const handlePanEnd = () => {
+    isPanning.current = false;
+  };
+
+  const getTouchDistance = (touches: React.TouchList) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
 
   const articleImages = article.images && article.images.length > 0 
     ? article.images 
@@ -343,33 +449,182 @@ export default function ArticleView({
             </div>
           </div>
 
-          {/* Featured Card Image with Lightbox Zoom Trigger */}
-          <div
-            onClick={() => {
-              setCurrentImageIndex(0);
-              setIsLightboxOpen(true);
-            }}
-            className="group relative mb-6 rounded-lg overflow-hidden shadow-sm bg-slate-50 border border-slate-200 aspect-[16/9] cursor-zoom-in active:scale-[0.99] transition-transform duration-200"
-            title={t("Click to view full-screen")}
-          >
-            <img
-              src={article.featuredImage || getFallbackImage(article.title, article.categoryId)}
-              alt={displayTitle}
-              className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500 ease-out"
-              referrerPolicy="no-referrer"
-              loading="lazy"
-              onError={(e) => {
-                e.currentTarget.onerror = null;
-                e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
+          {/* Featured Card Image / Multi-Image Slideshow with Lightbox Trigger */}
+          {articleImages.length > 1 ? (
+            <div className="mb-6 space-y-2">
+              <div 
+                className="group relative rounded-lg overflow-hidden shadow-sm bg-neutral-950 border border-slate-200 aspect-[16/9] select-none"
+                onMouseEnter={() => setAutoplayPaused(true)}
+                onMouseLeave={() => {
+                  setAutoplayPaused(false);
+                  slideDragStartX.current = null;
+                  isSlideDragging.current = false;
+                }}
+                onTouchStart={(e) => {
+                  slideDragStartX.current = e.touches[0].clientX;
+                }}
+                onTouchMove={(e) => {
+                  if (slideDragStartX.current === null) return;
+                  const diff = slideDragStartX.current - e.touches[0].clientX;
+                  if (Math.abs(diff) > 50) {
+                    if (diff > 0) {
+                      setActiveSlideIndex((prev) => (prev < articleImages.length - 1 ? prev + 1 : 0));
+                    } else {
+                      setActiveSlideIndex((prev) => (prev > 0 ? prev - 1 : articleImages.length - 1));
+                    }
+                    slideDragStartX.current = null;
+                  }
+                }}
+                onTouchEnd={() => {
+                  slideDragStartX.current = null;
+                }}
+                onMouseDown={(e) => {
+                  slideDragStartX.current = e.clientX;
+                  isSlideDragging.current = true;
+                }}
+                onMouseMove={(e) => {
+                  if (!isSlideDragging.current || slideDragStartX.current === null) return;
+                  const diff = slideDragStartX.current - e.clientX;
+                  if (Math.abs(diff) > 50) {
+                    if (diff > 0) {
+                      setActiveSlideIndex((prev) => (prev < articleImages.length - 1 ? prev + 1 : 0));
+                    } else {
+                      setActiveSlideIndex((prev) => (prev > 0 ? prev - 1 : articleImages.length - 1));
+                    }
+                    slideDragStartX.current = null;
+                    isSlideDragging.current = false;
+                  }
+                }}
+                onMouseUp={() => {
+                  slideDragStartX.current = null;
+                  isSlideDragging.current = false;
+                }}
+              >
+                {/* Image container */}
+                <div 
+                  className="w-full h-full relative cursor-zoom-in"
+                  onClick={() => {
+                    setCurrentImageIndex(activeSlideIndex);
+                    setIsLightboxOpen(true);
+                  }}
+                  title={t("Click to zoom/view full-screen")}
+                >
+                  <AnimatePresence mode="wait">
+                    <motion.img
+                      key={activeSlideIndex}
+                      src={articleImages[activeSlideIndex]}
+                      alt={`${displayTitle} - Slide ${activeSlideIndex + 1}`}
+                      initial={{ opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.98 }}
+                      transition={{ duration: 0.25, ease: "easeInOut" }}
+                      className="w-full h-full object-contain"
+                      referrerPolicy="no-referrer"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
+                      }}
+                    />
+                  </AnimatePresence>
+
+                  {/* Dark gradient for indicators */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10 pointer-events-none" />
+
+                  {/* Expand button on hover */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors duration-350 flex items-center justify-center pointer-events-none">
+                    <div className="opacity-0 group-hover:opacity-100 transform translate-y-3 group-hover:translate-y-0 bg-neutral-900/90 text-white text-[10px] font-bold font-sans uppercase tracking-wider px-3.5 py-2 rounded-full flex items-center gap-2 transition-all duration-300 shadow-lg border border-white/10 select-none">
+                      <Maximize2 size={11} className="text-blue-400" />
+                      <span>{t("Click to expand image")}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Left/Right Chevrons */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveSlideIndex((prev) => (prev > 0 ? prev - 1 : articleImages.length - 1));
+                  }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/70 text-white rounded-full p-2 transition shadow-md border border-white/10 cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                  aria-label="Previous Slide"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveSlideIndex((prev) => (prev < articleImages.length - 1 ? prev + 1 : 0));
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/70 text-white rounded-full p-2 transition shadow-md border border-white/10 cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                  aria-label="Next Slide"
+                >
+                  <ChevronRight size={16} />
+                </button>
+
+                {/* Counters Overlay */}
+                <div className="absolute top-3 right-3 bg-neutral-900/85 backdrop-blur-xs text-white text-[9px] font-mono font-bold px-2 py-1 rounded-md border border-white/10 select-none shadow-md">
+                  {activeSlideIndex + 1} / {articleImages.length}
+                </div>
+
+                {/* Slide indicator dots */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10">
+                  {articleImages.map((_, dotIdx) => (
+                    <button
+                      key={dotIdx}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveSlideIndex(dotIdx);
+                      }}
+                      className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                        activeSlideIndex === dotIdx ? "w-4 bg-blue-500" : "w-1.5 bg-white/60 hover:bg-white"
+                      }`}
+                      aria-label={`Go to slide ${dotIdx + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Caption display */}
+              {articleCaptions[activeSlideIndex] && (
+                <p className="text-[11px] text-slate-500 italic mt-1 leading-normal font-sans pl-2 border-l-2 border-blue-500 select-all">
+                  {articleCaptions[activeSlideIndex]}
+                </p>
+              )}
+            </div>
+          ) : (
+            /* Featured Card Image with Lightbox Zoom Trigger */
+            <div
+              onClick={() => {
+                setCurrentImageIndex(0);
+                setIsLightboxOpen(true);
               }}
-            />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors duration-350 flex items-center justify-center">
-              <div className="opacity-0 group-hover:opacity-100 transform translate-y-3 group-hover:translate-y-0 bg-neutral-900/90 text-white text-[10px] font-bold font-sans uppercase tracking-wider px-3.5 py-2 rounded-full flex items-center gap-2 transition-all duration-300 shadow-lg border border-white/10 select-none">
-                <Maximize2 size={11} className="text-blue-400" />
-                <span>{t("Click to expand image")}</span>
+              className="group relative mb-6 rounded-lg overflow-hidden shadow-sm bg-slate-50 border border-slate-200 aspect-[16/9] cursor-zoom-in active:scale-[0.99] transition-transform duration-200"
+              title={t("Click to view full-screen")}
+            >
+              <img
+                src={article.featuredImage || getFallbackImage(article.title, article.categoryId)}
+                alt={displayTitle}
+                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+                referrerPolicy="no-referrer"
+                loading="lazy"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
+                }}
+              />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors duration-350 flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transform translate-y-3 group-hover:translate-y-0 bg-neutral-900/90 text-white text-[10px] font-bold font-sans uppercase tracking-wider px-3.5 py-2 rounded-full flex items-center gap-2 transition-all duration-300 shadow-lg border border-white/10 select-none">
+                  <Maximize2 size={11} className="text-blue-400" />
+                  <span>{t("Click to expand image")}</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
 
           {/* Inner Content Paragraphs */}
           <div className="text-slate-800 text-sm md:text-base leading-relaxed whitespace-pre-line space-y-4 max-w-none font-sans">
@@ -708,18 +963,68 @@ export default function ArticleView({
               onClick={(e) => e.stopPropagation()} // Prevent closure when clicking on image card
               className="relative max-w-5xl w-full max-h-[85vh] flex flex-col rounded-xl overflow-hidden shadow-2xl border border-white/10 bg-neutral-900 cursor-default"
             >
-              <div className="w-full h-full max-h-[75vh] min-h-[40vh] flex items-center justify-center overflow-hidden bg-neutral-950 relative">
+              <div 
+                className="w-full h-full max-h-[75vh] min-h-[40vh] flex items-center justify-center overflow-hidden bg-neutral-950 relative cursor-grab active:cursor-grabbing"
+                onWheel={handleWheel}
+                onDoubleClick={handleDoubleClick}
+                onMouseMove={(e) => {
+                  handleMouseMove(e);
+                  handlePanMove(e.clientX, e.clientY);
+                }}
+                onMouseDown={(e) => {
+                  handlePanStart(e.clientX, e.clientY);
+                }}
+                onMouseUp={handlePanEnd}
+                onMouseLeave={handlePanEnd}
+                onTouchStart={(e) => {
+                  if (e.touches.length === 1) {
+                    handlePanStart(e.touches[0].clientX, e.touches[0].clientY);
+                  } else if (e.touches.length === 2) {
+                    initialPinchDistance.current = getTouchDistance(e.touches);
+                  }
+                }}
+                onTouchMove={(e) => {
+                  if (e.touches.length === 1) {
+                    handlePanMove(e.touches[0].clientX, e.touches[0].clientY);
+                  } else if (e.touches.length === 2 && initialPinchDistance.current !== null) {
+                    const dist = getTouchDistance(e.touches);
+                    const factor = dist / initialPinchDistance.current;
+                    setZoomScale((prev) => {
+                      const next = Math.min(Math.max(prev * factor, 1), 4);
+                      const zoomActive = next > 1;
+                      setIsZoomed(zoomActive);
+                      if (!zoomActive) setPan({ x: 0, y: 0 });
+                      return next;
+                    });
+                    initialPinchDistance.current = dist;
+                  }
+                }}
+                onTouchEnd={() => {
+                  handlePanEnd();
+                  initialPinchDistance.current = null;
+                }}
+              >
                 <img
                   key={currentImageIndex} // force image transition animation
                   src={articleImages[currentImageIndex]}
                   alt={article.title}
-                  className="max-w-full max-h-[70vh] object-contain select-all transition duration-350"
+                  className="max-w-full max-h-[70vh] object-contain transition-transform duration-100 ease-out select-none pointer-events-none"
+                  style={{
+                    transform: `scale(${zoomScale}) translate(${pan.x / zoomScale}px, ${pan.y / zoomScale}px)`,
+                    transformOrigin: "center",
+                  }}
                   referrerPolicy="no-referrer"
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = getFallbackImage(article.title, article.categoryId);
                   }}
                 />
+
+                {/* Visual indicator of zoom status */}
+                <div className="absolute bottom-3 right-3 bg-black/75 backdrop-blur-xs px-2.5 py-1.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5 pointer-events-none select-none border border-white/10 z-10 shadow-lg">
+                  <Maximize2 size={12} className={zoomScale > 1 ? "text-amber-400 rotate-180 animate-pulse" : "text-blue-400"} />
+                  <span>{zoomScale > 1 ? `${Math.round(zoomScale * 100)}% - Double-click / Drag to Pan` : t("Scroll / Double-click to Zoom")}</span>
+                </div>
               </div>
               
               {/* Image Details Bottom Bar inside Lightbox */}

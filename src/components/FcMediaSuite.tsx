@@ -23,7 +23,7 @@ interface UploadingTask {
   status: "idle" | "processing" | "uploading" | "success" | "error";
   errorMessage?: string;
   file?: File;
-  target: "featured" | "gallery";
+  target: "featured" | "gallery" | string;
   speed?: string;
   eta?: string;
   attempts: number;
@@ -132,6 +132,14 @@ export default function FcMediaSuite({
   const [showConsole, setShowConsole] = useState(false);
   const [errorLogs, setErrorLogs] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+
+  // Drag-and-drop item reordering state
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Hidden replacement file uploader references
+  const replaceIndexRef = useRef<number | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
   
   // Track already uploaded file signatures in this session to prevent duplicate uploads
   const uploadedSignatures = useRef<Set<string>>(new Set());
@@ -140,6 +148,52 @@ export default function FcMediaSuite({
   const featuredInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const consoleEndRef = useRef<HTMLDivElement>(null);
+
+  const handleDragStartItem = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOverItem = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === index) return;
+    setDragOverIndex(index);
+  };
+
+  const handleDragEndItem = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDropItem = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+
+    onChangeArticle((prev) => {
+      const currentImages = prev.images || prev.imageGallery || [];
+      const nextImages = [...currentImages];
+      const currentCaptions = prev.imageCaptions || [];
+      const nextCaptions = [...currentCaptions];
+
+      // Reorder items
+      const [movedImage] = nextImages.splice(draggedIndex, 1);
+      nextImages.splice(index, 0, movedImage);
+
+      // Reorder captions proportionately
+      const [movedCaption] = nextCaptions.splice(draggedIndex, 1);
+      nextCaptions.splice(index, 0, movedCaption);
+
+      return {
+        images: nextImages,
+        imageGallery: nextImages,
+        imageCaptions: nextCaptions
+      };
+    });
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+    setInfoMessage("Gallery image order updated successfully!");
+  };
 
   // Auto-scroll the live telemetry log console
   useEffect(() => {
@@ -171,9 +225,9 @@ export default function FcMediaSuite({
 
   // Validates file size and constraints
   const validateFile = (file: File): string | null => {
-    const validMimes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    const validMimes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/avif"];
     if (!validMimes.includes(file.type)) {
-      return `"${file.name}" rejected. Supported types: JPG, JPEG, PNG, WEBP.`;
+      return `"${file.name}" rejected. Supported types: JPG, JPEG, PNG, WEBP, AVIF.`;
     }
     const maxSize = 100 * 1024 * 1024; // 100 MB
     if (file.size > maxSize) {
@@ -182,7 +236,7 @@ export default function FcMediaSuite({
     return null;
   };
 
-  const startUploadWorkflow = async (file: File, target: "featured" | "gallery") => {
+  const startUploadWorkflow = async (file: File, target: "featured" | "gallery" | string) => {
     const valError = validateFile(file);
     if (valError) {
       setErrorLogs(valError);
@@ -454,8 +508,11 @@ export default function FcMediaSuite({
       };
 
       // ---------------- GALLERY INJECTION TARGET ----------------
-      if (target === "gallery") {
-        logLocal(`Target identified: complementary gallery item.`);
+      const isReplace = target.startsWith("gallery-replace-");
+      const replaceIndex = isReplace ? parseInt(target.split("-")[2], 10) : undefined;
+
+      if (target === "gallery" || isReplace) {
+        logLocal(isReplace ? `Target identified: replacing gallery item at index ${replaceIndex}.` : `Target identified: complementary gallery item.`);
         updateStatus("processing", 20);
 
         const optimizeStart = Date.now();
@@ -493,19 +550,26 @@ export default function FcMediaSuite({
 
           onChangeArticle((prev) => {
             const currentImages = prev.images || prev.imageGallery || [];
-            const nextImages = [...currentImages, w1200Url];
+            const nextImages = [...currentImages];
             const currentCaptions = prev.imageCaptions || [];
             const nextCaptions = [...currentCaptions];
-            while (nextCaptions.length < nextImages.length) {
-              nextCaptions.push("");
+            
+            if (isReplace && replaceIndex !== undefined && replaceIndex >= 0 && replaceIndex < nextImages.length) {
+              nextImages[replaceIndex] = w1200Url;
+            } else {
+              nextImages.push(w1200Url);
+              while (nextCaptions.length < nextImages.length) {
+                nextCaptions.push("");
+              }
             }
+            
             return {
               images: nextImages,
               imageGallery: nextImages,
               imageCaptions: nextCaptions
             };
           });
-          setInfoMessage("Gallery photo added successfully!");
+          setInfoMessage(isReplace ? "Gallery image replaced successfully!" : "Gallery photo added successfully!");
         } catch (uploadErr: any) {
           clearInterval(speedInterval);
           throw uploadErr;
@@ -905,27 +969,55 @@ export default function FcMediaSuite({
         {(article.images || article.imageGallery) && (article.images || article.imageGallery)!.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {(article.images || article.imageGallery)!.map((imgUrl, idx) => (
-              <div key={idx} className="bg-neutral-950 border border-neutral-800 rounded-lg overflow-hidden p-2 flex flex-col justify-between group relative">
+              <div 
+                key={idx} 
+                draggable={true}
+                onDragStart={(e) => handleDragStartItem(e, idx)}
+                onDragOver={(e) => handleDragOverItem(e, idx)}
+                onDragEnd={handleDragEndItem}
+                onDrop={(e) => handleDropItem(e, idx)}
+                className={`bg-neutral-950 border rounded-lg overflow-hidden p-2 flex flex-col justify-between group relative transition-all duration-200 cursor-grab active:cursor-grabbing ${
+                  draggedIndex === idx ? "opacity-45 border-dashed border-red-500 scale-95" :
+                  dragOverIndex === idx ? "border-solid border-blue-500 scale-102 bg-neutral-900" : "border-neutral-800 hover:border-neutral-700"
+                }`}
+              >
                 <div className="aspect-square w-full rounded overflow-hidden relative">
                   <img
                     src={imgUrl}
                     alt={`Gallery piece ${idx}`}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover pointer-events-none"
                     loading="lazy"
                   />
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteGalleryItem(idx)}
-                    className="absolute top-1.5 right-1.5 bg-black/80 hover:bg-red-800 text-white p-1 rounded shadow cursor-pointer transition border border-neutral-750 opacity-100"
-                    title="Remove image from gallery"
-                  >
-                    <Trash2 size={11} />
-                  </button>
+                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        replaceIndexRef.current = idx;
+                        replaceInputRef.current?.click();
+                      }}
+                      className="bg-black/85 hover:bg-blue-800 text-white p-1 rounded shadow cursor-pointer transition border border-neutral-750 flex items-center justify-center w-6 h-6"
+                      title="Replace image"
+                    >
+                      <RefreshCw size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteGalleryItem(idx);
+                      }}
+                      className="bg-black/85 hover:bg-red-800 text-white p-1 rounded shadow cursor-pointer transition border border-neutral-750 flex items-center justify-center w-6 h-6"
+                      title="Remove image from gallery"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
                   <div className="absolute bottom-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-mono text-neutral-300">
                     #{idx + 1}
                   </div>
                 </div>
-                <div className="mt-2 space-y-1">
+                <div className="mt-2 space-y-1" onDragStart={(e) => e.stopPropagation()} draggable={false}>
                   <input
                     type="text"
                     placeholder="Enter image caption..."
@@ -969,6 +1061,19 @@ export default function FcMediaSuite({
               filesArray.forEach(f => {
                 startUploadWorkflow(f, "gallery");
               });
+            }
+          }}
+          className="hidden"
+          accept="image/*"
+        />
+
+        <input
+          type="file"
+          ref={replaceInputRef}
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0] && replaceIndexRef.current !== null) {
+              startUploadWorkflow(e.target.files[0], `gallery-replace-${replaceIndexRef.current}`);
+              replaceIndexRef.current = null;
             }
           }}
           className="hidden"
