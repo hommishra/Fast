@@ -1,0 +1,286 @@
+/* SplashScreen.css - Premium Animated Splash Screen for Fast Coverage */
+
+:root {
+  --neon-blue: #3b82f6;
+  --neon-red: #ef4444;
+}
+
+/* Background overlay with animated moving glow */
+.splash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: radial-gradient(circle at 50% 50%, #111827, #0A0A0A 80%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.6s;
+  pointer-events: auto;
+}
+
+/* Moving ambient glow elements in the background */
+.splash-overlay::before {
+  content: '';
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  background: radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+              radial-gradient(circle at 70% 70%, rgba(239, 68, 68, 0.08) 0%, transparent 40%);
+  animation: bg-drift 15s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes bg-drift {
+  0% { transform: rotate(0deg) translate(-5%, -5%); }
+  100% { transform: rotate(360deg) translate(5%, 5%); }
+}
+
+/* Center Content Wrapper */
+.splash-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  z-index: 10;
+  padding: 2rem;
+}
+
+/* Ring & Logo container */
+.logo-container {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+/* Circular Light Sweep Ring */
+.light-sweep-ring {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  padding: 2px;
+  background: conic-gradient(from 0deg, transparent 40%, var(--neon-blue) 45%, #fff 50%, var(--neon-red) 55%, transparent 60%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: ring-sweep 2.5s linear infinite;
+  opacity: 0.8;
+}
+
+@keyframes ring-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Premium FC Logo Badge with Neon Glow, entrance rotation, scale & continuous pulse */
+.splash-logo-badge {
+  width: 96px;
+  height: 96px;
+  background-color: #dc2626; /* Deep brand red bg-red-600 */
+  border-radius: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 3rem;
+  color: #ffffff;
+  letter-spacing: -0.05em;
+  user-select: none;
+  
+  /* Red and blue neon box-shadow combo */
+  box-shadow: 
+    0 0 20px rgba(59, 130, 246, 0.45), 
+    0 0 40px rgba(239, 68, 68, 0.45),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
+  
+  /* GPU acceleration */
+  will-change: transform, opacity;
+  animation: logo-entrance 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+             logo-pulse 2s ease-in-out infinite 1.2s;
+}
+
+@keyframes logo-entrance {
+  0% {
+    opacity: 0;
+    transform: scale(0.65) rotate(-12deg);
+    filter: brightness(0.5) blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    filter: brightness(1) blur(0);
+  }
+}
+
+@keyframes logo-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 
+      0 0 20px rgba(59, 130, 246, 0.45), 
+      0 0 40px rgba(239, 68, 68, 0.45),
+      inset 0 2px 4px rgba(255, 255, 255, 0.2);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 
+      0 0 30px rgba(59, 130, 246, 0.7), 
+      0 0 55px rgba(239, 68, 68, 0.7),
+      inset 0 2px 6px rgba(255, 255, 255, 0.35);
+  }
+}
+
+/* Brand Title & Typing container */
+.splash-title-container {
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.splash-title-text {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 2.25rem;
+  letter-spacing: 0.15em;
+  color: #ffffff;
+  text-transform: uppercase;
+  display: flex;
+}
+
+/* Individual letter typing animation */
+.splash-letter {
+  opacity: 0;
+  display: inline-block;
+  transform: translateY(10px);
+  animation: letter-reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes letter-reveal {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Subtitle with simple fade and lift animation */
+.splash-subtitle {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: #9ca3af; /* text-slate-400 */
+  text-transform: uppercase;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: subtitle-reveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.8s forwards;
+}
+
+@keyframes subtitle-reveal {
+  to {
+    opacity: 0.85;
+    transform: translateY(0);
+  }
+}
+
+/* Thin Loading Bar Container at Bottom */
+.loading-bar-container {
+  position: absolute;
+  bottom: 3.5rem;
+  left: 10%;
+  right: 10%;
+  max-width: 320px;
+  height: 3px;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+/* Loading Progress Bar with elegant gradient */
+.loading-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, var(--neon-blue), #ffffff, var(--neon-red));
+  background-size: 200% 100%;
+  transform-origin: left;
+  transform: scaleX(0);
+  animation: progress-fill 2.5s cubic-bezier(0.1, 0.8, 0.2, 1) forwards,
+             gradient-slide 2.5s linear infinite;
+  will-change: transform;
+}
+
+@keyframes progress-fill {
+  to { transform: scaleX(1); }
+}
+
+@keyframes gradient-slide {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* Fading states for transition outward */
+.splash-fade-out {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* Custom Zoom-in and Fade transition on Main App container */
+.app-reveal-init {
+  opacity: 0;
+  transform: scale(0.975);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-reveal-active {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Accessibility: Respect user prefers-reduced-motion settings */
+@media (prefers-reduced-motion: reduce) {
+  .splash-overlay::before {
+    animation: none;
+  }
+  .light-sweep-ring {
+    animation: none;
+    opacity: 0.3;
+    background: var(--neon-blue);
+  }
+  .splash-logo-badge {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+  .splash-letter {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .splash-subtitle {
+    animation: none !important;
+    opacity: 0.85 !important;
+    transform: none !important;
+  }
+  .loading-bar-fill {
+    animation: progress-fill-fast 0.1s linear forwards !important;
+  }
+  @keyframes progress-fill-fast {
+    to { transform: scaleX(1); }
+  }
+  .app-reveal-init {
+    transition: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}

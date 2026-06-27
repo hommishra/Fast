@@ -19,9 +19,24 @@ import AuthModal from "./components/AuthModal";
 import SavedArticlesModal from "./components/SavedArticlesModal";
 import VideoHubView from "./components/VideoHubView";
 import AdSlot from "./components/AdSlot";
+import SplashScreen from "./components/SplashScreen";
 
 
 export default function App() {
+  const [isSplashActive, setIsSplashActive] = useState(() => {
+    const hasBeenShown = typeof window !== "undefined" && sessionStorage.getItem("fc_splash_shown") === "true";
+    const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return !hasBeenShown && !prefersReducedMotion;
+  });
+
+  // Remove dark class from document root if present
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.document.documentElement.classList.remove("dark");
+      localStorage.removeItem("fc_theme");
+    }
+  }, []);
+
   // Global Database state
   const [articles, setArticles] = useState<Article[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -464,8 +479,17 @@ export default function App() {
 
   /* Public CNN News Network Layout */
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-850 flex flex-col selection:bg-blue-600 selection:text-white" id="public_news_shell">
-      {/* Dynamic scrolling breaking bulletin ticker */}
+    <>
+      {isSplashActive && (
+        <SplashScreen onComplete={() => setIsSplashActive(false)} />
+      )}
+      <div 
+        className={`min-h-screen bg-slate-50 text-slate-850 flex flex-col selection:bg-blue-600 selection:text-white ${
+          isSplashActive ? "app-reveal-init" : "app-reveal-init app-reveal-active"
+        }`} 
+        id="public_news_shell"
+      >
+        {/* Dynamic scrolling breaking bulletin ticker */}
       <BreakingNewsTicker />
 
       {/* Top Banner Ad Slot */}
@@ -575,5 +599,6 @@ export default function App() {
         onSelectArticleById={handleSelectArticleById}
       />
     </div>
+    </>
   );
 }

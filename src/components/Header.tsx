@@ -52,6 +52,7 @@ export default function Header({
   onSignOut,
 }: HeaderProps) {
   const [currentUtc, setCurrentUtc] = useState("");
+  const [currentLocalDate, setCurrentLocalDate] = useState("");
   const { currentLang, setLanguage, t } = useLanguage();
   const [selectedCityWeather, setSelectedCityWeather] = useState<string | null>(null);
 
@@ -67,6 +68,18 @@ export default function Header({
     const updateTime = () => {
       const now = new Date();
       setCurrentUtc(now.toUTCString().replace("GMT", "UTC"));
+      
+      try {
+        const dateOptions: Intl.DateTimeFormatOptions = {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        };
+        setCurrentLocalDate(now.toLocaleDateString(currentLang.code || "en-US", dateOptions));
+      } catch {
+        setCurrentLocalDate(now.toDateString());
+      }
       
       const formatTime = (tz: string) => {
         try {
@@ -93,12 +106,12 @@ export default function Header({
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentLang.code]);
 
   const parentCategories = categories.filter((c) => !c.parentId);
 
   return (
-    <header className="bg-white border-b border-slate-200" id="main_website_header">
+    <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors" id="main_website_header">
       {/* Top Utility Bar */}
       <div className="bg-slate-905 text-slate-400 border-b border-slate-950 text-[10px] font-sans font-bold tracking-wider py-2 px-6 flex flex-col sm:flex-row justify-between items-center gap-2 select-none uppercase" style={{ backgroundColor: "#0f172a" }}>
         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
@@ -184,10 +197,10 @@ export default function Header({
             FC
           </span>
           <div className="flex flex-col leading-none">
-            <span className="font-sans font-black text-lg tracking-tight uppercase text-slate-900 group-hover:text-blue-600 transition-colors">
+            <span className="font-sans font-black text-lg tracking-tight uppercase text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
               {logoText || "FAST COVERAGE"}
             </span>
-            <span className="font-sans text-[10px] font-bold tracking-widest text-slate-500 uppercase mt-0.5">
+            <span className="font-sans text-[10px] font-bold tracking-widest text-slate-500 dark:text-slate-400 uppercase mt-0.5">
               Global News Network
             </span>
           </div>
@@ -203,21 +216,35 @@ export default function Header({
             placeholder={t("Search news database...")}
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full bg-slate-100/70 border border-slate-200 rounded-lg py-1.5 pl-9 pr-4 text-xs text-slate-900 focus:outline-none focus:border-blue-600 focus:bg-white transition-all placeholder-slate-450 font-sans"
+            className="w-full bg-slate-100/70 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-lg py-1.5 pl-9 pr-4 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 focus:bg-white dark:focus:bg-slate-905 transition-all placeholder-slate-450 dark:placeholder-slate-500 font-sans"
           />
         </div>
       </div>
 
+      {/* Newspaper Dateline Subheader */}
+      <div className="border-y border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 py-1.5 px-6">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center text-[10px] font-bold font-sans uppercase tracking-widest text-slate-500 dark:text-slate-400 gap-1.5">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+            <span className="text-slate-800 dark:text-slate-200">{currentLocalDate || "Saturday, June 27, 2026"}</span>
+            <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
+            <span className="text-slate-400 dark:text-slate-500 font-mono tracking-normal hidden sm:inline">{currentUtc}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-red-600 font-extrabold animate-pulse">● {t("LIVE")}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Navigation Links Bar */}
-      <div className="bg-slate-50 border-t border-slate-200">
+      <div className="bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-6 overflow-x-auto scrollbar-none">
           <nav className="flex space-x-1 py-1.5 shrink-0">
             <button
               onClick={() => onSelectCategory("")}
               className={`px-3 py-1.5 text-[10px] font-bold font-sans uppercase tracking-widest transition-all shrink-0 rounded-md ${
                 selectedCategoryId === ""
-                  ? "bg-slate-900 text-white shadow-xs"
-                  : "text-slate-650 hover:bg-slate-200 hover:text-slate-900"
+                  ? "bg-slate-900 text-white shadow-xs dark:bg-slate-100 dark:text-slate-900"
+                  : "text-slate-650 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100"
               }`}
             >
               {t("Top Stories")}
@@ -227,7 +254,7 @@ export default function Header({
               className={`px-3 py-1.5 text-[10px] font-extrabold font-sans uppercase tracking-widest transition-all shrink-0 rounded-md flex items-center gap-1 border ${
                 selectedCategoryId === "videos"
                   ? "bg-red-750 text-white border-red-750 shadow-xs"
-                  : "text-red-700 bg-red-50 hover:bg-neutral-900 hover:text-white border-red-200/50"
+                  : "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/20 hover:bg-neutral-900 dark:hover:bg-slate-800 hover:text-white border-red-200/50 dark:border-red-900/50"
               }`}
             >
               📺 {t("Video Hub")}
@@ -237,7 +264,7 @@ export default function Header({
               className={`px-3 py-1.5 text-[10px] font-extrabold font-sans uppercase tracking-widest transition-all shrink-0 rounded-md flex items-center gap-1 border ${
                 selectedCategoryId === "markets"
                   ? "bg-red-700 text-white border-red-700 shadow-xs"
-                  : "text-red-700 bg-red-50/50 hover:bg-red-100/50 border-red-200/50"
+                  : "text-red-700 dark:text-red-400 bg-red-50/50 dark:bg-red-950/10 hover:bg-red-100/50 dark:hover:bg-red-900/25 border-red-200/50 dark:border-red-900/30"
               }`}
             >
               📈 {t("Live Markets")}
@@ -249,7 +276,9 @@ export default function Header({
                   key={cat.id}
                   onClick={() => onSelectCategory(cat.id)}
                   className={`px-3 py-1.5 text-[10px] font-bold font-sans uppercase tracking-widest transition-all shrink-0 rounded-md ${
-                    isActive ? "bg-slate-900 text-white shadow-xs" : "text-slate-650 hover:bg-slate-200 hover:text-slate-900"
+                    isActive 
+                      ? "bg-slate-900 text-white shadow-xs dark:bg-slate-100 dark:text-slate-900" 
+                      : "text-slate-650 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100"
                   }`}
                 >
                   {t(cat.name)}
