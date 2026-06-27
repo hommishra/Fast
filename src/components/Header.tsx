@@ -222,9 +222,13 @@ export default function Header({
       {/* Newspaper Dateline Subheader */}
       <div className="border-y border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 py-1.5 px-6">
         <div className="max-w-7xl mx-auto flex justify-center items-center text-[10px] font-bold font-sans uppercase tracking-widest text-slate-500 dark:text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <span className="text-red-600 font-extrabold animate-pulse">●</span>
-            <span className="text-slate-800 dark:text-slate-200">{t("LIVE COVERAGE")}</span>
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-red-600 font-extrabold animate-pulse">●</span>
+              <span className="text-slate-900 dark:text-slate-100 font-black">{t("LIVE COVERAGE")}</span>
+            </div>
+            <span className="text-slate-300 dark:text-slate-700">•</span>
+            <span className="text-slate-600 dark:text-slate-300 font-medium normal-case sm:uppercase">{currentLocalDate}</span>
           </div>
         </div>
       </div>
