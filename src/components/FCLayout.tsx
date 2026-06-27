@@ -137,6 +137,26 @@ export default function FCLayout({
     return matchesCategory && matchesSearch;
   });
 
+  const sidebarStories = filteredArticles.slice(1, 7);
+
+  // Auto-advance bulletins and analysis slides smoothly
+  React.useEffect(() => {
+    if (!sidebarAutoplay || sidebarStories.length <= 1) return;
+    const interval = setInterval(() => {
+      setSidebarDirection(1);
+      setCurrentSidebarIndex((prev) => (prev + 1) % sidebarStories.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [sidebarAutoplay, sidebarStories.length]);
+
+  // Adjust index if list shrinks below active index
+  React.useEffect(() => {
+    if (currentSidebarIndex >= sidebarStories.length) {
+      setCurrentSidebarIndex(0);
+      setSidebarDirection(0);
+    }
+  }, [sidebarStories.length, currentSidebarIndex]);
+
   const formatDate = (isoStr: string) => {
     return new Date(isoStr).toLocaleDateString("en-US", {
       month: "short",
@@ -229,26 +249,7 @@ export default function FCLayout({
 
   // Classic FC Homepage Blueprint: Big spotlight, side list, bottom subgrids
   const featuredHero = filteredArticles[0];
-  const sidebarStories = filteredArticles.slice(1, 7);
   const coreFlow = filteredArticles.slice(4);
-
-  // Auto-advance bulletins and analysis slides smoothly
-  React.useEffect(() => {
-    if (!sidebarAutoplay || sidebarStories.length <= 1) return;
-    const interval = setInterval(() => {
-      setSidebarDirection(1);
-      setCurrentSidebarIndex((prev) => (prev + 1) % sidebarStories.length);
-    }, 6000);
-    return () => clearInterval(interval);
-  }, [sidebarAutoplay, sidebarStories.length]);
-
-  // Adjust index if list shrinks below active index
-  React.useEffect(() => {
-    if (currentSidebarIndex >= sidebarStories.length) {
-      setCurrentSidebarIndex(0);
-      setSidebarDirection(0);
-    }
-  }, [sidebarStories.length, currentSidebarIndex]);
 
   const handleSidebarNext = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
