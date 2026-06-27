@@ -2035,10 +2035,12 @@ Return as a JSON object with keys:
     }
   }
 
-  // Run immediate safety validation + self-healing recovery on boat startup
-  runHourlyVideoSafetyCheck().catch((unhandled) => {
-    console.error("[Monitoring-BOOT] Immediate self-healing recovery threw error:", unhandled);
-  });
+  // Run delayed safety validation + self-healing recovery after server is listening and ready
+  setTimeout(() => {
+    runHourlyVideoSafetyCheck().catch((unhandled) => {
+      console.error("[Monitoring-BOOT] Delayed self-healing recovery threw error:", unhandled);
+    });
+  }, 15000);
 
   // Schedule background hourly checks
   setInterval(() => {
