@@ -181,8 +181,6 @@ export default function Header({
               👤 {t("Reader Sign In")}
             </button>
           )}
-          <span className="text-slate-705 hidden sm:inline">|</span>
-          <span className="text-slate-400 font-semibold font-mono tracking-tight hidden sm:inline">{currentUtc}</span>
         </div>
       </div>
 
@@ -223,14 +221,10 @@ export default function Header({
 
       {/* Newspaper Dateline Subheader */}
       <div className="border-y border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 py-1.5 px-6">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center text-[10px] font-bold font-sans uppercase tracking-widest text-slate-500 dark:text-slate-400 gap-1.5">
-          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-            <span className="text-slate-800 dark:text-slate-200">{currentLocalDate || "Saturday, June 27, 2026"}</span>
-            <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
-            <span className="text-slate-400 dark:text-slate-500 font-mono tracking-normal hidden sm:inline">{currentUtc}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-red-600 font-extrabold animate-pulse">● {t("LIVE")}</span>
+        <div className="max-w-7xl mx-auto flex justify-center items-center text-[10px] font-bold font-sans uppercase tracking-widest text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1.5">
+            <span className="text-red-600 font-extrabold animate-pulse">●</span>
+            <span className="text-slate-800 dark:text-slate-200">{t("LIVE COVERAGE")}</span>
           </div>
         </div>
       </div>

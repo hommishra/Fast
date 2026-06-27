@@ -79,8 +79,8 @@ export default function SplashScreen({ onComplete, durationMs = 2600 }: SplashSc
                 className="splash-letter"
                 style={{
                   animationDelay: `${idx * 40 + 200}ms`,
-                  // Add extra spacing for spaces
-                  marginRight: letter === " " ? "0.45em" : "0.02em",
+                  // Add extra spacing for spaces dynamically based on CSS variables
+                  marginRight: letter === " " ? "var(--word-spacing)" : "var(--letter-spacing)",
                 }}
               >
                 {letter === " " ? "\u00A0" : letter}
