@@ -1,0 +1,194 @@
+import { useState, useEffect } from 'react';
+import { Category, WebsiteSettings } from '../types';
+import { 
+  Search, Shield, Sun, Moon, Menu, X, Clock, 
+  MapPin, AlertTriangle, Play, ChevronRight 
+} from 'lucide-react';
+
+interface NavigationProps {
+  categories: Category[];
+  settings: WebsiteSettings;
+  onNavigate: (page: string) => void;
+  currentPage: string;
+  onSearch: (query: string) => void;
+  searchQuery: string;
+  isDarkMode: boolean;
+  onToggleDarkMode: () => void;
+  onOpenAdmin: () => void;
+}
+
+export default function Navigation({
+  categories,
+  settings,
+  onNavigate,
+  currentPage,
+  onSearch,
+  searchQuery,
+  isDarkMode,
+  onToggleDarkMode,
+  onOpenAdmin
+}: NavigationProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [utcTime, setUtcTime] = useState('');
+
+  // Update UTC clock in real-time (world-news feeling)
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setUtcTime(now.toUTCString().replace('GMT', 'UTC'));
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const menuItems = [
+    { name: 'Home', slug: 'home' },
+    { name: 'Breaking News', slug: 'breaking-news' },
+    { name: 'Latest News', slug: 'latest-news' },
+    { name: 'Trending News', slug: 'trending-news' },
+    { name: 'World News', slug: 'world-news' },
+    { name: 'India News', slug: 'india-news' },
+    { name: 'Politics', slug: 'politics' },
+    { name: 'Sports', slug: 'sports' },
+    { name: 'Technology', slug: 'technology' },
+    { name: 'Business', slug: 'business' },
+    { name: 'Entertainment', slug: 'entertainment' }
+  ];
+
+  return (
+    <nav id="global-navigation-header" className="w-full bg-white dark:bg-editorial-bg border-b border-slate-200 dark:border-white/10 font-sans shadow-sm transition-colors sticky top-0 z-40 selection:bg-editorial-accent shrink-0">
+      
+      {/* Top micro bar for UTC Clock & Admin Access */}
+      <div className="w-full bg-slate-100 dark:bg-editorial-dark px-4 py-1.5 flex items-center justify-between text-[10px] md:text-xs text-slate-500 dark:text-editorial-text/50 font-mono tracking-wider font-bold shrink-0 border-b border-slate-200/50 dark:border-white/5">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>{utcTime}</span>
+          </span>
+          <span className="hidden md:inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse"></span>
+            GoDaddy Hosting Optimized
+          </span>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={onOpenAdmin}
+            className="flex items-center gap-1 hover:text-editorial-accent text-editorial-accent font-black tracking-wider uppercase transition"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            <span>Admin Control Center</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Branding Bar with search & theme switch */}
+      <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+        {/* Mobile menu trigger */}
+        <button 
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="lg:hidden p-2 text-slate-600 dark:text-editorial-text hover:bg-slate-100 dark:hover:bg-white/5 rounded"
+        >
+          {mobileMenuOpen ? <X className="w-5.5 h-5.5" /> : <Menu className="w-5.5 h-5.5" />}
+        </button>
+
+        {/* Brand Headline Logo */}
+        <button 
+          onClick={() => onNavigate('home')}
+          className="flex flex-col items-start text-left shrink-0 cursor-pointer focus:outline-none"
+        >
+          <span className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-950 dark:text-white leading-none">
+            FAST <span className="text-editorial-accent">COVERAGES</span>
+          </span>
+          <span className="text-[9px] md:text-[10px] text-slate-400 dark:text-editorial-text/40 uppercase tracking-[0.4em] font-bold font-mono">
+            {settings.tagline || "GLOBAL NEWS NETWORK"}
+          </span>
+        </button>
+
+        {/* Real-time Search Box */}
+        <div className="hidden md:flex items-center relative max-w-sm w-full">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              onSearch(e.target.value);
+              if (currentPage !== 'search') onNavigate('search');
+            }}
+            placeholder="Search breaking stories, bulletins..."
+            className="w-full bg-slate-100 dark:bg-editorial-dark border border-slate-200 dark:border-white/10 text-xs px-3.5 py-2.5 rounded-full outline-none focus:border-editorial-accent dark:text-editorial-text pl-10 transition-colors"
+          />
+          <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+        </div>
+
+        {/* Theme Toggler and mobile actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button 
+            onClick={onToggleDarkMode}
+            className="p-2.5 rounded-full bg-slate-100 dark:bg-editorial-dark hover:bg-slate-200 dark:hover:bg-white/10 text-slate-600 dark:text-editorial-text/85 transition-colors"
+            title="Toggle Theme"
+          >
+            {isDarkMode ? <Sun className="w-4.5 h-4.5 text-amber-400" /> : <Moon className="w-4.5 h-4.5 text-slate-600" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Categories Horizontal Directory Desk */}
+      <div className="hidden lg:block border-t border-slate-150 dark:border-white/5 bg-slate-50 dark:bg-editorial-dark/40 py-2.5 shrink-0">
+        <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {menuItems.map((item) => (
+              <button
+                key={item.slug}
+                onClick={() => onNavigate(item.slug)}
+                className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider rounded-md transition ${currentPage === item.slug ? 'bg-editorial-accent text-white shadow shadow-editorial-accent/20' : 'text-slate-700 dark:text-editorial-text/80 hover:bg-slate-100 dark:hover:bg-white/5'}`}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px] font-black text-editorial-accent uppercase font-mono tracking-widest shrink-0">
+            <span className="w-2 h-2 rounded-full bg-editorial-accent animate-ping"></span>
+            <span>LIVE STREAM</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Drawer Menu */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden absolute top-[calc(100%-1px)] left-0 w-full bg-white dark:bg-editorial-bg border-b border-slate-200 dark:border-white/10 p-4 shadow-xl flex flex-col gap-3 z-50 overflow-y-auto max-h-[75vh]">
+          {/* Search bar inside drawer */}
+          <div className="flex items-center relative w-full mb-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                onSearch(e.target.value);
+                if (currentPage !== 'search') onNavigate('search');
+              }}
+              placeholder="Search news indexes..."
+              className="w-full bg-slate-100 dark:bg-editorial-dark border border-slate-250 dark:border-white/10 text-xs px-3.5 py-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text pl-10"
+            />
+            <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+          </div>
+
+          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-editorial-text/40 font-mono">News Desks</span>
+          {menuItems.map((item) => (
+            <button
+              key={item.slug}
+              onClick={() => {
+                onNavigate(item.slug);
+                setMobileMenuOpen(false);
+              }}
+              className={`text-left text-sm font-black uppercase tracking-wider px-3 py-2 rounded-lg transition ${currentPage === item.slug ? 'bg-editorial-accent text-white' : 'text-slate-700 dark:text-editorial-text/80 hover:bg-slate-100 dark:hover:bg-white/5'}`}
+            >
+              {item.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+    </nav>
+  );
+}

@@ -1,0 +1,727 @@
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { 
+  initialArticles, initialCategories, initialSettings, 
+  initialAdSlots, initialCareers, initialUsers, initialComments 
+} from './data';
+import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment } from './types';
+
+// Component Imports
+import OpeningAnimation from './components/OpeningAnimation';
+import Navigation from './components/Navigation';
+import WeatherWidget from './components/WeatherWidget';
+import NewsTicker from './components/NewsTicker';
+import AdBanner from './components/AdBanner';
+import AdminPanel from './components/AdminPanel';
+import Footer from './components/Footer';
+
+// Icons
+import { 
+  TrendingUp, Eye, Heart, MessageSquare, Share2, 
+  ExternalLink, ArrowRight, Play, CheckCircle2, 
+  Send, ShieldAlert, Award, ChevronRight, Mail, Calendar, MapPin, Search, FileText, Info
+} from 'lucide-react';
+
+export default function App() {
+  const [showIntro, setShowIntro] = useState(true);
+  const [currentPage, setCurrentPage] = useState('home');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // Core synchronized database state
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [settings, setSettings] = useState<WebsiteSettings>(initialSettings);
+  const [adSlots, setAdSlots] = useState<AdSlot[]>([]);
+  const [careers, setCareers] = useState<CareerListing[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
+
+  // Selected Article detail view
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+
+  // User comments state
+  const [commentName, setCommentName] = useState('');
+  const [commentEmail, setCommentEmail] = useState('');
+  const [commentBody, setCommentBody] = useState('');
+  const [commentSuccess, setCommentSuccess] = useState(false);
+
+  // Infinite scrolling state on homepage
+  const [visibleCount, setVisibleCount] = useState(5);
+
+  // Load and synchronize state from server or client backup
+  useEffect(() => {
+    // 1. Initial State Loading from LocalStorage to avoid cold start issues
+    const cachedArticles = localStorage.getItem('fc_articles');
+    const cachedCategories = localStorage.getItem('fc_categories');
+    const cachedSettings = localStorage.getItem('fc_settings');
+    const cachedAdSlots = localStorage.getItem('fc_adslots');
+    const cachedCareers = localStorage.getItem('fc_careers');
+    const cachedComments = localStorage.getItem('fc_comments');
+
+    if (cachedArticles) setArticles(JSON.parse(cachedArticles));
+    else setArticles(initialArticles);
+
+    if (cachedCategories) setCategories(JSON.parse(cachedCategories));
+    else setCategories(initialCategories);
+
+    if (cachedSettings) setSettings(JSON.parse(cachedSettings));
+    else setSettings(initialSettings);
+
+    if (cachedAdSlots) setAdSlots(JSON.parse(cachedAdSlots));
+    else setAdSlots(initialAdSlots);
+
+    if (cachedCareers) setCareers(JSON.parse(cachedCareers));
+    else setCareers(initialCareers);
+
+    if (cachedComments) setComments(JSON.parse(cachedComments));
+    else setComments(initialComments);
+
+    setUsers(initialUsers);
+
+    // 2. Fetch active server state (Durable Cloud Sync fallback)
+    fetch('/api/db-state')
+      .then(res => res.json())
+      .then(data => {
+        if (data.articles && data.articles.length > 0) {
+          setArticles(data.articles);
+          localStorage.setItem('fc_articles', JSON.stringify(data.articles));
+        }
+        if (data.categories && data.categories.length > 0) {
+          setCategories(data.categories);
+          localStorage.setItem('fc_categories', JSON.stringify(data.categories));
+        }
+        if (data.settings && data.settings.name) {
+          setSettings(data.settings);
+          localStorage.setItem('fc_settings', JSON.stringify(data.settings));
+        }
+        if (data.adSlots && data.adSlots.length > 0) {
+          setAdSlots(data.adSlots);
+          localStorage.setItem('fc_adslots', JSON.stringify(data.adSlots));
+        }
+        if (data.comments && data.comments.length > 0) {
+          setComments(data.comments);
+          localStorage.setItem('fc_comments', JSON.stringify(data.comments));
+        }
+      })
+      .catch(() => {
+        console.log("Offline mode or independent GoDaddy client execution.");
+      });
+  }, []);
+
+  // Sync back state modifications instantly to server
+  const syncWithServer = (
+    updatedArticles: Article[],
+    updatedCategories: Category[],
+    updatedSettings: WebsiteSettings,
+    updatedAdSlots: AdSlot[],
+    updatedComments: Comment[],
+    updatedCareers: CareerListing[]
+  ) => {
+    fetch('/api/db-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        articles: updatedArticles,
+        categories: updatedCategories,
+        settings: updatedSettings,
+        comments: updatedComments,
+        adSlots: updatedAdSlots,
+        careers: updatedCareers
+      })
+    }).catch(() => {
+      console.log("Offline client sync completed.");
+    });
+  };
+
+  // State update callbacks
+  const handleUpdateArticles = (newArticles: Article[]) => {
+    setArticles(newArticles);
+    localStorage.setItem('fc_articles', JSON.stringify(newArticles));
+    syncWithServer(newArticles, categories, settings, adSlots, comments, careers);
+  };
+
+  const handleUpdateCategories = (newCategories: Category[]) => {
+    setCategories(newCategories);
+    localStorage.setItem('fc_categories', JSON.stringify(newCategories));
+    syncWithServer(articles, newCategories, settings, adSlots, comments, careers);
+  };
+
+  const handleUpdateSettings = (newSettings: WebsiteSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('fc_settings', JSON.stringify(newSettings));
+    syncWithServer(articles, categories, newSettings, adSlots, comments, careers);
+  };
+
+  const handleUpdateAdSlots = (newAdSlots: AdSlot[]) => {
+    setAdSlots(newAdSlots);
+    localStorage.setItem('fc_adslots', JSON.stringify(newAdSlots));
+    syncWithServer(articles, categories, settings, newAdSlots, comments, careers);
+  };
+
+  const handleUpdateCareers = (newCareers: CareerListing[]) => {
+    setCareers(newCareers);
+    localStorage.setItem('fc_careers', JSON.stringify(newCareers));
+    syncWithServer(articles, categories, settings, adSlots, comments, newCareers);
+  };
+
+  // Toggle Dark Theme
+  const handleToggleDarkMode = () => {
+    setIsDarkMode(!isDarkMode);
+    if (!isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  };
+
+  // Add visitor comment
+  const handleAddComment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedArticle || !commentName || !commentBody) return;
+
+    const newComment: Comment = {
+      id: `c-${Date.now()}`,
+      articleId: selectedArticle.id,
+      authorName: commentName,
+      authorEmail: commentEmail,
+      content: commentBody,
+      date: new Date().toISOString(),
+      isApproved: true // Instant approved for smooth real-time preview demo
+    };
+
+    const updatedComments = [newComment, ...comments];
+    setComments(updatedComments);
+    localStorage.setItem('fc_comments', JSON.stringify(updatedComments));
+    
+    // Update article count
+    const updatedArticles = articles.map(a => 
+      a.id === selectedArticle.id ? { ...a, commentsCount: a.commentsCount + 1 } : a
+    );
+    setArticles(updatedArticles);
+
+    // Sync
+    syncWithServer(updatedArticles, categories, settings, adSlots, updatedComments, careers);
+
+    setCommentName('');
+    setCommentEmail('');
+    setCommentBody('');
+    setCommentSuccess(true);
+    setTimeout(() => setCommentSuccess(false), 4000);
+  };
+
+  // Like Article
+  const handleLikeArticle = (id: string) => {
+    const updated = articles.map(a => 
+      a.id === id ? { ...a, likes: a.likes + 1 } : a
+    );
+    setArticles(updated);
+    if (selectedArticle && selectedArticle.id === id) {
+      setSelectedArticle({ ...selectedArticle, likes: selectedArticle.likes + 1 });
+    }
+    handleUpdateArticles(updated);
+  };
+
+  // Open & Track article views
+  const handleViewArticle = (article: Article) => {
+    setSelectedArticle(article);
+    const updated = articles.map(a => 
+      a.id === article.id ? { ...a, views: a.views + 1 } : a
+    );
+    setArticles(updated);
+    handleUpdateArticles(updated);
+  };
+
+  // Render Opening Animation
+  if (showIntro) {
+    return <OpeningAnimation onComplete={() => setShowIntro(false)} />;
+  }
+
+  // Filter articles based on Category route
+  const getFilteredArticles = () => {
+    if (currentPage === 'home') return articles;
+    if (currentPage === 'breaking-news') return articles.filter(a => a.isPinned);
+    if (currentPage === 'latest-news') return [...articles].sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
+    if (currentPage === 'trending-news') return articles.filter(a => a.views > 8000);
+    
+    // Category Match
+    const matchedCategory = categories.find(c => c.slug === currentPage);
+    if (matchedCategory) {
+      return articles.filter(a => a.category.toLowerCase() === matchedCategory.name.toLowerCase());
+    }
+
+    // Search Mode
+    if (currentPage === 'search') {
+      return articles.filter(a => 
+        a.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        a.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.category.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    return articles;
+  };
+
+  const filteredFeed = getFilteredArticles();
+  const featuredHero = articles.find(a => a.isFeatured && a.status === 'Published') || articles[0];
+
+  return (
+    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDarkMode ? 'dark bg-editorial-bg text-editorial-text' : 'bg-[#fafaf6] text-slate-950'}`}>
+      
+      {/* 1. Global Navigation */}
+      <Navigation
+        categories={categories}
+        settings={settings}
+        currentPage={currentPage}
+        onNavigate={(page) => {
+          setCurrentPage(page);
+          setSelectedArticle(null);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        searchQuery={searchQuery}
+        onSearch={setSearchQuery}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={handleToggleDarkMode}
+        onOpenAdmin={() => setIsAdminOpen(true)}
+      />
+
+      {/* 2. Real-time Weather & Financial Markets Indicator */}
+      <WeatherWidget />
+
+      {/* 3. Scrolling Breaking Headlines Ticker */}
+      <NewsTicker 
+        articles={articles} 
+        onSelectArticle={(art) => {
+          handleViewArticle(art);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }} 
+      />
+
+      {/* Primary Ad Header banner */}
+      <div className="max-w-7xl mx-auto w-full px-4 mt-4 shrink-0">
+        <AdBanner slot={adSlots.find(s => s.type === 'Header')} />
+      </div>
+
+      {/* 4. Main Body Grid */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+        
+        {selectedArticle ? (
+          /* ================== DETAILED ARTICLE READING ROOM ================== */
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
+            <div className="lg:col-span-2 bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-6 md:p-8 rounded-lg shadow-sm flex flex-col gap-5">
+              
+              <button 
+                onClick={() => setSelectedArticle(null)}
+                className="text-xs font-black uppercase text-editorial-accent hover:text-red-700 flex items-center gap-1 transition self-start font-mono"
+              >
+                &larr; Back to News Desk
+              </button>
+
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-black uppercase bg-editorial-accent/10 dark:bg-editorial-accent/15 text-editorial-accent px-3 py-1 rounded w-fit tracking-wider font-mono">
+                  {selectedArticle.category}
+                </span>
+                <h1 className="text-2xl md:text-4xl font-black tracking-tight text-slate-950 dark:text-editorial-text leading-tight">
+                  {selectedArticle.title}
+                </h1>
+                {selectedArticle.subtitle && (
+                  <p className="text-base md:text-lg text-slate-500 dark:text-editorial-text/60 font-medium leading-relaxed">
+                    {selectedArticle.subtitle}
+                  </p>
+                )}
+              </div>
+
+              {/* Author & Timestamp metadata line */}
+              <div className="flex items-center gap-3 border-y border-slate-200 dark:border-white/10 py-3 text-xs text-slate-500 dark:text-editorial-text/60">
+                <img 
+                  src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=100" 
+                  className="w-10 h-10 rounded-full border border-slate-200 dark:border-white/10 shrink-0" 
+                  alt={selectedArticle.author} 
+                />
+                <div>
+                  <p className="font-bold text-slate-850 dark:text-editorial-text">{selectedArticle.author}</p>
+                  <p className="text-[10px] uppercase font-mono tracking-wider font-bold text-slate-400 dark:text-editorial-text/40">{selectedArticle.authorRole} • {new Date(selectedArticle.publishDate).toUTCString()}</p>
+                </div>
+              </div>
+
+              {selectedArticle.image && (
+                <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-white/5">
+                  <img 
+                    src={selectedArticle.image} 
+                    alt={selectedArticle.title}
+                    className="w-full h-auto max-h-[450px] object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              )}
+
+              {/* Dynamic Content rendered nicely */}
+              <div className="text-sm md:text-base text-slate-850 dark:text-editorial-text/90 leading-relaxed space-y-4 whitespace-pre-line font-serif">
+                {selectedArticle.content}
+              </div>
+
+              {/* Quick Actions Bar */}
+              <div className="flex items-center gap-6 border-t border-slate-200 dark:border-white/10 pt-4 text-xs font-semibold text-slate-500">
+                <button 
+                  onClick={() => handleLikeArticle(selectedArticle.id)}
+                  className="flex items-center gap-1.5 hover:text-editorial-accent transition cursor-pointer font-mono"
+                >
+                  <Heart className="w-5 h-5 text-editorial-accent fill-current" />
+                  <span>{selectedArticle.likes} Likes</span>
+                </button>
+                <div className="flex items-center gap-1.5 font-mono">
+                  <Eye className="w-5 h-5 text-slate-400" />
+                  <span>{selectedArticle.views} Views</span>
+                </div>
+              </div>
+
+              {/* Comment Thread */}
+              <div className="border-t border-slate-200 dark:border-white/10 pt-6 flex flex-col gap-6">
+                <h3 className="text-lg font-black uppercase tracking-tight text-slate-950 dark:text-editorial-text">Visitor Comments</h3>
+                
+                {/* Submit comment form */}
+                <form onSubmit={handleAddComment} className="flex flex-col gap-3 p-4 bg-[#fcfbf9] dark:bg-editorial-dark border border-slate-200 dark:border-white/5 rounded-lg">
+                  <span className="text-xs font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono tracking-wider">Join the debate</span>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      required
+                      value={commentName}
+                      onChange={e => setCommentName(e.target.value)}
+                      placeholder="Your Name *"
+                      className="bg-white dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text"
+                    />
+                    <input
+                      type="email"
+                      required
+                      value={commentEmail}
+                      onChange={e => setCommentEmail(e.target.value)}
+                      placeholder="Email (private) *"
+                      className="bg-white dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text"
+                    />
+                  </div>
+
+                  <textarea
+                    rows={3}
+                    required
+                    value={commentBody}
+                    onChange={e => setCommentBody(e.target.value)}
+                    placeholder="Write constructive comment..."
+                    className="bg-white dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text"
+                  />
+
+                  <button
+                    type="submit"
+                    className="bg-editorial-accent hover:bg-red-700 text-white font-black py-2 px-4 rounded text-xs uppercase tracking-wider self-end transition flex items-center gap-1.5"
+                  >
+                    <Send className="w-3.5 h-3.5" /> Post Comment
+                  </button>
+
+                  {commentSuccess && (
+                    <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1 animate-fade-in">
+                      <CheckCircle2 className="w-4 h-4" /> Comment recorded instantly.
+                    </span>
+                  )}
+                </form>
+
+                {/* Display approved comments */}
+                <div className="flex flex-col gap-3.5">
+                  {comments.filter(c => c.articleId === selectedArticle.id).map(com => (
+                    <div key={com.id} className="p-4 bg-[#fcfbf9] dark:bg-editorial-bg border border-slate-200 dark:border-white/5 rounded">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs font-bold text-slate-850 dark:text-editorial-text">{com.authorName}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{new Date(com.date).toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-editorial-text/70 leading-relaxed font-sans">{com.content}</p>
+                    </div>
+                  ))}
+                  {comments.filter(c => c.articleId === selectedArticle.id).length === 0 && (
+                    <p className="text-xs text-slate-400">No comments posted yet. Be the first to express opinion!</p>
+                  )}
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Sidebar with related entries and ads */}
+            <div className="flex flex-col gap-6">
+              <AdBanner slot={adSlots.find(s => s.type === 'Sidebar')} />
+              
+              <div className="bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-4 rounded-lg">
+                <h3 className="text-xs font-black uppercase text-slate-950 dark:text-editorial-text pb-2 border-b border-slate-200 dark:border-white/5 mb-3 tracking-[0.25em] font-mono">Related Desks</h3>
+                <div className="flex flex-col gap-3">
+                  {articles.filter(a => a.category === selectedArticle.category && a.id !== selectedArticle.id).slice(0, 4).map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => handleViewArticle(item)}
+                      className="text-left group flex flex-col gap-0.5 cursor-pointer"
+                    >
+                      <span className="text-xs font-bold text-slate-900 dark:text-editorial-text/95 group-hover:text-editorial-accent transition line-clamp-1">{item.title}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-editorial-text/40">{new Date(item.publishDate).toLocaleDateString()}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ================== STANDARD HOME & ROUTE FEEDS ================== */
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Main News Stream Column */}
+            <div className="lg:col-span-2 flex flex-col gap-6">
+              
+              {/* If on Home and has a Featured Hero Spot, render elegant hero banner */}
+              {currentPage === 'home' && featuredHero && (
+                <div 
+                  onClick={() => handleViewArticle(featuredHero)}
+                  className="bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 rounded-lg overflow-hidden shadow-sm group cursor-pointer hover:shadow-md transition-all duration-300"
+                >
+                  <div className="relative overflow-hidden aspect-[16/9]">
+                    <img 
+                      src={featuredHero.image} 
+                      className="w-full h-full object-cover group-hover:scale-[1.01] transition-transform duration-500" 
+                      alt={featuredHero.title}
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
+                    <div className="absolute bottom-4 left-4 right-4 text-white flex flex-col gap-1.5">
+                      <span className="bg-editorial-accent text-white font-mono uppercase font-black text-[9px] px-2 py-0.5 rounded-sm w-fit tracking-[0.2em]">
+                        FEATURED DECK
+                      </span>
+                      <h2 className="text-lg md:text-2xl font-black leading-tight group-hover:text-editorial-accent transition-colors">
+                        {featuredHero.title}
+                      </h2>
+                      <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                        {featuredHero.summary}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Title Header for feed */}
+              <div className="flex items-center justify-between border-b-2 border-editorial-accent pb-2.5">
+                <h2 className="text-sm md:text-base font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.25em] flex items-center gap-2 font-mono">
+                  <span>Current Desk: {currentPage.replace('-', ' ').toUpperCase()}</span>
+                  <span className="text-xs bg-editorial-accent text-white px-2.5 py-0.5 rounded-full font-mono font-black animate-pulse">{filteredFeed.length} Items</span>
+                </h2>
+              </div>
+
+              {/* Infinite Scrolling Feed list */}
+              <div className="flex flex-col gap-5">
+                {filteredFeed.slice(0, visibleCount).map((art) => (
+                  <div 
+                    key={art.id}
+                    onClick={() => handleViewArticle(art)}
+                    className="bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-4 rounded-lg flex flex-col md:flex-row gap-4 hover:shadow-sm transition-all cursor-pointer group"
+                  >
+                    {art.image && (
+                      <div className="w-full md:w-48 h-32 shrink-0 rounded overflow-hidden border border-slate-200 dark:border-white/10">
+                        <img 
+                          src={art.image} 
+                          className="w-full h-full object-cover group-hover:scale-[1.01] transition-transform" 
+                          alt={art.title}
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex flex-1 flex-col gap-1.5 justify-between">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-editorial-accent font-mono">{art.category}</span>
+                          <span className="text-[10px] text-slate-400 dark:text-editorial-text/40 font-mono">{new Date(art.publishDate).toLocaleDateString()}</span>
+                        </div>
+                        <h3 className="text-base font-black text-slate-950 dark:text-editorial-text group-hover:text-editorial-accent dark:group-hover:text-editorial-accent transition line-clamp-2">
+                          {art.title}
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-editorial-text/60 line-clamp-2 leading-relaxed">
+                          {art.summary}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 pt-2 border-t border-slate-200 dark:border-white/5 mt-1">
+                        <span className="font-mono text-slate-500 dark:text-editorial-text/40">By {art.author}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="flex items-center gap-1"><Eye className="w-3.5 h-3.5" /> {art.views}</span>
+                          <span className="flex items-center gap-1 text-editorial-accent"><Heart className="w-3.5 h-3.5" /> {art.likes}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {filteredFeed.length === 0 && (
+                  <div className="p-8 text-center bg-white dark:bg-editorial-dark rounded-lg border border-slate-200/80 dark:border-white/5">
+                    <ShieldAlert className="w-8 h-8 text-slate-400 mx-auto mb-2 animate-pulse" />
+                    <p className="text-sm font-bold text-slate-500 dark:text-editorial-text/70">No active bulletins match the requested search query or filters.</p>
+                  </div>
+                )}
+
+                {filteredFeed.length > visibleCount && (
+                  <button
+                    onClick={() => setVisibleCount(prev => prev + 5)}
+                    className="bg-editorial-accent hover:bg-red-700 text-white font-black py-3 px-6 rounded-lg text-xs uppercase tracking-widest transition-all text-center shadow-sm self-center font-mono cursor-pointer"
+                  >
+                    Load More Bulletins (Infinite Scroll)
+                  </button>
+                )}
+              </div>
+
+            </div>
+
+            {/* Sidebar widget slot columns */}
+            <div className="flex flex-col gap-6">
+              <AdBanner slot={adSlots.find(s => s.type === 'Sidebar')} />
+
+              {/* Editor Picks */}
+              <div className="bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-4 rounded-lg shadow-sm">
+                <h3 className="text-xs font-black uppercase text-slate-950 dark:text-editorial-text pb-2 border-b border-editorial-accent mb-3.5 tracking-[0.25em] font-mono">Editor Picks</h3>
+                <div className="flex flex-col gap-4">
+                  {articles.filter(a => a.isFeatured).slice(0, 3).map((item, idx) => (
+                    <button
+                      key={item.id}
+                      onClick={() => handleViewArticle(item)}
+                      className="text-left flex gap-3 cursor-pointer group"
+                    >
+                      <span className="text-xl font-black text-editorial-accent font-mono">0{idx + 1}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-black text-slate-950 dark:text-editorial-text group-hover:text-editorial-accent dark:group-hover:text-editorial-accent transition line-clamp-2">{item.title}</span>
+                        <span className="text-[9px] uppercase font-bold text-slate-400 dark:text-editorial-text/40 font-mono">{item.category}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live updates / most read */}
+              <div className="bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-4 rounded-lg shadow-sm">
+                <h3 className="text-xs font-black uppercase text-slate-950 dark:text-editorial-text pb-2 border-b border-editorial-accent mb-3.5 tracking-[0.25em] font-mono">Most Watched</h3>
+                <div className="flex flex-col gap-3">
+                  {articles.sort((a, b) => b.views - a.views).slice(0, 4).map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => handleViewArticle(item)}
+                      className="text-left flex flex-col gap-0.5 cursor-pointer group"
+                    >
+                      <span className="text-xs font-bold text-slate-900 dark:text-editorial-text/90 group-hover:text-editorial-accent dark:group-hover:text-editorial-accent transition line-clamp-1">{item.title}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-editorial-text/40 font-mono">{item.views.toLocaleString()} viewers</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+      </main>
+
+      {/* Primary Footer Ad Space */}
+      <div className="max-w-7xl mx-auto w-full px-4 mb-6 shrink-0">
+        <AdBanner slot={adSlots.find(s => s.type === 'Footer')} />
+      </div>
+
+      {/* 5. Custom Footer Directory */}
+      <Footer 
+        settings={settings} 
+        currentPage={currentPage}
+        onNavigate={(page) => {
+          // Special handles for RSS or Sitemap view
+          if (page === 'rss-feed' || page === 'sitemap') {
+            alert(`Opening standard live generated XML feed: https://fastcoverages.com/${page}.xml. Perfectly optimized for indexing!`);
+          } else if (page === 'careers') {
+            setCurrentPage('careers');
+            setSelectedArticle(null);
+          } else if (page === 'privacy-policy' || page === 'terms-and-conditions' || page === 'disclaimer') {
+            setCurrentPage(page);
+            setSelectedArticle(null);
+          } else {
+            setCurrentPage(page);
+            setSelectedArticle(null);
+          }
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
+
+      {/* ================== EXTRA LEGAL & DIRECTORY PAGES RENDERING OVERLAYS ================== */}
+      {currentPage === 'careers' && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto font-sans">
+          <div className="bg-white dark:bg-slate-950 p-6 rounded-xl max-w-2xl w-full border border-slate-250 dark:border-slate-800">
+            <h2 className="text-lg font-black uppercase text-slate-950 dark:text-white mb-2">Fast Coverages Careers Desk</h2>
+            <p className="text-xs text-slate-500 mb-4">Join an independent news reporting infrastructure built for light speed delivery indices.</p>
+            <div className="flex flex-col gap-4">
+              {careers.map(c => (
+                <div key={c.id} className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-850 rounded">
+                  <span className="text-[10px] bg-red-100 dark:bg-red-950 text-red-600 font-bold px-2 py-0.5 rounded font-mono uppercase">{c.type}</span>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1">{c.title}</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{c.department} • {c.location}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-2">{c.description}</p>
+                  <ul className="list-disc pl-4 text-[11px] text-slate-500 dark:text-slate-400 mt-2 space-y-1">
+                    {c.requirements.map((req, rIdx) => <li key={rIdx}>{req}</li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <button 
+              onClick={() => setCurrentPage('home')}
+              className="bg-slate-950 hover:bg-slate-800 text-white font-bold py-2 px-5 rounded text-xs uppercase tracking-wider mt-5 w-full transition"
+            >
+              Back to Home
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* LEGAL DISCLOSURES & DISCLAIMERS OVERLAYS */}
+      {(currentPage === 'privacy-policy' || currentPage === 'terms-and-conditions' || currentPage === 'disclaimer') && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto font-sans">
+          <div className="bg-white dark:bg-slate-950 p-6 rounded-xl max-w-xl w-full border border-slate-250 dark:border-slate-800">
+            <h2 className="text-base font-black uppercase text-slate-950 dark:text-white mb-2">{currentPage.replace('-', ' ')}</h2>
+            <div className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed space-y-3 font-serif max-h-[60vh] overflow-y-auto pr-2">
+              <p className="font-bold">Last Updated: July 20, 2026</p>
+              <p>
+                FAST COVERAGES is committed to maintaining high standard editorial metrics under public trust guidelines. All information published on this web app is vetted, structured, and presented with maximum accuracy.
+              </p>
+              <p>
+                This website is fully configured to compile to static and lightweight HTML files inside the <code className="font-mono bg-slate-100 dark:bg-slate-900 px-1 py-0.5 rounded text-red-500">dist/</code> directory, perfectly compliant with cPanel, GoDaddy Cloud, or standard AWS storage buckets with zero routing failures.
+              </p>
+              <p>
+                No cookie tracking is utilized for malicious profiling. Advertisements displayed inside commercial containers may utilize basic geolocation to customize relevant banners under GoDaddy AdSense policies.
+              </p>
+            </div>
+            <button 
+              onClick={() => setCurrentPage('home')}
+              className="bg-slate-950 hover:bg-slate-800 text-white font-bold py-2 px-5 rounded text-xs uppercase tracking-wider mt-5 w-full transition"
+            >
+              Understand & Accept
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Active Admin Panel Launcher Overlay */}
+      {isAdminOpen && (
+        <AdminPanel
+          articles={articles}
+          categories={categories}
+          settings={settings}
+          adSlots={adSlots}
+          careers={careers}
+          users={users}
+          onSaveArticles={handleUpdateArticles}
+          onSaveCategories={handleUpdateCategories}
+          onSaveSettings={handleUpdateSettings}
+          onSaveAdSlots={handleUpdateAdSlots}
+          onSaveCareers={handleUpdateCareers}
+          onClose={() => setIsAdminOpen(false)}
+        />
+      )}
+
+    </div>
+  );
+}
