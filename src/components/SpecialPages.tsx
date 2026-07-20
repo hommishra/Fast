@@ -53,7 +53,7 @@ export default function SpecialPages({
         <div className="p-8 text-center bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 rounded-lg">
           <HelpCircle className="w-12 h-12 text-slate-400 mx-auto mb-2 animate-bounce" />
           <h3 className="text-lg font-black uppercase text-slate-950 dark:text-editorial-text font-mono tracking-widest mb-1">404 Desk Not Found</h3>
-          <p className="text-xs text-slate-500 dark:text-editorial-text/60">This section has been retired or moved under GoDaddy server re-indexing protocols.</p>
+          <p className="text-xs text-slate-500 dark:text-editorial-text/60">This section has been retired or moved under cloud server re-indexing protocols.</p>
           <button 
             onClick={() => onNavigate('home')} 
             className="mt-4 bg-editorial-accent hover:bg-red-700 text-white font-black text-xs uppercase px-5 py-2.5 rounded font-mono tracking-widest cursor-pointer"
@@ -75,7 +75,7 @@ function AboutUs({ users, settings, onNavigate }: { users: User[]; settings: Web
           FAST COVERAGES is the world's independent news broadcasting infrastructure.
         </h1>
         <p className="text-sm md:text-base text-slate-600 dark:text-editorial-text/75 leading-relaxed mb-6 font-serif">
-          Established to break barriers of latency and corporate narrative limits, FAST COVERAGES provides real-time, dynamic bulletins synced instantly worldwide. Operating on Node.js clustering and GoDaddy's Managed Hosting, our technology guarantees zero-downtime, extreme sitemap index speed, and reliable, fact-checked reporting.
+          Established to break barriers of latency and corporate narrative limits, FAST COVERAGES provides real-time, dynamic bulletins synced instantly worldwide. Operating on Node.js clustering and Distributed Edge Cloud Hosting, our technology guarantees zero-downtime, extreme sitemap index speed, and reliable, fact-checked reporting.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100 dark:border-white/10">
           <div className="flex flex-col gap-1">
@@ -151,7 +151,7 @@ function ContactUs({ settings }: { settings: WebsiteSettings }) {
             <select className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text">
               <option>Breaking News Leak (Anonymous)</option>
               <option>Editorial Review Challenge</option>
-              <option>Technical/GoDaddy Server Inquiry</option>
+              <option>Technical/Cloud Server Inquiry</option>
               <option>General Press Bulletin</option>
             </select>
           </div>
@@ -288,7 +288,7 @@ function Careers({ careers }: { careers: CareerListing[] }) {
         <h2 className="text-xs font-black uppercase text-editorial-accent tracking-[0.25em] font-mono mb-2">Join Fast Coverages</h2>
         <h1 className="text-xl md:text-3xl font-black text-slate-950 dark:text-editorial-text mb-4">Available Positions & Fellowships</h1>
         <p className="text-xs text-slate-500 dark:text-editorial-text/60 leading-relaxed font-serif">
-          Work at the bleeding edge of global reporting. We recruit elite journalists, tech architects, and newsroom coordinators committed to objective, rapid content indexation on Cloud Run and GoDaddy environments.
+          Work at the bleeding edge of global reporting. We recruit elite journalists, tech architects, and newsroom coordinators committed to objective, rapid content indexation on Cloud Run and Distributed Server environments.
         </p>
       </div>
 

@@ -72,7 +72,7 @@ export default function Footer({ settings, onNavigate, currentPage }: FooterProp
               {settings.tagline || "GLOBAL NEWS NETWORK"}
             </p>
             <p className="text-xs text-editorial-text/60 leading-relaxed max-w-sm">
-              The premier destination for real-time news, deep policy reports, fact-checked disclosures, and live bureaus across New York, London, New Delhi, and Tokyo.
+              The premier destination for real-time news, deep policy reports, fact-checked disclosures, and live bureaus across the World.
             </p>
           </div>
 
@@ -125,8 +125,8 @@ export default function Footer({ settings, onNavigate, currentPage }: FooterProp
 
         {/* Bottom copyright details and Social Icons */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-white/10">
-          <p className="text-xs text-editorial-text/40 text-center md:text-left max-w-2xl leading-relaxed">
-            {settings.footerText || "© 2026 FAST COVERAGES Global News Network. All Rights Reserved."}
+          <p className="text-[11px] text-editorial-text/40 text-center md:text-left max-w-2xl leading-relaxed tracking-wider font-bold font-mono uppercase">
+            © {new Date().getFullYear()} FAST COVERAGES – GLOBAL NEWS NETWORK. ALL RIGHTS RESERVED.
           </p>
 
           <div className="flex items-center gap-4">

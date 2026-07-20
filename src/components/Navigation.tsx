@@ -46,6 +46,7 @@ export default function Navigation({
     { name: 'Home', slug: 'home' },
     { name: 'Breaking News', slug: 'breaking-news' },
     { name: 'Latest News', slug: 'latest-news' },
+    { name: 'Global Markets', slug: 'global-markets' },
     { name: 'Trending News', slug: 'trending-news' },
     { name: 'World News', slug: 'world-news' },
     { name: 'India News', slug: 'india-news' },
@@ -68,7 +69,7 @@ export default function Navigation({
           </span>
           <span className="hidden md:inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse"></span>
-            GoDaddy Hosting Optimized
+            Global news Zone
           </span>
         </div>
 

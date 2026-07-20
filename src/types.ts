@@ -82,3 +82,35 @@ export interface CareerListing {
   description: string;
   requirements: string[];
 }
+
+export interface BreakingNewsItem {
+  id: string;
+  title: string;
+  isPinned: boolean;
+  publishDate: string;
+  category?: string;
+  active: boolean;
+}
+
+export interface MarketItem {
+  id: string;
+  name: string;
+  value: string;
+  change: string;
+  isUp: boolean;
+  active: boolean;
+  position: number;
+}
+
+export interface VideoItem {
+  id: string;
+  title: string;
+  description: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  publishDate: string;
+  category: string;
+  author: string;
+}
+
+

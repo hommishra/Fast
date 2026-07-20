@@ -24,7 +24,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "150mb" }));
+app.use(express.urlencoded({ limit: "150mb", extended: true }));
+
+// Serve uploaded video files statically in both dev and production
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Initialize Gemini SDK with lazy key validation
 let aiClient: GoogleGenAI | null = null;
@@ -46,6 +50,10 @@ let settingsStore: any = {};
 let commentsStore: any[] = [];
 let adSlotsStore: any[] = [];
 let careersStore: any[] = [];
+let breakingNewsStore: any[] = [];
+let marketsStore: any[] = [];
+let videosStore: any[] = [];
+let trashStore: any = { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
 
 // To make this fully persistent, we can write/read to a JSON file in the environment.
 const DATA_FILE = path.join(process.cwd(), "news_db.json");
@@ -60,6 +68,10 @@ function loadFromBackup() {
       commentsStore = data.comments || [];
       adSlotsStore = data.adSlots || [];
       careersStore = data.careers || [];
+      breakingNewsStore = data.breakingNews || [];
+      marketsStore = data.markets || [];
+      videosStore = data.videos || [];
+      trashStore = data.trash || { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
       console.log("Successfully loaded database from news_db.json backup.");
       return;
     } catch (e) {
@@ -77,7 +89,11 @@ function saveToBackup() {
       settings: settingsStore,
       comments: commentsStore,
       adSlots: adSlotsStore,
-      careers: careersStore
+      careers: careersStore,
+      breakingNews: breakingNewsStore,
+      markets: marketsStore,
+      videos: videosStore,
+      trash: trashStore
     };
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (e) {
@@ -99,19 +115,27 @@ app.get("/api/db-state", (req, res) => {
     comments: commentsStore,
     adSlots: adSlotsStore,
     careers: careersStore,
+    breakingNews: breakingNewsStore,
+    markets: marketsStore,
+    videos: videosStore,
+    trash: trashStore,
     hasBackup: fs.existsSync(DATA_FILE)
   });
 });
 
 // Update DB state from client sync (enables smooth client-server synchronization)
 app.post("/api/db-sync", (req, res) => {
-  const { articles, categories, settings, comments, adSlots, careers } = req.body;
+  const { articles, categories, settings, comments, adSlots, careers, breakingNews, markets, videos, trash } = req.body;
   if (articles) articlesStore = articles;
   if (categories) categoriesStore = categories;
   if (settings) settingsStore = settings;
   if (comments) commentsStore = comments;
   if (adSlots) adSlotsStore = adSlots;
   if (careers) careersStore = careers;
+  if (breakingNews) breakingNewsStore = breakingNews;
+  if (markets) marketsStore = markets;
+  if (videos) videosStore = videos;
+  if (trash) trashStore = trash;
   
   saveToBackup();
   res.json({ success: true, message: "Database synchronized successfully on server." });
@@ -155,6 +179,40 @@ Do not write any markdown codeblocks or explanation. Return only the raw JSON.`;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     res.status(500).json({ error: error.message || "Failed to generate news article using AI." });
+  }
+});
+
+// Endpoint to directly upload a video file as base64 and save it on the server
+app.post("/api/upload-video", (req, res) => {
+  const { name, base64 } = req.body;
+  if (!name || !base64) {
+    return res.status(400).json({ error: "Filename and base64 video data are required" });
+  }
+
+  try {
+    const uploadsDir = path.join(process.cwd(), "uploads");
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    // Extract raw base64 data by removing potential data URI prefix
+    const base64Data = base64.replace(/^data:video\/[a-zA-Z0-9]+;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+
+    const ext = path.extname(name) || ".mp4";
+    const filename = `video-${Date.now()}${ext}`;
+    const filePath = path.join(uploadsDir, filename);
+
+    fs.writeFileSync(filePath, buffer);
+    console.log(`Video uploaded successfully and saved to ${filePath}`);
+
+    res.json({
+      success: true,
+      fileUrl: `/uploads/${filename}`
+    });
+  } catch (err: any) {
+    console.error("Video Upload Error:", err);
+    res.status(500).json({ error: err.message || "Failed to save uploaded video on server." });
   }
 });
 

@@ -1,4 +1,4 @@
-import { Article, Category, User, AdSlot, WebsiteSettings, CareerListing, Comment } from './types';
+import { Article, Category, User, AdSlot, WebsiteSettings, CareerListing, Comment, BreakingNewsItem, MarketItem, VideoItem } from './types';
 
 export const initialCategories: Category[] = [
   { id: '1', name: 'World News', slug: 'world-news', description: 'Latest news and updates from around the globe.' },
@@ -249,9 +249,9 @@ export const initialComments: Comment[] = [
 ];
 
 export const initialAdSlots: AdSlot[] = [
-  { id: 'ad-1', type: 'Header', label: 'Main Premium Header banner (728x90)', imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80&w=728&h=90', targetUrl: 'https://godaddy.com', active: true },
-  { id: 'ad-2', type: 'Sidebar', label: 'Sidebar Business Banner (300x250)', imageUrl: 'https://images.unsplash.com/photo-1542744094-3a31f103e35f?auto=format&fit=crop&q=80&w=300&h=250', targetUrl: 'https://godaddy.com', active: true },
-  { id: 'ad-3', type: 'Footer', label: 'Standard Footer Promotion (468x60)', imageUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=468&h=60', targetUrl: 'https://godaddy.com', active: true },
+  { id: 'ad-1', type: 'Header', label: 'Main Premium Header banner (728x90)', imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80&w=728&h=90', targetUrl: '/', active: true },
+  { id: 'ad-2', type: 'Sidebar', label: 'Sidebar Business Banner (300x250)', imageUrl: 'https://images.unsplash.com/photo-1542744094-3a31f103e35f?auto=format&fit=crop&q=80&w=300&h=250', targetUrl: '/', active: true },
+  { id: 'ad-3', type: 'Footer', label: 'Standard Footer Promotion (468x60)', imageUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=468&h=60', targetUrl: '/', active: true },
   { id: 'ad-4', type: 'Sticky', label: 'Anchor Sticky Ad (320x50)', active: false }
 ];
 
@@ -259,7 +259,7 @@ export const initialSettings: WebsiteSettings = {
   name: 'FAST COVERAGES',
   tagline: 'GLOBAL NEWS NETWORK',
   logoUrl: '',
-  footerText: '© 2026 FAST COVERAGES Global News Network. All Rights Reserved. Designed for extreme performance and ultra-fast deployment on GoDaddy Hosting.',
+  footerText: '© FAST COVERAGES – GLOBAL NEWS NETWORK. ALL RIGHTS RESERVED.',
   primaryColor: 'red',
   facebookUrl: 'https://facebook.com',
   twitterUrl: 'https://twitter.com',
@@ -298,3 +298,51 @@ export const initialCareers: CareerListing[] = [
     ]
   }
 ];
+
+export const initialBreakingNews: BreakingNewsItem[] = [
+  { id: 'b-1', title: 'GLOBAL REEF ECOSYSTEM RESTORATION ACT APPROVED BY UN ENVIRONMENTAL ASSEMBLY', isPinned: true, publishDate: '2026-07-20T03:00:00Z', category: 'WORLD NEWS', active: true },
+  { id: 'b-2', title: 'ISRO CONFIRMS ADITYA-L2 SOL observatory HAS REACHED HALO ORBIT SUCCESSFULLY', isPinned: false, publishDate: '2026-07-20T02:30:00Z', category: 'INDIA NEWS', active: true },
+  { id: 'b-3', title: 'SYNTHETIX INC SHARES RALLY 18% IN PRE-MARKET TRADING AFTER LEDGERNET ANNOUNCEMENT', isPinned: true, publishDate: '2026-07-20T02:00:00Z', category: 'BUSINESS', active: true },
+  { id: 'b-4', title: 'CENTRAL BANKS DISCUSS INTEGRATING MULTI-LATERAL BLOCKCHAIN CLEARING PROTOCOLS', isPinned: false, publishDate: '2026-07-20T01:15:00Z', category: 'POLITICS', active: true }
+];
+
+export const initialMarkets: MarketItem[] = [
+  { id: 'm-1', name: 'Dow Jones', value: '39,122.40', change: '+1.31%', isUp: true, active: true, position: 1 },
+  { id: 'm-2', name: 'NASDAQ', value: '16,274.94', change: '+1.82%', isUp: true, active: true, position: 2 },
+  { id: 'm-3', name: 'S&P 500', value: '5,211.49', change: '+0.89%', isUp: true, active: true, position: 3 },
+  { id: 'm-4', name: 'NIFTY 50', value: '22,513.70', change: '+1.15%', isUp: true, active: true, position: 4 },
+  { id: 'm-5', name: 'SENSEX', value: '74,248.22', change: '+1.08%', isUp: true, active: true, position: 5 },
+  { id: 'm-6', name: 'FTSE 100', value: '7,935.09', change: '-0.22%', isUp: false, active: true, position: 6 },
+  { id: 'm-7', name: 'Nikkei 225', value: '38,722.10', change: '+1.45%', isUp: true, active: true, position: 7 },
+  { id: 'm-8', name: 'Hang Seng', value: '16,742.85', change: '-0.54%', isUp: false, active: true, position: 8 },
+  { id: 'm-9', name: 'Gold', value: '$2,342.10', change: '+0.45%', isUp: true, active: true, position: 9 },
+  { id: 'm-10', name: 'Silver', value: '$27.85', change: '+0.92%', isUp: true, active: true, position: 10 },
+  { id: 'm-11', name: 'Bitcoin', value: '$64,150.00', change: '+2.41%', isUp: true, active: true, position: 11 },
+  { id: 'm-12', name: 'Ethereum', value: '$3,480.12', change: '+3.15%', isUp: true, active: true, position: 12 },
+  { id: 'm-13', name: 'USD/INR', value: '83.42', change: '-0.08%', isUp: false, active: true, position: 13 },
+  { id: 'm-14', name: 'EUR/USD', value: '1.0822', change: '+0.12%', isUp: true, active: true, position: 14 }
+];
+
+export const initialVideos: VideoItem[] = [
+  {
+    id: 'v-1',
+    title: 'Global Climate Summit 2026: Key Takeaways and Policy Commitments',
+    description: 'A special broadcast highlighting the immediate policy commitments agreed upon by global leaders at the 2026 Climate Summit.',
+    videoUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=800',
+    publishDate: '2026-07-20T04:00:00Z',
+    category: 'World News',
+    author: 'Sarah Jenkins'
+  },
+  {
+    id: 'v-2',
+    title: 'Artificial Intelligence and the Future of Cybersecurity Bureau Briefing',
+    description: 'Our lead technology correspondent breaks down the new cybersecurity frameworks established to combat sophisticated neural attacks.',
+    videoUrl: 'https://www.w3schools.com/html/movie.mp4',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=800',
+    publishDate: '2026-07-20T02:15:00Z',
+    category: 'Technology',
+    author: 'David Vance'
+  }
+];
+

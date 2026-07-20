@@ -2,15 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
   initialArticles, initialCategories, initialSettings, 
-  initialAdSlots, initialCareers, initialUsers, initialComments 
+  initialAdSlots, initialCareers, initialUsers, initialComments,
+  initialBreakingNews, initialMarkets, initialVideos
 } from './data';
-import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment } from './types';
+import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem } from './types';
 
 // Component Imports
 import OpeningAnimation from './components/OpeningAnimation';
 import Navigation from './components/Navigation';
-import WeatherWidget from './components/WeatherWidget';
 import NewsTicker from './components/NewsTicker';
+import GlobalMarkets from './components/GlobalMarkets';
 import AdBanner from './components/AdBanner';
 import AdminPanel from './components/AdminPanel';
 import Footer from './components/Footer';
@@ -38,9 +39,20 @@ export default function App() {
   const [careers, setCareers] = useState<CareerListing[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [breakingNews, setBreakingNews] = useState<BreakingNewsItem[]>([]);
+  const [markets, setMarkets] = useState<MarketItem[]>([]);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [trash, setTrash] = useState<{
+    articles: Article[];
+    videos: VideoItem[];
+    breakingNews: BreakingNewsItem[];
+    markets: MarketItem[];
+    categories: Category[];
+  }>({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
 
   // Selected Article detail view
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [playingVideo, setPlayingVideo] = useState<VideoItem | null>(null);
 
   // User comments state
   const [commentName, setCommentName] = useState('');
@@ -51,15 +63,19 @@ export default function App() {
   // Infinite scrolling state on homepage
   const [visibleCount, setVisibleCount] = useState(5);
 
-  // Load and synchronize state from server or client backup
+  // Load and synchronize state from server or client backup with real-time short-polling
   useEffect(() => {
-    // 1. Initial State Loading from LocalStorage to avoid cold start issues
+    // 1. Initial Local State Loading from LocalStorage to avoid cold start latency
     const cachedArticles = localStorage.getItem('fc_articles');
     const cachedCategories = localStorage.getItem('fc_categories');
     const cachedSettings = localStorage.getItem('fc_settings');
     const cachedAdSlots = localStorage.getItem('fc_adslots');
     const cachedCareers = localStorage.getItem('fc_careers');
     const cachedComments = localStorage.getItem('fc_comments');
+    const cachedBreaking = localStorage.getItem('fc_breaking');
+    const cachedMarkets = localStorage.getItem('fc_markets');
+    const cachedVideos = localStorage.getItem('fc_videos');
+    const cachedTrash = localStorage.getItem('fc_trash');
 
     if (cachedArticles) setArticles(JSON.parse(cachedArticles));
     else setArticles(initialArticles);
@@ -79,36 +95,70 @@ export default function App() {
     if (cachedComments) setComments(JSON.parse(cachedComments));
     else setComments(initialComments);
 
+    if (cachedBreaking) setBreakingNews(JSON.parse(cachedBreaking));
+    else setBreakingNews(initialBreakingNews);
+
+    if (cachedMarkets) setMarkets(JSON.parse(cachedMarkets));
+    else setMarkets(initialMarkets);
+
+    if (cachedVideos) setVideos(JSON.parse(cachedVideos));
+    else setVideos(initialVideos);
+
+    if (cachedTrash) setTrash(JSON.parse(cachedTrash));
+    else setTrash({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
+
     setUsers(initialUsers);
 
-    // 2. Fetch active server state (Durable Cloud Sync fallback)
-    fetch('/api/db-state')
-      .then(res => res.json())
-      .then(data => {
-        if (data.articles && data.articles.length > 0) {
-          setArticles(data.articles);
-          localStorage.setItem('fc_articles', JSON.stringify(data.articles));
-        }
-        if (data.categories && data.categories.length > 0) {
-          setCategories(data.categories);
-          localStorage.setItem('fc_categories', JSON.stringify(data.categories));
-        }
-        if (data.settings && data.settings.name) {
-          setSettings(data.settings);
-          localStorage.setItem('fc_settings', JSON.stringify(data.settings));
-        }
-        if (data.adSlots && data.adSlots.length > 0) {
-          setAdSlots(data.adSlots);
-          localStorage.setItem('fc_adslots', JSON.stringify(data.adSlots));
-        }
-        if (data.comments && data.comments.length > 0) {
-          setComments(data.comments);
-          localStorage.setItem('fc_comments', JSON.stringify(data.comments));
-        }
-      })
-      .catch(() => {
-        console.log("Offline mode or independent GoDaddy client execution.");
-      });
+    // 2. Continuous short polling (every 4 seconds) to detect admin updates immediately for all visitors
+    const fetchLatestServerState = () => {
+      fetch('/api/db-state')
+        .then(res => res.json())
+        .then(data => {
+          if (data.articles && data.articles.length > 0) {
+            setArticles(data.articles);
+            localStorage.setItem('fc_articles', JSON.stringify(data.articles));
+          }
+          if (data.categories && data.categories.length > 0) {
+            setCategories(data.categories);
+            localStorage.setItem('fc_categories', JSON.stringify(data.categories));
+          }
+          if (data.settings && data.settings.name) {
+            setSettings(data.settings);
+            localStorage.setItem('fc_settings', JSON.stringify(data.settings));
+          }
+          if (data.adSlots && data.adSlots.length > 0) {
+            setAdSlots(data.adSlots);
+            localStorage.setItem('fc_adslots', JSON.stringify(data.adSlots));
+          }
+          if (data.comments && data.comments.length > 0) {
+            setComments(data.comments);
+            localStorage.setItem('fc_comments', JSON.stringify(data.comments));
+          }
+          if (data.breakingNews && data.breakingNews.length > 0) {
+            setBreakingNews(data.breakingNews);
+            localStorage.setItem('fc_breaking', JSON.stringify(data.breakingNews));
+          }
+          if (data.markets && data.markets.length > 0) {
+            setMarkets(data.markets);
+            localStorage.setItem('fc_markets', JSON.stringify(data.markets));
+          }
+          if (data.videos && data.videos.length > 0) {
+            setVideos(data.videos);
+            localStorage.setItem('fc_videos', JSON.stringify(data.videos));
+          }
+          if (data.trash) {
+            setTrash(data.trash);
+            localStorage.setItem('fc_trash', JSON.stringify(data.trash));
+          }
+        })
+        .catch(() => {
+          console.log("Offline mode or independent client execution.");
+        });
+    };
+
+    fetchLatestServerState(); // run immediately
+    const pollInterval = setInterval(fetchLatestServerState, 4000);
+    return () => clearInterval(pollInterval);
   }, []);
 
   // Sync back state modifications instantly to server
@@ -118,7 +168,11 @@ export default function App() {
     updatedSettings: WebsiteSettings,
     updatedAdSlots: AdSlot[],
     updatedComments: Comment[],
-    updatedCareers: CareerListing[]
+    updatedCareers: CareerListing[],
+    updatedBreaking: BreakingNewsItem[],
+    updatedMarkets: MarketItem[],
+    updatedVideos: VideoItem[],
+    updatedTrash?: typeof trash
   ) => {
     fetch('/api/db-sync', {
       method: 'POST',
@@ -129,7 +183,11 @@ export default function App() {
         settings: updatedSettings,
         comments: updatedComments,
         adSlots: updatedAdSlots,
-        careers: updatedCareers
+        careers: updatedCareers,
+        breakingNews: updatedBreaking,
+        markets: updatedMarkets,
+        videos: updatedVideos,
+        trash: updatedTrash || trash
       })
     }).catch(() => {
       console.log("Offline client sync completed.");
@@ -140,31 +198,55 @@ export default function App() {
   const handleUpdateArticles = (newArticles: Article[]) => {
     setArticles(newArticles);
     localStorage.setItem('fc_articles', JSON.stringify(newArticles));
-    syncWithServer(newArticles, categories, settings, adSlots, comments, careers);
+    syncWithServer(newArticles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos);
   };
 
   const handleUpdateCategories = (newCategories: Category[]) => {
     setCategories(newCategories);
     localStorage.setItem('fc_categories', JSON.stringify(newCategories));
-    syncWithServer(articles, newCategories, settings, adSlots, comments, careers);
+    syncWithServer(articles, newCategories, settings, adSlots, comments, careers, breakingNews, markets, videos);
   };
 
   const handleUpdateSettings = (newSettings: WebsiteSettings) => {
     setSettings(newSettings);
     localStorage.setItem('fc_settings', JSON.stringify(newSettings));
-    syncWithServer(articles, categories, newSettings, adSlots, comments, careers);
+    syncWithServer(articles, categories, newSettings, adSlots, comments, careers, breakingNews, markets, videos);
   };
 
   const handleUpdateAdSlots = (newAdSlots: AdSlot[]) => {
     setAdSlots(newAdSlots);
     localStorage.setItem('fc_adslots', JSON.stringify(newAdSlots));
-    syncWithServer(articles, categories, settings, newAdSlots, comments, careers);
+    syncWithServer(articles, categories, settings, newAdSlots, comments, careers, breakingNews, markets, videos);
   };
 
   const handleUpdateCareers = (newCareers: CareerListing[]) => {
     setCareers(newCareers);
     localStorage.setItem('fc_careers', JSON.stringify(newCareers));
-    syncWithServer(articles, categories, settings, adSlots, comments, newCareers);
+    syncWithServer(articles, categories, settings, adSlots, comments, newCareers, breakingNews, markets, videos);
+  };
+
+  const handleUpdateBreakingNews = (newBreaking: BreakingNewsItem[]) => {
+    setBreakingNews(newBreaking);
+    localStorage.setItem('fc_breaking', JSON.stringify(newBreaking));
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, newBreaking, markets, videos);
+  };
+
+  const handleUpdateMarkets = (newMarkets: MarketItem[]) => {
+    setMarkets(newMarkets);
+    localStorage.setItem('fc_markets', JSON.stringify(newMarkets));
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, newMarkets, videos);
+  };
+
+  const handleUpdateVideos = (newVideos: VideoItem[]) => {
+    setVideos(newVideos);
+    localStorage.setItem('fc_videos', JSON.stringify(newVideos));
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, newVideos);
+  };
+
+  const handleUpdateTrash = (newTrash: typeof trash) => {
+    setTrash(newTrash);
+    localStorage.setItem('fc_trash', JSON.stringify(newTrash));
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos, newTrash);
   };
 
   // Toggle Dark Theme
@@ -203,7 +285,7 @@ export default function App() {
     setArticles(updatedArticles);
 
     // Sync
-    syncWithServer(updatedArticles, categories, settings, adSlots, updatedComments, careers);
+    syncWithServer(updatedArticles, categories, settings, adSlots, updatedComments, careers, breakingNews, markets, videos);
 
     setCommentName('');
     setCommentEmail('');
@@ -287,15 +369,16 @@ export default function App() {
         onOpenAdmin={() => setIsAdminOpen(true)}
       />
 
-      {/* 2. Real-time Weather & Financial Markets Indicator */}
-      <WeatherWidget />
-
       {/* 3. Scrolling Breaking Headlines Ticker */}
       <NewsTicker 
-        articles={articles} 
-        onSelectArticle={(art) => {
-          handleViewArticle(art);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+        breakingNews={breakingNews} 
+        onSelectHeadline={(headline) => {
+          // Attempt to find a matching article to open
+          const matched = articles.find(a => a.title.toLowerCase() === headline.title.toLowerCase());
+          if (matched) {
+            handleViewArticle(matched);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
         }} 
       />
 
@@ -467,6 +550,14 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </div>
+        ) : currentPage === 'global-markets' ? (
+          /* ================== DEDICATED GLOBAL MARKETS LEADERBOARD PAGE ================== */
+          <div className="bg-[#0a0a0a] border border-zinc-800 rounded-lg overflow-hidden shadow-lg shadow-black/40">
+            <GlobalMarkets 
+              markets={markets} 
+              onUpdateMarkets={handleUpdateMarkets} 
+            />
           </div>
         ) : [
           'about-us', 'contact-us', 'advertise-with-us', 'careers',
@@ -640,6 +731,63 @@ export default function App() {
           </div>
         )}
 
+        {currentPage === 'home' && !selectedArticle && videos && videos.length > 0 && (
+          <div className="mt-12 bg-slate-50 dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-6 rounded-lg shadow-sm">
+            <div className="flex items-center justify-between border-b-2 border-editorial-accent pb-2.5 mb-6">
+              <h2 className="text-sm md:text-base font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.25em] font-mono">
+                FEATURED VIDEO BROADCASTS
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {videos.map((vid) => (
+                <div 
+                  key={vid.id}
+                  onClick={() => setPlayingVideo(vid)}
+                  className="bg-white dark:bg-editorial-bg border border-slate-200 dark:border-white/10 rounded-lg overflow-hidden group cursor-pointer hover:shadow-md transition-all flex flex-col justify-between"
+                >
+                  <div className="relative aspect-video overflow-hidden bg-black shrink-0">
+                    <img src={vid.thumbnailUrl || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500 opacity-80" alt={vid.title} referrerPolicy="no-referrer" />
+                    <div className="absolute inset-0 bg-black/25 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                      <div className="bg-editorial-accent text-white p-3.5 rounded-full shadow-lg transform group-hover:scale-105 transition-all">
+                        <Play className="w-5 h-5 fill-current ml-0.5" />
+                      </div>
+                    </div>
+                    <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[9px] font-mono px-1.5 py-0.5 rounded font-black">
+                      {vid.category}
+                    </span>
+                  </div>
+                  <div className="p-4 flex-1 flex flex-col justify-between gap-2.5">
+                    <div className="flex flex-col gap-1">
+                      <h3 className="text-xs md:text-sm font-black text-slate-950 dark:text-editorial-text leading-snug group-hover:text-editorial-accent transition line-clamp-2">{vid.title}</h3>
+                      <p className="text-xs text-slate-500 dark:text-editorial-text/60 line-clamp-2 leading-relaxed">{vid.description}</p>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono border-t border-slate-100 dark:border-white/5 pt-2">
+                      <span>By {vid.author}</span>
+                      <span>{new Date(vid.publishDate).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {currentPage === 'home' && !selectedArticle && (
+          <div className="mt-8">
+            <div className="flex items-center justify-between border-b-2 border-editorial-accent pb-2.5 mb-6">
+              <h2 className="text-sm md:text-base font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.25em] font-mono">
+                LIVE GLOBAL MARKET LEADERBOARD
+              </h2>
+            </div>
+            <div className="bg-[#0a0a0a] border border-zinc-800 rounded-lg overflow-hidden shadow-lg shadow-black/40">
+              <GlobalMarkets 
+                markets={markets} 
+                onUpdateMarkets={handleUpdateMarkets} 
+              />
+            </div>
+          </div>
+        )}
+
       </main>
 
       {/* Primary Footer Ad Space */}
@@ -678,13 +826,54 @@ export default function App() {
           adSlots={adSlots}
           careers={careers}
           users={users}
+          breakingNews={breakingNews}
+          markets={markets}
+          videos={videos}
+          trash={trash}
           onSaveArticles={handleUpdateArticles}
           onSaveCategories={handleUpdateCategories}
           onSaveSettings={handleUpdateSettings}
           onSaveAdSlots={handleUpdateAdSlots}
           onSaveCareers={handleUpdateCareers}
+          onSaveBreakingNews={handleUpdateBreakingNews}
+          onSaveMarkets={handleUpdateMarkets}
+          onSaveVideos={handleUpdateVideos}
+          onSaveTrash={handleUpdateTrash}
           onClose={() => setIsAdminOpen(false)}
         />
+      )}
+
+      {/* 7. Floating Video Player Modal */}
+      {playingVideo && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 selection:bg-editorial-accent">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden max-w-4xl w-full flex flex-col shadow-2xl relative">
+            <button 
+              onClick={() => setPlayingVideo(null)}
+              className="absolute top-4 right-4 bg-black/60 hover:bg-black/85 text-white p-2 rounded-full cursor-pointer transition z-10"
+              title="Close Player"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            
+            <div className="aspect-video bg-black relative flex items-center justify-center">
+              <video 
+                src={playingVideo.videoUrl} 
+                controls 
+                autoPlay 
+                className="w-full h-full"
+              />
+            </div>
+            
+            <div className="p-5 flex flex-col gap-1.5 text-left bg-zinc-900 border-t border-zinc-800 text-white">
+              <span className="text-[10px] font-black uppercase text-editorial-accent font-mono tracking-wider">{playingVideo.category}</span>
+              <h2 className="text-base font-black leading-snug">{playingVideo.title}</h2>
+              <p className="text-xs text-zinc-400 leading-relaxed">{playingVideo.description}</p>
+              <div className="text-[10px] text-zinc-500 font-mono mt-1">
+                Published by {playingVideo.author} on {new Date(playingVideo.publishDate).toLocaleString()}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
