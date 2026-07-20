@@ -8,7 +8,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const HOST = process.env.PORT ? undefined : "0.0.0.0";
 
 app.use(express.json());
 
@@ -222,8 +223,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`FAST COVERAGES Server running on http://0.0.0.0:${PORT} in ${process.env.NODE_ENV || "development"} mode`);
+  app.listen(PORT, HOST as any, () => {
+    console.log(`FAST COVERAGES Server running on port ${PORT} in ${process.env.NODE_ENV || "development"} mode`);
   });
 }
 
