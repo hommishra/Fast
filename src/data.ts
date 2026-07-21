@@ -1,17 +1,27 @@
-import { Article, Category, User, AdSlot, WebsiteSettings, CareerListing, Comment, BreakingNewsItem, MarketItem, VideoItem } from './types';
+import { Article, Category, User, AdSlot, WebsiteSettings, CareerListing, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection } from './types';
+
+export const initialParentSections: ParentSection[] = [
+  { id: 'ps-1', name: 'World News', slug: 'world-news', active: true },
+  { id: 'ps-2', name: 'India News', slug: 'india-news', active: true },
+  { id: 'ps-3', name: 'Politics', slug: 'politics', active: true },
+  { id: 'ps-4', name: 'Sports', slug: 'sports', active: true },
+  { id: 'ps-5', name: 'Technology', slug: 'technology', active: true },
+  { id: 'ps-6', name: 'Business', slug: 'business', active: true },
+  { id: 'ps-7', name: 'Entertainment', slug: 'entertainment', active: true }
+];
 
 export const initialCategories: Category[] = [
-  { id: '1', name: 'World News', slug: 'world-news', description: 'Latest news and updates from around the globe.' },
-  { id: '2', name: 'India News', slug: 'india-news', description: 'Top headlines, deep-dives and breaking updates from India.' },
-  { id: '3', name: 'Politics', slug: 'politics', description: 'Legislative battles, policy updates, and executive actions.' },
-  { id: '4', name: 'Sports', slug: 'sports', description: 'Football, cricket, Olympics, basketball, and world sports updates.' },
-  { id: '5', name: 'Technology', slug: 'technology', description: 'Artificial Intelligence, software development, cybersecurity and gadgets.' },
-  { id: '6', name: 'Business', slug: 'business', description: 'Stock markets, corporate updates, economic policies, and global trade.' },
-  { id: '7', name: 'Entertainment', slug: 'entertainment', description: 'Cinema, music, celebrity insights, and streaming trends.' },
+  { id: '1', name: 'World News', slug: 'world-news', description: 'Latest news and updates from around the globe.', parentSectionId: 'ps-1' },
+  { id: '2', name: 'India News', slug: 'india-news', description: 'Top headlines, deep-dives and breaking updates from India.', parentSectionId: 'ps-2' },
+  { id: '3', name: 'Politics', slug: 'politics', description: 'Legislative battles, policy updates, and executive actions.', parentSectionId: 'ps-3' },
+  { id: '4', name: 'Sports', slug: 'sports', description: 'Football, cricket, Olympics, basketball, and world sports updates.', parentSectionId: 'ps-4' },
+  { id: '5', name: 'Technology', slug: 'technology', description: 'Artificial Intelligence, software development, cybersecurity and gadgets.', parentSectionId: 'ps-5' },
+  { id: '6', name: 'Business', slug: 'business', description: 'Stock markets, corporate updates, economic policies, and global trade.', parentSectionId: 'ps-6' },
+  { id: '7', name: 'Entertainment', slug: 'entertainment', description: 'Cinema, music, celebrity insights, and streaming trends.', parentSectionId: 'ps-7' },
   { id: '8', name: 'Education', slug: 'education', description: 'Academic updates, university standards, and learning technology.' },
   { id: '9', name: 'Health', slug: 'health', description: 'Medical research, mental well-being, healthcare policies, and fitness.' },
   { id: '10', name: 'Crime', slug: 'crime', description: 'Investigative updates, justice department actions, and legal reports.' },
-  { id: '11', name: 'Science', slug: 'science', description: 'Space exploration, astrophysics, biotechnology, and geology.' },
+  { id: '11', name: 'Science', slug: 'science', description: 'Space exploration, astrophysics, biotechnology, and geology.', parentSectionId: 'ps-5' },
   { id: '12', name: 'Lifestyle', slug: 'lifestyle', description: 'Travel, cuisine, fashion trends, and culture.' },
   { id: '13', name: 'Opinion', slug: 'opinion', description: 'Columns and analytical reviews by expert writers.' },
   { id: '14', name: 'Editorial', slug: 'editorial', description: 'The official voice of FAST COVERAGES.' },
@@ -266,7 +276,22 @@ export const initialSettings: WebsiteSettings = {
   instagramUrl: 'https://instagram.com',
   youtubeUrl: 'https://youtube.com',
   rssEnabled: true,
-  twoFactorEnabled: false
+  twoFactorEnabled: true,
+  contactPhone: '+1 (212) 555-0199',
+  contactEmail: 'editorial@fastcoverages.com',
+  officeAddressNY: 'Times Square News Tower, Floor 44, New York, NY 10036',
+  officeAddressLondon: 'Reuters Way, Westminster Hub, London EC4Y 0DY',
+  officeAddressDelhi: 'Connaught Space Chambers, Sector 4, New Delhi 110001',
+  chartPosition: 'Side',
+  cryptoMarketEnabled: true,
+  forexMarketEnabled: true,
+  commoditiesEnabled: true,
+  usMarketsEnabled: true,
+  indiaMarketsEnabled: true,
+  ukMarketsEnabled: true,
+  japanMarketsEnabled: true,
+  chinaMarketsEnabled: true,
+  europeMarketsEnabled: true
 };
 
 export const initialCareers: CareerListing[] = [
@@ -307,20 +332,49 @@ export const initialBreakingNews: BreakingNewsItem[] = [
 ];
 
 export const initialMarkets: MarketItem[] = [
-  { id: 'm-1', name: 'Dow Jones', value: '39,122.40', change: '+1.31%', isUp: true, active: true, position: 1 },
-  { id: 'm-2', name: 'NASDAQ', value: '16,274.94', change: '+1.82%', isUp: true, active: true, position: 2 },
-  { id: 'm-3', name: 'S&P 500', value: '5,211.49', change: '+0.89%', isUp: true, active: true, position: 3 },
-  { id: 'm-4', name: 'NIFTY 50', value: '22,513.70', change: '+1.15%', isUp: true, active: true, position: 4 },
-  { id: 'm-5', name: 'SENSEX', value: '74,248.22', change: '+1.08%', isUp: true, active: true, position: 5 },
-  { id: 'm-6', name: 'FTSE 100', value: '7,935.09', change: '-0.22%', isUp: false, active: true, position: 6 },
-  { id: 'm-7', name: 'Nikkei 225', value: '38,722.10', change: '+1.45%', isUp: true, active: true, position: 7 },
-  { id: 'm-8', name: 'Hang Seng', value: '16,742.85', change: '-0.54%', isUp: false, active: true, position: 8 },
-  { id: 'm-9', name: 'Gold', value: '$2,342.10', change: '+0.45%', isUp: true, active: true, position: 9 },
-  { id: 'm-10', name: 'Silver', value: '$27.85', change: '+0.92%', isUp: true, active: true, position: 10 },
-  { id: 'm-11', name: 'Bitcoin', value: '$64,150.00', change: '+2.41%', isUp: true, active: true, position: 11 },
-  { id: 'm-12', name: 'Ethereum', value: '$3,480.12', change: '+3.15%', isUp: true, active: true, position: 12 },
-  { id: 'm-13', name: 'USD/INR', value: '83.42', change: '-0.08%', isUp: false, active: true, position: 13 },
-  { id: 'm-14', name: 'EUR/USD', value: '1.0822', change: '+0.12%', isUp: true, active: true, position: 14 }
+  // UNITED STATES
+  { id: 'm-1', name: 'Dow Jones', value: '39,122.40', change: '+1.31%', isUp: true, active: true, position: 1, symbol: '^DJI', category: 'United States' },
+  { id: 'm-2', name: 'NASDAQ', value: '16,274.94', change: '+1.82%', isUp: true, active: true, position: 2, symbol: '^IXIC', category: 'United States' },
+  { id: 'm-3', name: 'S&P 500', value: '5,211.49', change: '+0.89%', isUp: true, active: true, position: 3, symbol: '^GSPC', category: 'United States' },
+  
+  // INDIA
+  { id: 'm-4', name: 'NIFTY 50', value: '22,513.70', change: '+1.15%', isUp: true, active: true, position: 4, symbol: '^NSEI', category: 'India' },
+  { id: 'm-5', name: 'SENSEX', value: '74,248.22', change: '+1.08%', isUp: true, active: true, position: 5, symbol: '^BSESN', category: 'India' },
+  { id: 'm-6', name: 'BANK NIFTY', value: '48,582.35', change: '+1.22%', isUp: true, active: true, position: 6, symbol: '^NSEBANK', category: 'India' },
+
+  // UNITED KINGDOM
+  { id: 'm-7', name: 'FTSE 100', value: '7,935.09', change: '-0.22%', isUp: false, active: true, position: 7, symbol: '^FTSE', category: 'United Kingdom' },
+
+  // JAPAN
+  { id: 'm-8', name: 'Nikkei 225', value: '38,722.10', change: '+1.45%', isUp: true, active: true, position: 8, symbol: '^N225', category: 'Japan' },
+
+  // CHINA
+  { id: 'm-9', name: 'Shanghai Composite', value: '3,065.25', change: '+0.42%', isUp: true, active: true, position: 9, symbol: '000001.SS', category: 'China' },
+  { id: 'm-10', name: 'Hang Seng', value: '16,742.85', change: '-0.54%', isUp: false, active: true, position: 10, symbol: '^HSI', category: 'China' },
+
+  // EUROPE
+  { id: 'm-11', name: 'EURO STOXX 50', value: '5,015.42', change: '+0.62%', isUp: true, active: true, position: 11, symbol: '^STOXX50E', category: 'Europe' },
+  { id: 'm-12', name: 'DAX', value: '18,175.24', change: '+0.75%', isUp: true, active: true, position: 12, symbol: '^GDAXI', category: 'Europe' },
+
+  // CRYPTO MARKET
+  { id: 'm-13', name: 'Bitcoin', value: '$64,150.00', change: '+2.41%', isUp: true, active: true, position: 13, symbol: 'BTC-USD', category: 'Crypto Market' },
+  { id: 'm-14', name: 'Ethereum', value: '$3,480.12', change: '+3.15%', isUp: true, active: true, position: 14, symbol: 'ETH-USD', category: 'Crypto Market' },
+  { id: 'm-15', name: 'Solana', value: '$145.50', change: '+4.22%', isUp: true, active: true, position: 15, symbol: 'SOL-USD', category: 'Crypto Market' },
+  { id: 'm-16', name: 'BNB', value: '$575.20', change: '+1.85%', isUp: true, active: true, position: 16, symbol: 'BNB-USD', category: 'Crypto Market' },
+  { id: 'm-17', name: 'XRP', value: '$0.58', change: '-1.12%', isUp: false, active: true, position: 17, symbol: 'XRP-USD', category: 'Crypto Market' },
+
+  // FOREX MARKET
+  { id: 'm-18', name: 'USD/INR', value: '83.42', change: '-0.08%', isUp: false, active: true, position: 18, symbol: 'USDINR=X', category: 'Forex Market' },
+  { id: 'm-19', name: 'USD/EUR', value: '0.9241', change: '+0.05%', isUp: true, active: true, position: 19, symbol: 'USDEUR=X', category: 'Forex Market' },
+  { id: 'm-20', name: 'USD/GBP', value: '0.7852', change: '-0.12%', isUp: false, active: true, position: 20, symbol: 'USDGBP=X', category: 'Forex Market' },
+  { id: 'm-21', name: 'USD/JPY', value: '155.45', change: '+0.32%', isUp: true, active: true, position: 21, symbol: 'USDJPY=X', category: 'Forex Market' },
+  { id: 'm-22', name: 'EUR/USD', value: '1.0822', change: '+0.12%', isUp: true, active: true, position: 22, symbol: 'EURUSD=X', category: 'Forex Market' },
+
+  // COMMODITIES
+  { id: 'm-23', name: 'Gold', value: '$2,342.10', change: '+0.45%', isUp: true, active: true, position: 23, symbol: 'GC=F', category: 'Commodities' },
+  { id: 'm-24', name: 'Silver', value: '$27.85', change: '+0.92%', isUp: true, active: true, position: 24, symbol: 'SI=F', category: 'Commodities' },
+  { id: 'm-25', name: 'Crude Oil', value: '$78.45', change: '-1.45%', isUp: false, active: true, position: 25, symbol: 'CL=F', category: 'Commodities' },
+  { id: 'm-26', name: 'Natural Gas', value: '$2.15', change: '+2.54%', isUp: true, active: true, position: 26, symbol: 'NG=F', category: 'Commodities' }
 ];
 
 export const initialVideos: VideoItem[] = [

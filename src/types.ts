@@ -15,6 +15,7 @@ export interface Category {
   name: string;
   slug: string;
   description: string;
+  parentSectionId?: string;
 }
 
 export interface Article {
@@ -26,6 +27,7 @@ export interface Article {
   category: string;
   subcategory?: string;
   image: string;
+  images?: string[];
   videoUrl?: string;
   author: string;
   authorRole: UserRole;
@@ -71,6 +73,22 @@ export interface WebsiteSettings {
   youtubeUrl: string;
   rssEnabled: boolean;
   twoFactorEnabled: boolean;
+  contactPhone?: string;
+  contactEmail?: string;
+  officeAddressNY?: string;
+  officeAddressLondon?: string;
+  officeAddressDelhi?: string;
+  // Live Markets Options
+  chartPosition?: 'Side' | 'Bottom' | 'Top';
+  cryptoMarketEnabled?: boolean;
+  forexMarketEnabled?: boolean;
+  commoditiesEnabled?: boolean;
+  usMarketsEnabled?: boolean;
+  indiaMarketsEnabled?: boolean;
+  ukMarketsEnabled?: boolean;
+  japanMarketsEnabled?: boolean;
+  chinaMarketsEnabled?: boolean;
+  europeMarketsEnabled?: boolean;
 }
 
 export interface CareerListing {
@@ -100,6 +118,8 @@ export interface MarketItem {
   isUp: boolean;
   active: boolean;
   position: number;
+  symbol?: string;
+  category?: string;
 }
 
 export interface VideoItem {
@@ -111,6 +131,13 @@ export interface VideoItem {
   publishDate: string;
   category: string;
   author: string;
+}
+
+export interface ParentSection {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
 }
 
 

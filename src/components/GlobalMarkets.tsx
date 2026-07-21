@@ -1,316 +1,275 @@
-import React, { useState, useEffect } from 'react';
-import { MarketItem } from '../types';
-import { TrendingUp, TrendingDown, RefreshCw, BarChart2, Check, AlertCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  Globe, 
+  Activity
+} from 'lucide-react';
+
+interface MarketItem {
+  id: string;
+  name: string;
+  symbol: string;
+  category?: string;
+  value: string;
+  change: string;
+  isUp: boolean;
+  position: number;
+  active: boolean;
+}
 
 interface GlobalMarketsProps {
   markets: MarketItem[];
   onUpdateMarkets?: (updated: MarketItem[]) => void;
+  settings?: any;
 }
 
-export default function GlobalMarkets({ markets, onUpdateMarkets }: GlobalMarketsProps) {
-  const [selectedMarket, setSelectedMarket] = useState<MarketItem | null>(null);
-  const [chartData, setChartData] = useState<number[]>([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+// Map categories to list of premium symbols
+const CATEGORY_SYMBOLS: Record<string, Array<{ name: string; symbol: string }>> = {
+  'United States': [
+    { name: 'Dow Jones (DJIA)', symbol: 'FOREXCOM:DJI' },
+    { name: 'NASDAQ Composite', symbol: 'INDEX:IXIC' },
+    { name: 'S&P 500', symbol: 'FOREXCOM:SPX500' }
+  ],
+  'India': [
+    { name: 'NIFTY 50', symbol: 'NSE:NIFTY' },
+    { name: 'SENSEX', symbol: 'BSE:SENSEX' },
+    { name: 'BANK NIFTY', symbol: 'NSE:BANKNIFTY' }
+  ],
+  'United Kingdom': [
+    { name: 'FTSE 100', symbol: 'INDEX:UKX' }
+  ],
+  'Japan': [
+    { name: 'Nikkei 225', symbol: 'INDEX:NKY' }
+  ],
+  'China': [
+    { name: 'Shanghai Composite', symbol: 'SSE:000001' },
+    { name: 'Hang Seng Index', symbol: 'HSI:HSI' }
+  ],
+  'Europe': [
+    { name: 'EURO STOXX 50', symbol: 'INDEX:SX5E' },
+    { name: 'DAX Performance Index', symbol: 'INDEX:DAX' }
+  ],
+  'Crypto Market': [
+    { name: 'Bitcoin (BTC/USD)', symbol: 'COINBASE:BTCUSD' },
+    { name: 'Ethereum (ETH/USD)', symbol: 'COINBASE:ETHUSD' },
+    { name: 'Solana (SOL/USD)', symbol: 'COINBASE:SOLUSD' },
+    { name: 'BNB (BNB/USD)', symbol: 'BINANCE:BNBUSD' },
+    { name: 'XRP (XRP/USD)', symbol: 'COINBASE:XRPUSD' }
+  ],
+  'Forex Market': [
+    { name: 'USD / INR', symbol: 'FX_IDC:USDINR' },
+    { name: 'USD / EUR', symbol: 'FX:USDEUR' },
+    { name: 'USD / GBP', symbol: 'FX:USDGBP' },
+    { name: 'USD / JPY', symbol: 'FX:USDJPY' },
+    { name: 'EUR / USD', symbol: 'FX:EURUSD' }
+  ],
+  'Commodities': [
+    { name: 'Gold Spot', symbol: 'TVC:GOLD' },
+    { name: 'Silver Spot', symbol: 'TVC:SILVER' },
+    { name: 'Crude Oil', symbol: 'TVC:USOIL' },
+    { name: 'Natural Gas', symbol: 'TVC:UKOIL' }
+  ]
+};
 
-  // Filter active markets and sort by position
-  const activeMarkets = markets
-    .filter((m) => m.active)
-    .sort((a, b) => a.position - b.position);
+export default function GlobalMarkets({ markets, onUpdateMarkets, settings }: GlobalMarketsProps) {
+  // Determine enabled categories from Admin panel settings
+  const categories = [
+    { id: 'all', label: 'All Assets', enabled: true },
+    { id: 'United States', label: 'United States', enabled: settings?.usMarketsEnabled !== false },
+    { id: 'India', label: 'India', enabled: settings?.indiaMarketsEnabled !== false },
+    { id: 'United Kingdom', label: 'United Kingdom', enabled: settings?.ukMarketsEnabled !== false },
+    { id: 'Japan', label: 'Japan', enabled: settings?.japanMarketsEnabled !== false },
+    { id: 'China', label: 'China', enabled: settings?.chinaMarketsEnabled !== false },
+    { id: 'Europe', label: 'Europe', enabled: settings?.europeMarketsEnabled !== false },
+    { id: 'Crypto Market', label: 'Crypto Market', enabled: settings?.cryptoMarketEnabled !== false },
+    { id: 'Forex Market', label: 'Forex Market', enabled: settings?.forexMarketEnabled !== false },
+    { id: 'Commodities', label: 'Commodities', enabled: settings?.commoditiesEnabled !== false }
+  ];
 
-  // Generate random mock historical data for the selected chart
-  const generateHistoricalData = (baseVal: string, isUp: boolean) => {
-    const cleanVal = parseFloat(baseVal.replace(/[^0-9.]/g, ''));
-    const dataPoints: number[] = [];
-    let current = cleanVal * (isUp ? 0.96 : 1.04);
-    
-    for (let i = 0; i < 20; i++) {
-      const changePercent = (Math.random() - 0.48) * 0.015; // Random walk
-      current = current * (1 + changePercent);
-      dataPoints.push(current);
-    }
-    // Final point matches current value
-    dataPoints.push(cleanVal);
-    return dataPoints;
+  const activeCategories = categories.filter(c => c.enabled);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('FOREXCOM:SPX500');
+  const [selectedName, setSelectedName] = useState<string>('S&P 500');
+
+  // Gather active tickers matching enabled settings
+  const activeTickers = Object.entries(CATEGORY_SYMBOLS)
+    .filter(([cat]) => {
+      const match = categories.find(c => c.id === cat);
+      return match ? match.enabled : true;
+    })
+    .flatMap(([cat, items]) => items.map(item => ({ ...item, category: cat })));
+
+  // Filtered symbols based on active UI Category Tab
+  const displayedTickers = activeTickers.filter(t => {
+    if (selectedCategory === 'all') return true;
+    return t.category === selectedCategory;
+  });
+
+  // Determine active chart position from settings
+  const chartLayoutPos = settings?.chartPosition || 'Side';
+
+  // Build dynamic safe Ticker Tape SrcDoc
+  const tapeSymbols = activeTickers.slice(0, 15).map(t => ({
+    proName: t.symbol,
+    title: t.name.split(' (')[0]
+  }));
+
+  const tickerTapeConfig = {
+    symbols: tapeSymbols.length > 0 ? tapeSymbols : [
+      { proName: 'FOREXCOM:SPX500', title: 'S&P 500' },
+      { proName: 'NSE:NIFTY', title: 'NIFTY 50' },
+      { proName: 'COINBASE:BTCUSD', title: 'BTC/USD' },
+      { proName: 'TVC:GOLD', title: 'GOLD' }
+    ],
+    showSymbolLogo: true,
+    colorTheme: 'dark',
+    isTransparent: true,
+    displayMode: 'adaptive',
+    locale: 'en'
   };
 
-  // Select initial market
-  useEffect(() => {
-    if (activeMarkets.length > 0 && !selectedMarket) {
-      setSelectedMarket(activeMarkets[0]);
-    }
-  }, [activeMarkets, selectedMarket]);
+  const tickerTapeSrcDoc = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+      </style>
+    </head>
+    <body>
+      <div class="tradingview-widget-container">
+        <div class="tradingview-widget-container__widget"></div>
+        <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
+          ${JSON.stringify(tickerTapeConfig)}
+        </script>
+      </div>
+    </body>
+    </html>
+  `;
 
-  // Update chart data when market changes
-  useEffect(() => {
-    if (selectedMarket) {
-      setChartData(generateHistoricalData(selectedMarket.value, selectedMarket.isUp));
-    }
-  }, [selectedMarket]);
+  // Advanced Chart native secure URL
+  const chartIframeUrl = `https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(selectedSymbol)}&theme=dark&style=1&timezone=exchange&locale=en`;
 
-  // Simulated live ticker fluctuations to represent actual live markets
-  useEffect(() => {
-    if (!autoRefresh) return;
+  return (
+    <div id="live-tradingview-terminal" className="w-full bg-[#030303] text-zinc-100 border border-zinc-900 rounded-xl p-5 md:p-6 font-sans select-none shadow-2xl relative">
+      {/* Background dark grid line accent */}
+      <div className="absolute inset-0 bg-[radial-gradient(#1e1e1e_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none opacity-25 rounded-xl"></div>
 
-    const interval = setInterval(() => {
-      setIsRefreshing(true);
-      
-      const updated = markets.map((m) => {
-        if (!m.active) return m;
-        // Float the value slightly
-        const numericStr = m.value.replace(/[^0-9.]/g, '');
-        const currentVal = parseFloat(numericStr);
-        if (isNaN(currentVal)) return m;
-
-        const isCurrencyOrCommodity = m.name.includes('/') || m.name === 'Gold' || m.name === 'Silver';
-        const percentChange = (Math.random() - 0.5) * (isCurrencyOrCommodity ? 0.001 : 0.002); // Tame fluctuations
-        const newVal = currentVal * (1 + percentChange);
+      <div className="relative z-10 max-w-7xl mx-auto flex flex-col gap-6">
         
-        // Format string properly
-        let formattedVal = '';
-        if (m.name === 'Gold' || m.name === 'Silver') {
-          formattedVal = `$${newVal.toFixed(2)}`;
-        } else if (m.name.includes('/')) {
-          formattedVal = newVal.toFixed(4);
-        } else if (newVal > 1000) {
-          formattedVal = newVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        } else {
-          formattedVal = newVal.toFixed(2);
-        }
+        {/* TOP LEVEL NEWS HEADER */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900 pb-5">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="bg-emerald-600 text-white font-mono uppercase font-black text-[9px] px-1.5 py-0.5 rounded tracking-widest flex items-center gap-1 shadow-md shadow-emerald-950">
+                <span className="h-1.5 w-1.5 bg-white rounded-full animate-ping"></span> REAL-TIME TV TICKERS
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono font-bold uppercase">SECURE TRADINGVIEW GATEWAY</span>
+            </div>
+            <h1 className="text-xl md:text-2xl font-black text-white tracking-tight uppercase font-mono flex items-center gap-2.5">
+              <Globe className="w-5 h-5 text-emerald-500" />
+              <span>LIVE GLOBAL MARKET TERMINAL</span>
+            </h1>
+          </div>
 
-        // Fluctuate the percent change too
-        const oldChangeStr = m.change.replace(/[^0-9.-]/g, '');
-        const currentChange = parseFloat(oldChangeStr);
-        const newChangeVal = currentChange + (percentChange * 100);
-        const formattedChange = `${newChangeVal >= 0 ? '+' : ''}${newChangeVal.toFixed(2)}%`;
+          <div className="text-right text-[10px] text-zinc-500 hidden sm:block font-mono">
+            <div className="font-bold uppercase text-zinc-400">INSTANT DATA SYNCED</div>
+            <div>STREAMS PROVIDER: TRADINGVIEW INC.</div>
+          </div>
+        </div>
 
-        return {
-          ...m,
-          value: formattedVal,
-          change: formattedChange,
-          isUp: newChangeVal >= 0
-        };
-      });
+        {/* 1. TRADINGVIEW TICKER TAPE BANNER */}
+        <div className="w-full bg-[#09090b] border border-zinc-900/80 rounded-lg overflow-hidden h-[46px] flex items-center relative">
+          <iframe
+            srcDoc={tickerTapeSrcDoc}
+            style={{ width: '100%', height: '46px', border: 'none', overflow: 'hidden' }}
+            title="TradingView Ticker Tape Widget"
+            scrolling="no"
+          />
+        </div>
 
-      if (onUpdateMarkets) {
-        onUpdateMarkets(updated);
-      }
-
-      // Update active chart as well
-      if (selectedMarket) {
-        const currentlySelected = updated.find((m) => m.id === selectedMarket.id);
-        if (currentlySelected) {
-          setSelectedMarket(currentlySelected);
-        }
-      }
-
-      setTimeout(() => setIsRefreshing(false), 800);
-    }, 4500);
-
-    return () => clearInterval(interval);
-  }, [markets, autoRefresh, selectedMarket, onUpdateMarkets]);
-
-  if (activeMarkets.length === 0) return null;
-
-  // Render quick sparkline using simple SVG path
-  const renderSparkline = (points: number[], isPositive: boolean) => {
-    if (points.length < 2) return null;
-    const min = Math.min(...points);
-    const max = Math.max(...points);
-    const range = max - min || 1;
-    const width = 100;
-    const height = 30;
-    
-    const svgPoints = points.map((val, idx) => {
-      const x = (idx / (points.length - 1)) * width;
-      const y = height - ((val - min) / range) * height;
-      return `${x},${y}`;
-    }).join(' ');
-
-    return (
-      <svg className="w-20 h-8 overflow-visible" viewBox={`0 0 ${width} ${height}`}>
-        <polyline
-          fill="none"
-          stroke={isPositive ? '#10B981' : '#EF4444'}
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          points={svgPoints}
-        />
-      </svg>
-    );
-  };
-
-  // Render the comprehensive interactive Bloomberg-style chart
-  const renderBloombergChart = () => {
-    if (!selectedMarket || chartData.length === 0) return null;
-    const min = Math.min(...chartData);
-    const max = Math.max(...chartData);
-    const range = max - min || 1;
-    const width = 500;
-    const height = 150;
-
-    const pointsPath = chartData.map((val, idx) => {
-      const x = (idx / (chartData.length - 1)) * width;
-      const y = height - ((val - min) / range) * (height - 20) - 10;
-      return `${x},${y}`;
-    }).join(' L ');
-
-    const areaPath = `${pointsPath} L ${width},${height} L 0,${height} Z`;
-
-    return (
-      <div className="bg-neutral-950 border border-neutral-800 p-4 rounded-lg flex flex-col gap-3 font-mono relative overflow-hidden">
-        {/* Subtle grid lines background */}
-        <div className="absolute inset-0 grid grid-rows-5 grid-cols-10 pointer-events-none opacity-5">
-          {[...Array(50)].map((_, i) => (
-            <div key={i} className="border-t border-l border-white"></div>
+        {/* 2. TAB CONTROLS */}
+        <div className="flex flex-wrap gap-1.5 border-b border-zinc-900/60 pb-3">
+          <button
+            onClick={() => setSelectedCategory('all')}
+            className={`px-3 py-1.5 rounded text-[10px] font-black uppercase font-mono tracking-wider transition ${
+              selectedCategory === 'all'
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50'
+                : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-900 hover:border-zinc-800'
+            }`}
+          >
+            All Live Tickers ({activeTickers.length})
+          </button>
+          {activeCategories.slice(1).map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id)}
+              className={`px-3 py-1.5 rounded text-[10px] font-black uppercase font-mono tracking-wider transition ${
+                selectedCategory === cat.id
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50'
+                  : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-900 hover:border-zinc-800'
+              }`}
+            >
+              {cat.label} ({activeTickers.filter(t => t.category === cat.id).length})
+            </button>
           ))}
         </div>
 
-        {/* Chart header details */}
-        <div className="flex items-start justify-between relative z-10">
-          <div>
-            <span className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase">BLOOMBERG DIRECT FEED</span>
-            <h4 className="text-sm font-black text-white uppercase tracking-tight">{selectedMarket.name}</h4>
-          </div>
-          <div className="text-right">
-            <span className={`text-base font-black ${selectedMarket.isUp ? 'text-emerald-400' : 'text-red-500'}`}>
-              {selectedMarket.value}
-            </span>
-            <p className={`text-[11px] font-bold ${selectedMarket.isUp ? 'text-emerald-500' : 'text-red-400'}`}>
-              {selectedMarket.change}
-            </p>
-          </div>
-        </div>
-
-        {/* Real interactive SVG Chart */}
-        <div className="w-full relative z-10 h-[150px] mt-2">
-          <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-            {/* Gradient Area Fill */}
-            <defs>
-              <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={selectedMarket.isUp ? '#10B981' : '#EF4444'} stopOpacity="0.25" />
-                <stop offset="100%" stopColor={selectedMarket.isUp ? '#10B981' : '#EF4444'} stopOpacity="0.0" />
-              </linearGradient>
-            </defs>
-
-            {/* Grid Helper Horizontal Lines */}
-            <line x1="0" y1={height / 4} x2={width} y2={height / 4} stroke="rgba(255,255,255,0.08)" strokeDasharray="4 4" />
-            <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="rgba(255,255,255,0.08)" strokeDasharray="4 4" />
-            <line x1="0" y1={(height / 4) * 3} x2={width} y2={(height / 4) * 3} stroke="rgba(255,255,255,0.08)" strokeDasharray="4 4" />
-
-            {/* Gradient path */}
-            <path d={`M 0,${height} L ${areaPath}`} fill="url(#chartGrad)" />
-
-            {/* Main Sparkline Polyline */}
-            <path
-              d={`M ${pointsPath}`}
-              fill="none"
-              stroke={selectedMarket.isUp ? '#10B981' : '#EF4444'}
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-
-            {/* Tracking Circle at latest point */}
-            <circle
-              cx={width}
-              cy={height - ((chartData[chartData.length - 1] - min) / range) * (height - 20) - 10}
-              r="4"
-              fill={selectedMarket.isUp ? '#10B981' : '#EF4444'}
-              className="animate-pulse"
-            />
-          </svg>
-        </div>
-
-        {/* Chart Footer metadata */}
-        <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-2 border-t border-neutral-800 relative z-10">
-          <span className="font-bold flex items-center gap-1">
-            <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full inline-block"></span>
-            LIVE TICKING
-          </span>
-          <span>INTERVAL: 4.5S • AUTO</span>
-          <span>UTC: {new Date().toISOString().substring(11, 19)}</span>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div id="live-global-markets" className="w-full bg-[#0a0a0a] text-zinc-100 border-b border-zinc-800 p-4 md:p-6 font-sans relative z-10">
-      <div className="max-w-7xl mx-auto flex flex-col gap-5">
-        
-        {/* Header containing metadata, buttons & live indicator */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
-          <div className="flex items-center gap-3">
-            <span className="bg-red-700 text-white font-mono uppercase font-black text-[9px] px-2 py-0.5 rounded tracking-[0.2em] flex items-center gap-1 shadow-md shadow-red-700/20">
-              <span className="h-1.5 w-1.5 bg-white rounded-full animate-pulse"></span> BLOOMBERG FEED
-            </span>
-            <h2 className="text-xs md:text-sm font-black uppercase text-white tracking-[0.25em] font-mono flex items-center gap-1.5">
-              <BarChart2 className="w-4 h-4 text-red-600" />
-              <span>LIVE GLOBAL MARKET LEADERBOARD</span>
-            </h2>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <label className="flex items-center gap-2 text-zinc-400 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="accent-red-600 rounded cursor-pointer"
+        {/* CHART TOP PLACEMENT */}
+        {chartLayoutPos === 'Top' && (
+          <div className="w-full bg-[#09090b] border border-zinc-900 p-4 rounded-xl flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+              <span className="text-[10px] font-mono font-black text-zinc-400 uppercase tracking-widest">ADVANCED TECHNICAL CHART - {selectedName}</span>
+              <span className="text-[9px] font-mono font-bold text-zinc-500">{selectedSymbol}</span>
+            </div>
+            <div className="w-full h-[420px] bg-zinc-950 rounded-lg overflow-hidden">
+              <iframe
+                src={chartIframeUrl}
+                style={{ width: '100%', height: '100%', border: 'none' }}
+                title={`TradingView Advanced Chart for ${selectedName}`}
               />
-              <span>AUTO REFRESH</span>
-            </label>
-            <div className="flex items-center gap-1.5 text-zinc-500">
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-red-500' : ''}`} />
-              <span>{isRefreshing ? 'REFRESHING...' : 'LIVE FEED'}</span>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Primary View: Flex Row of spark cards + Bloomberg details panel */}
+        {/* 3. CORE MULTI-COLUMN WORKSPACE */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
           
-          {/* Scrollable grid list of market cards (takes 2 cols on lg) */}
-          <div className="lg:col-span-2 flex flex-col gap-3">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 no-scrollbar max-h-[340px] overflow-y-auto pr-1">
-              {activeMarkets.map((m) => {
-                const isSelected = selectedMarket?.id === m.id;
-                const mockHistory = generateHistoricalData(m.value, m.isUp);
-                
+          {/* LEFT INDEX SELECTOR SHEET */}
+          <div className="lg:col-span-2 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+              <span className="text-[10px] text-zinc-400 font-bold tracking-widest uppercase font-mono">FINANCIAL ASSET INDEXES</span>
+              <span className="text-[10px] text-zinc-500 font-mono font-bold">SYMBOLS: {displayedTickers.length}</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[440px] overflow-y-auto pr-1 no-scrollbar">
+              {displayedTickers.map((t, idx) => {
+                const isSelected = selectedSymbol === t.symbol;
                 return (
                   <div
-                    key={m.id}
-                    onClick={() => setSelectedMarket(m)}
-                    className={`p-3 rounded-lg border text-left cursor-pointer transition flex flex-col gap-2 relative group overflow-hidden ${
+                    key={`${t.symbol}-${idx}`}
+                    onClick={() => {
+                      setSelectedSymbol(t.symbol);
+                      setSelectedName(t.name);
+                    }}
+                    className={`p-4 rounded-lg border text-left cursor-pointer transition relative group overflow-hidden flex flex-col justify-between h-[100px] ${
                       isSelected
-                        ? 'bg-neutral-900 border-red-700 shadow-md shadow-red-950/20'
-                        : 'bg-neutral-950 hover:bg-neutral-900/65 border-zinc-800'
+                        ? 'bg-zinc-950 border-emerald-500 shadow-xl shadow-emerald-950/20'
+                        : 'bg-[#050505] hover:bg-zinc-950 border-zinc-900 hover:border-zinc-800'
                     }`}
                   >
-                    {/* Glowing highlight bar on select */}
-                    {isSelected && <div className="absolute top-0 left-0 right-0 h-1 bg-red-600"></div>}
-
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight truncate">
-                        {m.name}
-                      </span>
-                      <span className="text-xs md:text-sm font-black text-white font-mono tracking-tight">
-                        {m.value}
-                      </span>
+                    {isSelected && <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500"></div>}
+                    
+                    <div className="flex flex-col">
+                      <span className="text-[8px] text-zinc-500 font-mono font-bold uppercase tracking-wider">{t.category}</span>
+                      <span className="text-xs font-black text-white uppercase tracking-tight group-hover:text-emerald-500 transition line-clamp-2 mt-0.5">{t.name}</span>
                     </div>
 
-                    {/* Sparkline & percentage */}
-                    <div className="flex items-center justify-between gap-2 mt-1">
-                      <span
-                        className={`text-[10px] font-black font-mono px-1.5 py-0.5 rounded ${
-                          m.isUp ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-500'
-                        }`}
-                      >
-                        {m.change}
+                    <div className="flex items-center justify-between mt-2 font-mono">
+                      <span className="text-[9px] font-bold text-zinc-500">{t.symbol}</span>
+                      <span className="text-[9px] text-emerald-400 font-black uppercase flex items-center gap-0.5">
+                        <Activity className="w-2.5 h-2.5 text-emerald-500 animate-pulse" /> LIVE STREAM
                       </span>
-                      {renderSparkline(mockHistory, m.isUp)}
                     </div>
                   </div>
                 );
@@ -318,21 +277,62 @@ export default function GlobalMarkets({ markets, onUpdateMarkets }: GlobalMarket
             </div>
           </div>
 
-          {/* Large interactive chart side card (takes 1 col on lg) */}
-          <div className="lg:col-span-1 flex flex-col justify-between">
-            {selectedMarket ? (
-              renderBloombergChart()
-            ) : (
-              <div className="bg-neutral-950 border border-zinc-800 rounded-lg p-6 flex flex-col items-center justify-center text-center gap-2 h-full">
-                <AlertCircle className="w-8 h-8 text-zinc-600 animate-pulse" />
-                <p className="text-xs text-zinc-400 font-bold uppercase tracking-wider font-mono">
-                  SELECT A TICKER TO INSPECT LIVE CHART
-                </p>
-              </div>
-            )}
-          </div>
+          {/* SIDE CHART PLACEMENT */}
+          {chartLayoutPos === 'Side' && (
+            <div className="lg:col-span-1 flex flex-col gap-4">
+              <div className="bg-[#09090b] border border-zinc-900 p-4 rounded-xl flex flex-col gap-3 h-full justify-between">
+                <div>
+                  <div className="flex items-center justify-between border-b border-zinc-900 pb-2.5 mb-2">
+                    <span className="text-[10px] font-mono font-black text-zinc-400 uppercase tracking-widest">{selectedName}</span>
+                    <span className="text-[9px] font-mono font-bold text-zinc-500">{selectedSymbol}</span>
+                  </div>
+                  <div className="text-[9px] font-mono text-zinc-400 bg-[#040405] p-2.5 rounded border border-zinc-900 flex flex-col gap-1.5">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">FEED INTERVAL:</span>
+                      <span className="text-white font-bold">1 DAY TICK</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">TRADING VIEW ID:</span>
+                      <span className="text-white font-bold font-mono">{selectedSymbol}</span>
+                    </div>
+                  </div>
+                </div>
 
+                <div className="w-full h-[320px] bg-zinc-950 rounded-lg overflow-hidden my-3 relative">
+                  <iframe
+                    src={chartIframeUrl}
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    title={`TradingView Advanced Chart for ${selectedName}`}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-2 border-t border-zinc-900 font-mono">
+                  <span>REAL-TIME ANALYSIS</span>
+                  <span className="font-mono text-[9px] font-black text-emerald-500">CONNECTED</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* CHART BOTTOM PLACEMENT */}
+        {chartLayoutPos === 'Bottom' && (
+          <div className="w-full bg-[#09090b] border border-zinc-900 p-4 rounded-xl flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+              <span className="text-[10px] font-mono font-black text-zinc-400 uppercase tracking-widest">ADVANCED TECHNICAL CHART - {selectedName}</span>
+              <span className="text-[9px] font-mono font-bold text-zinc-500">{selectedSymbol}</span>
+            </div>
+            <div className="w-full h-[420px] bg-zinc-950 rounded-lg overflow-hidden">
+              <iframe
+                src={chartIframeUrl}
+                style={{ width: '100%', height: '100%', border: 'none' }}
+                title={`TradingView Advanced Chart for ${selectedName}`}
+              />
+            </div>
+          </div>
+        )}
+
+
 
       </div>
     </div>

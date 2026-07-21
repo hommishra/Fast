@@ -3,9 +3,9 @@ import { motion } from 'motion/react';
 import { 
   initialArticles, initialCategories, initialSettings, 
   initialAdSlots, initialCareers, initialUsers, initialComments,
-  initialBreakingNews, initialMarkets, initialVideos
+  initialBreakingNews, initialMarkets, initialVideos, initialParentSections
 } from './data';
-import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem } from './types';
+import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection } from './types';
 
 // Component Imports
 import OpeningAnimation from './components/OpeningAnimation';
@@ -42,6 +42,7 @@ export default function App() {
   const [breakingNews, setBreakingNews] = useState<BreakingNewsItem[]>([]);
   const [markets, setMarkets] = useState<MarketItem[]>([]);
   const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [parentSections, setParentSections] = useState<ParentSection[]>([]);
   const [trash, setTrash] = useState<{
     articles: Article[];
     videos: VideoItem[];
@@ -63,102 +64,97 @@ export default function App() {
   // Infinite scrolling state on homepage
   const [visibleCount, setVisibleCount] = useState(5);
 
-  // Load and synchronize state from server or client backup with real-time short-polling
+  // Load and synchronize state from server with real-time Server-Sent Events (SSE)
   useEffect(() => {
-    // 1. Initial Local State Loading from LocalStorage to avoid cold start latency
-    const cachedArticles = localStorage.getItem('fc_articles');
-    const cachedCategories = localStorage.getItem('fc_categories');
-    const cachedSettings = localStorage.getItem('fc_settings');
-    const cachedAdSlots = localStorage.getItem('fc_adslots');
-    const cachedCareers = localStorage.getItem('fc_careers');
-    const cachedComments = localStorage.getItem('fc_comments');
-    const cachedBreaking = localStorage.getItem('fc_breaking');
-    const cachedMarkets = localStorage.getItem('fc_markets');
-    const cachedVideos = localStorage.getItem('fc_videos');
-    const cachedTrash = localStorage.getItem('fc_trash');
+    // 1. Initial State Loading from database
+    fetch('/api/db-state')
+      .then(res => res.json())
+      .then(data => {
+        if (data.articles) setArticles(data.articles);
+        else setArticles(initialArticles);
 
-    if (cachedArticles) setArticles(JSON.parse(cachedArticles));
-    else setArticles(initialArticles);
+        if (data.categories) setCategories(data.categories);
+        else setCategories(initialCategories);
 
-    if (cachedCategories) setCategories(JSON.parse(cachedCategories));
-    else setCategories(initialCategories);
+        if (data.settings) setSettings(data.settings);
+        else setSettings(initialSettings);
 
-    if (cachedSettings) setSettings(JSON.parse(cachedSettings));
-    else setSettings(initialSettings);
+        if (data.adSlots) setAdSlots(data.adSlots);
+        else setAdSlots(initialAdSlots);
 
-    if (cachedAdSlots) setAdSlots(JSON.parse(cachedAdSlots));
-    else setAdSlots(initialAdSlots);
+        if (data.comments) setComments(data.comments);
+        else setComments(initialComments);
 
-    if (cachedCareers) setCareers(JSON.parse(cachedCareers));
-    else setCareers(initialCareers);
+        if (data.careers) setCareers(data.careers);
+        else setCareers(initialCareers);
 
-    if (cachedComments) setComments(JSON.parse(cachedComments));
-    else setComments(initialComments);
+        if (data.breakingNews) setBreakingNews(data.breakingNews);
+        else setBreakingNews(initialBreakingNews);
 
-    if (cachedBreaking) setBreakingNews(JSON.parse(cachedBreaking));
-    else setBreakingNews(initialBreakingNews);
+        if (data.markets) setMarkets(data.markets);
+        else setMarkets(initialMarkets);
 
-    if (cachedMarkets) setMarkets(JSON.parse(cachedMarkets));
-    else setMarkets(initialMarkets);
+        if (data.videos) setVideos(data.videos);
+        else setVideos(initialVideos);
 
-    if (cachedVideos) setVideos(JSON.parse(cachedVideos));
-    else setVideos(initialVideos);
+        if (data.users) setUsers(data.users);
+        else setUsers(initialUsers);
 
-    if (cachedTrash) setTrash(JSON.parse(cachedTrash));
-    else setTrash({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
+        if (data.parentSections) setParentSections(data.parentSections);
+        else setParentSections(initialParentSections);
 
-    setUsers(initialUsers);
+        if (data.trash) setTrash(data.trash);
+        else setTrash({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
+      })
+      .catch(() => {
+        // Fallback to initial default data on offline or build tasks
+        setArticles(initialArticles);
+        setCategories(initialCategories);
+        setSettings(initialSettings);
+        setAdSlots(initialAdSlots);
+        setComments(initialComments);
+        setCareers(initialCareers);
+        setBreakingNews(initialBreakingNews);
+        setMarkets(initialMarkets);
+        setVideos(initialVideos);
+        setUsers(initialUsers);
+        setParentSections(initialParentSections);
+        setTrash({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
+      });
 
-    // 2. Continuous short polling (every 4 seconds) to detect admin updates immediately for all visitors
-    const fetchLatestServerState = () => {
-      fetch('/api/db-state')
-        .then(res => res.json())
-        .then(data => {
-          if (data.articles && data.articles.length > 0) {
-            setArticles(data.articles);
-            localStorage.setItem('fc_articles', JSON.stringify(data.articles));
-          }
-          if (data.categories && data.categories.length > 0) {
-            setCategories(data.categories);
-            localStorage.setItem('fc_categories', JSON.stringify(data.categories));
-          }
-          if (data.settings && data.settings.name) {
-            setSettings(data.settings);
-            localStorage.setItem('fc_settings', JSON.stringify(data.settings));
-          }
-          if (data.adSlots && data.adSlots.length > 0) {
-            setAdSlots(data.adSlots);
-            localStorage.setItem('fc_adslots', JSON.stringify(data.adSlots));
-          }
-          if (data.comments && data.comments.length > 0) {
-            setComments(data.comments);
-            localStorage.setItem('fc_comments', JSON.stringify(data.comments));
-          }
-          if (data.breakingNews && data.breakingNews.length > 0) {
-            setBreakingNews(data.breakingNews);
-            localStorage.setItem('fc_breaking', JSON.stringify(data.breakingNews));
-          }
-          if (data.markets && data.markets.length > 0) {
-            setMarkets(data.markets);
-            localStorage.setItem('fc_markets', JSON.stringify(data.markets));
-          }
-          if (data.videos && data.videos.length > 0) {
-            setVideos(data.videos);
-            localStorage.setItem('fc_videos', JSON.stringify(data.videos));
-          }
-          if (data.trash) {
-            setTrash(data.trash);
-            localStorage.setItem('fc_trash', JSON.stringify(data.trash));
-          }
-        })
-        .catch(() => {
-          console.log("Offline mode or independent client execution.");
-        });
+    // 2. Continuous real-time subscription (SSE) to broadcast changes instantly
+    const eventSource = new EventSource('/api/realtime-sync');
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'sync' && payload.data) {
+          const data = payload.data;
+          if (data.articles) setArticles(data.articles);
+          if (data.categories) setCategories(data.categories);
+          if (data.settings) setSettings(data.settings);
+          if (data.adSlots) setAdSlots(data.adSlots);
+          if (data.comments) setComments(data.comments);
+          if (data.careers) setCareers(data.careers);
+          if (data.breakingNews) setBreakingNews(data.breakingNews);
+          if (data.markets) setMarkets(data.markets);
+          if (data.videos) setVideos(data.videos);
+          if (data.users) setUsers(data.users);
+          if (data.parentSections) setParentSections(data.parentSections);
+          if (data.trash) setTrash(data.trash);
+        }
+      } catch (err) {
+        console.error("Error parsing real-time sync data:", err);
+      }
     };
 
-    fetchLatestServerState(); // run immediately
-    const pollInterval = setInterval(fetchLatestServerState, 4000);
-    return () => clearInterval(pollInterval);
+    eventSource.onerror = () => {
+      console.warn("Real-time sync connection disconnected. Attempting automatic reconnection...");
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
   // Sync back state modifications instantly to server
@@ -172,11 +168,19 @@ export default function App() {
     updatedBreaking: BreakingNewsItem[],
     updatedMarkets: MarketItem[],
     updatedVideos: VideoItem[],
-    updatedTrash?: typeof trash
+    updatedTrash?: typeof trash,
+    updatedUsers?: User[],
+    updatedParentSections?: ParentSection[]
   ) => {
+    const adminToken = sessionStorage.getItem('fc_admin_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (adminToken) {
+      headers['Authorization'] = `Bearer ${adminToken}`;
+    }
+
     fetch('/api/db-sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         articles: updatedArticles,
         categories: updatedCategories,
@@ -187,6 +191,8 @@ export default function App() {
         breakingNews: updatedBreaking,
         markets: updatedMarkets,
         videos: updatedVideos,
+        users: updatedUsers || users,
+        parentSections: updatedParentSections || parentSections,
         trash: updatedTrash || trash
       })
     }).catch(() => {
@@ -197,56 +203,62 @@ export default function App() {
   // State update callbacks
   const handleUpdateArticles = (newArticles: Article[]) => {
     setArticles(newArticles);
-    localStorage.setItem('fc_articles', JSON.stringify(newArticles));
-    syncWithServer(newArticles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos);
+    syncWithServer(newArticles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos, trash, users);
   };
 
   const handleUpdateCategories = (newCategories: Category[]) => {
     setCategories(newCategories);
-    localStorage.setItem('fc_categories', JSON.stringify(newCategories));
-    syncWithServer(articles, newCategories, settings, adSlots, comments, careers, breakingNews, markets, videos);
+    syncWithServer(articles, newCategories, settings, adSlots, comments, careers, breakingNews, markets, videos, trash, users);
   };
 
   const handleUpdateSettings = (newSettings: WebsiteSettings) => {
     setSettings(newSettings);
-    localStorage.setItem('fc_settings', JSON.stringify(newSettings));
-    syncWithServer(articles, categories, newSettings, adSlots, comments, careers, breakingNews, markets, videos);
+    syncWithServer(articles, categories, newSettings, adSlots, comments, careers, breakingNews, markets, videos, trash, users);
   };
 
   const handleUpdateAdSlots = (newAdSlots: AdSlot[]) => {
     setAdSlots(newAdSlots);
-    localStorage.setItem('fc_adslots', JSON.stringify(newAdSlots));
-    syncWithServer(articles, categories, settings, newAdSlots, comments, careers, breakingNews, markets, videos);
+    syncWithServer(articles, categories, settings, newAdSlots, comments, careers, breakingNews, markets, videos, trash, users);
   };
 
   const handleUpdateCareers = (newCareers: CareerListing[]) => {
     setCareers(newCareers);
-    localStorage.setItem('fc_careers', JSON.stringify(newCareers));
-    syncWithServer(articles, categories, settings, adSlots, comments, newCareers, breakingNews, markets, videos);
+    syncWithServer(articles, categories, settings, adSlots, comments, newCareers, breakingNews, markets, videos, trash, users);
   };
 
   const handleUpdateBreakingNews = (newBreaking: BreakingNewsItem[]) => {
     setBreakingNews(newBreaking);
-    localStorage.setItem('fc_breaking', JSON.stringify(newBreaking));
-    syncWithServer(articles, categories, settings, adSlots, comments, careers, newBreaking, markets, videos);
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, newBreaking, markets, videos, trash, users);
   };
 
   const handleUpdateMarkets = (newMarkets: MarketItem[]) => {
     setMarkets(newMarkets);
-    localStorage.setItem('fc_markets', JSON.stringify(newMarkets));
-    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, newMarkets, videos);
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, newMarkets, videos, trash, users);
   };
 
   const handleUpdateVideos = (newVideos: VideoItem[]) => {
     setVideos(newVideos);
-    localStorage.setItem('fc_videos', JSON.stringify(newVideos));
-    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, newVideos);
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, newVideos, trash, users);
   };
 
   const handleUpdateTrash = (newTrash: typeof trash) => {
     setTrash(newTrash);
-    localStorage.setItem('fc_trash', JSON.stringify(newTrash));
-    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos, newTrash);
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos, newTrash, users);
+  };
+
+  const handleUpdateComments = (newComments: Comment[]) => {
+    setComments(newComments);
+    syncWithServer(articles, categories, settings, adSlots, newComments, careers, breakingNews, markets, videos, trash, users);
+  };
+
+  const handleUpdateUsers = (newUsers: User[]) => {
+    setUsers(newUsers);
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos, trash, newUsers);
+  };
+
+  const handleUpdateParentSections = (newParentSections: ParentSection[]) => {
+    setParentSections(newParentSections);
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos, trash, users, newParentSections);
   };
 
   // Toggle Dark Theme
@@ -276,7 +288,6 @@ export default function App() {
 
     const updatedComments = [newComment, ...comments];
     setComments(updatedComments);
-    localStorage.setItem('fc_comments', JSON.stringify(updatedComments));
     
     // Update article count
     const updatedArticles = articles.map(a => 
@@ -328,6 +339,17 @@ export default function App() {
     if (currentPage === 'latest-news') return [...articles].sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
     if (currentPage === 'trending-news') return articles.filter(a => a.views > 8000);
     
+    // Parent Section Match
+    const matchedParent = parentSections.find(ps => ps.slug === currentPage);
+    if (matchedParent) {
+      const subCategories = categories.filter(c => c.parentSectionId === matchedParent.id);
+      const subCategoryNames = subCategories.map(c => c.name.toLowerCase());
+      return articles.filter(a => {
+        const articleCat = a.category.toLowerCase();
+        return articleCat === matchedParent.name.toLowerCase() || subCategoryNames.includes(articleCat);
+      });
+    }
+
     // Category Match
     const matchedCategory = categories.find(c => c.slug === currentPage);
     if (matchedCategory) {
@@ -356,6 +378,7 @@ export default function App() {
       <Navigation
         categories={categories}
         settings={settings}
+        parentSections={parentSections}
         currentPage={currentPage}
         onNavigate={(page) => {
           setCurrentPage(page);
@@ -445,6 +468,31 @@ export default function App() {
                 {selectedArticle.content}
               </div>
 
+              {/* Photo Media Gallery Block */}
+              {selectedArticle.images && selectedArticle.images.length > 0 && (
+                <div className="border-t border-slate-100 dark:border-white/5 pt-4">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 dark:text-editorial-text/40 mb-3 font-mono">
+                    Coverage Gallery ({selectedArticle.images.length} Photos)
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {selectedArticle.images.map((imgUrl, idx) => (
+                      <div 
+                        key={idx} 
+                        className="relative aspect-[4/3] rounded overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 group shadow-sm hover:shadow transition-shadow"
+                      >
+                        <img 
+                          src={imgUrl} 
+                          alt={`Report slide ${idx + 1}`} 
+                          className="w-full h-full object-cover hover:scale-[1.02] transition duration-300 cursor-zoom-in"
+                          referrerPolicy="no-referrer"
+                          onClick={() => window.open(imgUrl, '_blank')}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Quick Actions Bar */}
               <div className="flex items-center gap-6 border-t border-slate-200 dark:border-white/10 pt-4 text-xs font-semibold text-slate-500">
                 <button 
@@ -516,7 +564,25 @@ export default function App() {
                     <div key={com.id} className="p-4 bg-[#fcfbf9] dark:bg-editorial-bg border border-slate-200 dark:border-white/5 rounded">
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-xs font-bold text-slate-850 dark:text-editorial-text">{com.authorName}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">{new Date(com.date).toLocaleDateString()}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono">{new Date(com.date).toLocaleDateString()}</span>
+                          {sessionStorage.getItem('fc_admin_session') === 'active' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm("PERMANENT DELETE: Are you sure you want to permanently delete this comment?")) {
+                                  const updatedComments = comments.filter(c => c.id !== com.id);
+                                  setComments(updatedComments);
+                                  syncWithServer(articles, categories, settings, adSlots, updatedComments, careers, breakingNews, markets, videos);
+                                }
+                              }}
+                              className="text-[10px] font-bold text-red-650 hover:text-red-750 font-mono hover:underline cursor-pointer"
+                              title="Purge comment permanently"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-editorial-text/70 leading-relaxed font-sans">{com.content}</p>
                     </div>
@@ -552,11 +618,11 @@ export default function App() {
             </div>
           </div>
         ) : currentPage === 'global-markets' ? (
-          /* ================== DEDICATED GLOBAL MARKETS LEADERBOARD PAGE ================== */
-          <div className="bg-[#0a0a0a] border border-zinc-800 rounded-lg overflow-hidden shadow-lg shadow-black/40">
+          <div className="w-full">
             <GlobalMarkets 
               markets={markets} 
               onUpdateMarkets={handleUpdateMarkets} 
+              settings={settings}
             />
           </div>
         ) : [
@@ -578,6 +644,7 @@ export default function App() {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onViewArticle={handleViewArticle}
+            onUpdateCareers={handleUpdateCareers}
           />
         ) : (
           /* ================== STANDARD HOME & ROUTE FEEDS ================== */
@@ -618,7 +685,11 @@ export default function App() {
               {/* Title Header for feed */}
               <div className="flex items-center justify-between border-b-2 border-editorial-accent pb-2.5">
                 <h2 className="text-sm md:text-base font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.25em] flex items-center gap-2 font-mono">
-                  <span>Current Desk: {currentPage.replace('-', ' ').toUpperCase()}</span>
+                  <span>
+                    {parentSections.find(ps => ps.slug === currentPage)?.name || 
+                     categories.find(c => c.slug === currentPage)?.name || 
+                     (currentPage === 'home' ? 'TOP STORIES' : currentPage.replace('-', ' ').toUpperCase())}
+                  </span>
                   <span className="text-xs bg-editorial-accent text-white px-2.5 py-0.5 rounded-full font-mono font-black animate-pulse">{filteredFeed.length} Items</span>
                 </h2>
               </div>
@@ -774,17 +845,11 @@ export default function App() {
 
         {currentPage === 'home' && !selectedArticle && (
           <div className="mt-8">
-            <div className="flex items-center justify-between border-b-2 border-editorial-accent pb-2.5 mb-6">
-              <h2 className="text-sm md:text-base font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.25em] font-mono">
-                LIVE GLOBAL MARKET LEADERBOARD
-              </h2>
-            </div>
-            <div className="bg-[#0a0a0a] border border-zinc-800 rounded-lg overflow-hidden shadow-lg shadow-black/40">
-              <GlobalMarkets 
-                markets={markets} 
-                onUpdateMarkets={handleUpdateMarkets} 
-              />
-            </div>
+            <GlobalMarkets 
+              markets={markets} 
+              onUpdateMarkets={handleUpdateMarkets} 
+              settings={settings}
+            />
           </div>
         )}
 
@@ -830,6 +895,8 @@ export default function App() {
           markets={markets}
           videos={videos}
           trash={trash}
+          comments={comments}
+          parentSections={parentSections}
           onSaveArticles={handleUpdateArticles}
           onSaveCategories={handleUpdateCategories}
           onSaveSettings={handleUpdateSettings}
@@ -839,6 +906,9 @@ export default function App() {
           onSaveMarkets={handleUpdateMarkets}
           onSaveVideos={handleUpdateVideos}
           onSaveTrash={handleUpdateTrash}
+          onSaveComments={handleUpdateComments}
+          onSaveUsers={handleUpdateUsers}
+          onSaveParentSections={handleUpdateParentSections}
           onClose={() => setIsAdminOpen(false)}
         />
       )}

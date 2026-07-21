@@ -15,6 +15,7 @@ interface SpecialPagesProps {
   adSlots: AdSlot[];
   onNavigate: (page: string) => void;
   onViewArticle: (art: Article) => void;
+  onUpdateCareers?: (careers: CareerListing[]) => void;
 }
 
 export default function SpecialPages({
@@ -25,7 +26,8 @@ export default function SpecialPages({
   settings,
   adSlots,
   onNavigate,
-  onViewArticle
+  onViewArticle,
+  onUpdateCareers
 }: SpecialPagesProps) {
   switch (page) {
     case 'about-us':
@@ -35,7 +37,7 @@ export default function SpecialPages({
     case 'advertise-with-us':
       return <AdvertiseWithUs adSlots={adSlots} />;
     case 'careers':
-      return <Careers careers={careers} />;
+      return <Careers careers={careers} onUpdateCareers={onUpdateCareers} />;
     case 'privacy-policy':
       return <LegalPage title="Privacy Policy" lastUpdated="July 20, 2026" />;
     case 'terms-and-conditions':
@@ -181,21 +183,35 @@ function ContactUs({ settings }: { settings: WebsiteSettings }) {
               <MapPin className="w-5 h-5 text-editorial-accent shrink-0" />
               <div>
                 <p className="font-bold text-slate-900 dark:text-editorial-text">New York Headquarters</p>
-                <p className="text-slate-400 mt-0.5 leading-relaxed">Times Square News Tower, Floor 44, New York, NY 10036</p>
+                <p className="text-slate-400 mt-0.5 leading-relaxed">{settings.officeAddressNY || "Times Square News Tower, Floor 44, New York, NY 10036"}</p>
               </div>
             </div>
             <div className="flex gap-3 border-t border-slate-100 dark:border-white/5 pt-3">
               <MapPin className="w-5 h-5 text-editorial-accent shrink-0" />
               <div>
                 <p className="font-bold text-slate-900 dark:text-editorial-text">London Bureau</p>
-                <p className="text-slate-400 mt-0.5 leading-relaxed">Reuters Way, Westminster Hub, London EC4Y 0DY</p>
+                <p className="text-slate-400 mt-0.5 leading-relaxed">{settings.officeAddressLondon || "Reuters Way, Westminster Hub, London EC4Y 0DY"}</p>
               </div>
             </div>
             <div className="flex gap-3 border-t border-slate-100 dark:border-white/5 pt-3">
               <MapPin className="w-5 h-5 text-editorial-accent shrink-0" />
               <div>
                 <p className="font-bold text-slate-900 dark:text-editorial-text">New Delhi Hub</p>
-                <p className="text-slate-400 mt-0.5 leading-relaxed">Connaught Space Chambers, Sector 4, New Delhi 110001</p>
+                <p className="text-slate-400 mt-0.5 leading-relaxed">{settings.officeAddressDelhi || "Connaught Space Chambers, Sector 4, New Delhi 110001"}</p>
+              </div>
+            </div>
+            <div className="flex gap-3 border-t border-slate-100 dark:border-white/5 pt-3">
+              <Mail className="w-5 h-5 text-editorial-accent shrink-0" />
+              <div>
+                <p className="font-bold text-slate-900 dark:text-editorial-text">Secure Email Directory</p>
+                <p className="text-slate-400 mt-0.5 leading-relaxed text-editorial-accent font-mono">{settings.contactEmail || "editorial@fastcoverages.com"}</p>
+              </div>
+            </div>
+            <div className="flex gap-3 border-t border-slate-100 dark:border-white/5 pt-3">
+              <Mail className="w-5 h-5 opacity-0 shrink-0" />
+              <div>
+                <p className="font-bold text-slate-900 dark:text-editorial-text">Telephone Desk</p>
+                <p className="text-slate-400 mt-0.5 leading-relaxed font-mono">{settings.contactPhone || "+1 (212) 555-0199"}</p>
               </div>
             </div>
           </div>
@@ -274,7 +290,7 @@ function AdvertiseWithUs({ adSlots }: { adSlots: AdSlot[] }) {
 }
 
 /* ================== CAREERS ================== */
-function Careers({ careers }: { careers: CareerListing[] }) {
+function Careers({ careers, onUpdateCareers }: { careers: CareerListing[]; onUpdateCareers?: (careers: CareerListing[]) => void }) {
   const [applied, setApplied] = useState<string | null>(null);
 
   const handleApply = (id: string) => {
@@ -314,12 +330,28 @@ function Careers({ careers }: { careers: CareerListing[] }) {
               </div>
             </div>
 
-            <button 
-              onClick={() => handleApply(c.id)}
-              className="mt-4 w-full bg-editorial-accent hover:bg-red-700 text-white font-black text-xs uppercase tracking-widest py-2.5 rounded transition cursor-pointer font-mono"
-            >
-              {applied === c.id ? '✓ Application Transmitted' : 'Submit Application Form'}
-            </button>
+            <div className="flex flex-col gap-2 mt-4">
+              <button 
+                onClick={() => handleApply(c.id)}
+                className="w-full bg-editorial-accent hover:bg-red-700 text-white font-black text-xs uppercase tracking-widest py-2.5 rounded transition cursor-pointer font-mono"
+              >
+                {applied === c.id ? '✓ Application Transmitted' : 'Submit Application Form'}
+              </button>
+
+              {sessionStorage.getItem('fc_admin_session') === 'active' && onUpdateCareers && (
+                <button 
+                  onClick={() => {
+                    if (window.confirm("PERMANENT DELETE: Are you sure you want to permanently delete this career listing? This cannot be undone.")) {
+                      const updated = careers.filter(item => item.id !== c.id);
+                      onUpdateCareers(updated);
+                    }
+                  }}
+                  className="w-full bg-red-650 hover:bg-red-750 text-white font-black text-xs uppercase tracking-widest py-2 rounded transition cursor-pointer font-mono"
+                >
+                  Delete Listing Permanently
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
