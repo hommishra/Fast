@@ -31,12 +31,13 @@ export const initialCategories: Category[] = [
 export const initialUsers: User[] = [
   {
     id: 'u-owner',
-    name: 'Website Owner',
+    name: 'HariOmMishra',
     email: 'owner@fastcoverages.com',
     role: 'Website Owner',
     phone: '+1 (212) 555-0100',
-    designation: 'Chief Executive & Founder',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+    mobile: '+1 (212) 555-0100',
+    designation: 'Website Owner & Chief Executive',
+    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200',
     status: 'Active',
     permissions: {
       fullWebsiteControl: true,
@@ -50,7 +51,7 @@ export const initialUsers: User[] = [
       homepageManagement: true,
       socialMediaManagement: true,
     },
-    bio: 'Founder and Website Owner of FAST COVERAGES – GLOBAL NEWS NETWORK. Holds absolute authority over platform architecture, permissions, database, and security.'
+    bio: 'Website Owner and Founder of FAST COVERAGES – GLOBAL NEWS NETWORK. Holds absolute authority over platform architecture, permissions, database, and security.'
   },
   {
     id: 'u-1',

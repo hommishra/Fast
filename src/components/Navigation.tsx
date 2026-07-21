@@ -111,28 +111,31 @@ export default function Navigation({
         >
           {/* Animated Logo Container */}
           <div className="relative w-11 h-11 md:w-13 md:h-13 flex items-center justify-center shrink-0">
-            {/* Continuously Rotating Slow Ring (360deg every 20s) */}
-            <div className="absolute inset-0 rounded-full border-2 border-dashed border-editorial-accent/90 animate-spin-slow pointer-events-none" />
+            {/* Continuously Rotating Slow Orbit Ring */}
+            <div className="absolute inset-0 rounded-full border-2 border-dashed border-red-600/90 animate-spin-slow pointer-events-none" />
             
             {/* Outer Red Pulse Glow Effect */}
             <div className="absolute inset-0 rounded-full animate-red-pulse pointer-events-none opacity-80" />
 
-            {/* FC Logo Image */}
+            {/* FC Logo Image with 3D Glow */}
             <img 
               src="/fast_coverages_logo.jpg" 
               alt="FAST COVERAGES - GLOBAL NEWS NETWORK Logo" 
               loading="eager"
-              className="relative z-10 w-9 h-9 md:w-11 md:h-11 rounded-full object-cover border border-editorial-accent/50 shadow-lg group-hover:scale-110 active:scale-95 transition-transform duration-300"
+              className="relative z-10 w-9 h-9 md:w-11 md:h-11 rounded-full object-cover border-2 border-red-600/80 shadow-[0_0_15px_rgba(225,6,0,0.6)] group-hover:scale-110 active:scale-95 transition-transform duration-300 animate-logo-3d-glow"
               referrerPolicy="no-referrer"
             />
           </div>
 
           <div className="flex flex-col items-start text-left">
-            <span className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-950 dark:text-white leading-none group-hover:text-editorial-accent transition-colors">
-              FAST <span className="text-editorial-accent">COVERAGES</span>
+            <span className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-950 dark:text-white leading-none group-hover:text-red-600 transition-colors flex items-center gap-1">
+              <span>FAST</span>
+              <span className="bg-gradient-to-r from-red-600 via-red-500 to-red-700 bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(225,6,0,0.4)]">
+                COVERAGES
+              </span>
             </span>
-            <span className="text-[9px] md:text-[10px] text-slate-500 dark:text-editorial-text/50 uppercase tracking-[0.35em] font-bold font-mono mt-0.5">
-              {settings.tagline || "GLOBAL NEWS NETWORK"}
+            <span className="text-[9px] md:text-[10px] text-slate-600 dark:text-slate-300 uppercase tracking-[0.35em] font-bold font-mono mt-0.5">
+              GLOBAL NEWS NETWORK
             </span>
           </div>
         </button>

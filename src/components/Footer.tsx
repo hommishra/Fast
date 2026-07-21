@@ -11,9 +11,10 @@ interface FooterProps {
   onNavigate: (page: string) => void;
   currentPage: string;
   onOpenAdmin: () => void;
+  onReplayIntro?: () => void;
 }
 
-export default function Footer({ settings, onNavigate, currentPage, onOpenAdmin }: FooterProps) {
+export default function Footer({ settings, onNavigate, currentPage, onOpenAdmin, onReplayIntro }: FooterProps) {
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
 
@@ -268,9 +269,20 @@ export default function Footer({ settings, onNavigate, currentPage, onOpenAdmin 
 
         {/* Bottom copyright details and Social Icons */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-white/10">
-          <p className="text-[11px] text-editorial-text/40 text-center md:text-left max-w-2xl leading-relaxed tracking-wider font-bold font-mono uppercase">
-            © {new Date().getFullYear()} FAST COVERAGES – GLOBAL NEWS NETWORK. ALL RIGHTS RESERVED.
-          </p>
+          <div className="flex flex-col md:flex-row items-center gap-4">
+            <p className="text-[11px] text-editorial-text/40 text-center md:text-left leading-relaxed tracking-wider font-bold font-mono uppercase">
+              © {new Date().getFullYear()} FAST COVERAGES – GLOBAL NEWS NETWORK. ALL RIGHTS RESERVED.
+            </p>
+            {onReplayIntro && (
+              <button
+                onClick={onReplayIntro}
+                className="text-[10px] font-mono uppercase font-black tracking-widest text-red-500 hover:text-white bg-red-950/60 hover:bg-red-600 border border-red-600/60 px-3 py-1 rounded-full transition cursor-pointer"
+                title="Replay 4K Opening Animation"
+              >
+                🎬 REPLAY INTRO ANIMATION
+              </button>
+            )}
+          </div>
 
           <div className="flex items-center gap-3 flex-wrap justify-center">
             {settings.facebookUrl && (

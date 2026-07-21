@@ -856,6 +856,10 @@ export default function App() {
         settings={settings} 
         currentPage={currentPage}
         onOpenAdmin={handleOpenAdmin}
+        onReplayIntro={() => {
+          localStorage.removeItem('fc_last_animation_time');
+          setShowIntro(true);
+        }}
         onNavigate={(page) => {
           // Special handles for RSS view
           if (page === 'rss-feed') {
