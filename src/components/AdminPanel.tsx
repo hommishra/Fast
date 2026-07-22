@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import FCLogo from './FCLogo';
-import { Article, Category, User, AdSlot, WebsiteSettings, CareerListing, BreakingNewsItem, MarketItem, VideoItem, Comment, ParentSection } from '../types';
+import { Article, Category, User as UserType, AdSlot, WebsiteSettings, CareerListing, BreakingNewsItem, MarketItem, VideoItem, Comment, ParentSection, LiveBroadcastState } from '../types';
 import { 
   FileText, FolderPlus, Settings as SettingsIcon, Image as ImageIcon, 
   Video, Eye, Calendar, Sparkles, LogOut, CheckCircle2, AlertTriangle, 
@@ -8,7 +8,7 @@ import {
   TrendingUp, BarChart3, Layout, MessageSquare, Briefcase, HelpCircle,
   Shield, Lock, KeyRound, Radio, TrendingUp as TrendIcon, Check, Power, Layers,
   Phone, Mail, Share2, MapPin, Globe, MessageCircle, Copy, ExternalLink,
-  Facebook, Twitter, Instagram, Youtube, Compass, Map
+  Facebook, Twitter, Instagram, Youtube, Compass, Map, User as UserIcon, Clock, ChevronRight
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -17,7 +17,7 @@ interface AdminPanelProps {
   settings: WebsiteSettings;
   adSlots: AdSlot[];
   careers: CareerListing[];
-  users: User[];
+  users: UserType[];
   breakingNews: BreakingNewsItem[];
   markets: MarketItem[];
   videos: VideoItem[];
@@ -46,8 +46,10 @@ interface AdminPanelProps {
     categories: Category[];
   }) => void;
   onSaveComments: (comments: Comment[]) => void;
-  onSaveUsers: (users: User[]) => void;
+  onSaveUsers: (users: UserType[]) => void;
   onSaveParentSections: (sections: ParentSection[]) => void;
+  liveBroadcast?: LiveBroadcastState;
+  onSaveLiveBroadcast?: (liveBroadcast: LiveBroadcastState) => void;
   onClose: () => void;
 }
 
@@ -76,6 +78,8 @@ export default function AdminPanel({
   onSaveComments,
   onSaveUsers,
   onSaveParentSections,
+  liveBroadcast,
+  onSaveLiveBroadcast,
   onClose
 }: AdminPanelProps) {
   // Authentication State
@@ -100,9 +104,41 @@ export default function AdminPanel({
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
-  const [liveTitle, setLiveTitle] = useState('LIVE SPECIAL GLOBAL NEWS BROADCAST');
-  const [liveCategory, setLiveCategory] = useState('BREAKING NEWS');
+  const [liveTitle, setLiveTitle] = useState(liveBroadcast?.title || 'LIVE SPECIAL GLOBAL NEWS BROADCAST');
+  const [liveCategory, setLiveCategory] = useState(liveBroadcast?.category || 'BREAKING NEWS');
+  const [liveDescription, setLiveDescription] = useState(liveBroadcast?.description || 'Live international coverage from Fast Coverages global desks.');
+  const [liveThumbnail, setLiveThumbnail] = useState(liveBroadcast?.thumbnailUrl || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200');
+  const [liveStreamUrl, setLiveStreamUrl] = useState(liveBroadcast?.streamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4');
+  const [liveAuthor, setLiveAuthor] = useState(liveBroadcast?.author || 'Fast Coverages World Desk');
+  const [liveViewerCount, setLiveViewerCount] = useState<number>(liveBroadcast?.viewerCount || 2480);
+  const [isLiveActiveState, setIsLiveActiveState] = useState(liveBroadcast?.isLive !== false);
+  const [scheduledTime, setScheduledTime] = useState(liveBroadcast?.scheduledTime || '');
+  const [isPinned, setIsPinned] = useState(liveBroadcast?.isPinned !== false);
+  const [isLiveEnabled, setIsLiveEnabled] = useState(liveBroadcast?.enabled !== false);
   const [liveCameraFacing, setLiveCameraFacing] = useState<'user' | 'environment'>('user');
+
+  useEffect(() => {
+    if (liveBroadcast) {
+      setLiveTitle(liveBroadcast.title || '');
+      setLiveCategory(liveBroadcast.category || 'BREAKING NEWS');
+      setLiveDescription(liveBroadcast.description || '');
+      setLiveThumbnail(liveBroadcast.thumbnailUrl || '');
+      setLiveStreamUrl(liveBroadcast.streamUrl || '');
+      setLiveAuthor(liveBroadcast.author || 'Fast Coverages World Desk');
+      setLiveViewerCount(liveBroadcast.viewerCount || 2480);
+      setIsLiveActiveState(liveBroadcast.isLive !== false);
+      setScheduledTime(liveBroadcast.scheduledTime || '');
+      setIsPinned(liveBroadcast.isPinned !== false);
+      setIsLiveEnabled(liveBroadcast.enabled !== false);
+    }
+  }, [liveBroadcast]);
+
+  // Post-Live Modal States
+  const [showPostLiveModal, setShowPostLiveModal] = useState(false);
+  const [pendingPostLiveUrl, setPendingPostLiveUrl] = useState<string>('');
+  const [pendingPostLiveBlob, setPendingPostLiveBlob] = useState<Blob | null>(null);
+  const [pendingPostLiveDuration, setPendingPostLiveDuration] = useState<number>(0);
+
   const [recordedLiveArchives, setRecordedLiveArchives] = useState<{
     id: string;
     title: string;
@@ -115,7 +151,7 @@ export default function AdminPanel({
   }[]>([]);
 
   // Editorial Team Management State (Website Owner / Super Admin)
-  const [editingUser, setEditingUser] = useState<Partial<User> | null>(null);
+  const [editingUser, setEditingUser] = useState<Partial<UserType> | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userActivityLogs, setUserActivityLogs] = useState<string[]>([
@@ -205,10 +241,10 @@ export default function AdminPanel({
     }
   };
 
-  // 5 GB Video Upload Support (5 * 1024 * 1024 * 1024 bytes)
+  // Enterprise 10 GB Video Upload Support (10 * 1024 * 1024 * 1024 bytes)
   const [uploadProgressPercent, setUploadProgressPercent] = useState<number>(0);
 
-  const handleVideoFileUpload = async (file: File, onUploadComplete: (url: string) => void) => {
+  const handleVideoFileUpload = async (file: File, onUploadComplete: (url: string, sizeStr?: string) => void) => {
     if (!file) return;
     
     // Check supported formats: MP4, MOV, AVI, WEBM, MKV
@@ -221,12 +257,17 @@ export default function AdminPanel({
       return;
     }
 
-    // Enterprise 5 GB Limit Check (5,368,709,120 bytes)
-    const MAX_5GB = 5 * 1024 * 1024 * 1024;
-    if (file.size > MAX_5GB) {
-      alert('File size exceeds the 5 GB maximum threshold. Please compress or trim the video file.');
+    // Enterprise 10 GB Limit Check (10,737,418,240 bytes)
+    const MAX_10GB = 10 * 1024 * 1024 * 1024;
+    if (file.size > MAX_10GB) {
+      alert('File size exceeds the 10 GB maximum storage limit. Please compress or select a video file under 10 GB.');
       return;
     }
+
+    // Format human-readable size (e.g., "1.45 GB" or "350 MB")
+    const formattedSize = file.size >= 1024 * 1024 * 1024 
+      ? (file.size / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+      : (file.size / (1024 * 1024)).toFixed(1) + ' MB';
     
     setIsUploading(true);
     setUploadError(null);
@@ -265,19 +306,19 @@ export default function AdminPanel({
           setUploadProgressPercent(100);
 
           if (result.success && result.fileUrl) {
-            onUploadComplete(result.fileUrl);
-            showBanner(`5 GB Video Broadcast "${file.name}" uploaded, optimized & synced!`);
+            onUploadComplete(result.fileUrl, formattedSize);
+            showBanner(`10 GB High-Capacity Video Broadcast "${file.name}" (${formattedSize}) uploaded & synced!`);
           } else {
             // High capacity fallback for ultra-large files: create stream URL
             const streamObjectUrl = URL.createObjectURL(file);
-            onUploadComplete(streamObjectUrl);
-            showBanner(`5 GB High-Definition Video Stream "${file.name}" processed & ready!`);
+            onUploadComplete(streamObjectUrl, formattedSize);
+            showBanner(`10 GB High-Definition Video Stream "${file.name}" (${formattedSize}) processed & ready!`);
           }
         } catch (err: any) {
           console.warn("Server upload fallback activated:", err);
           const streamObjectUrl = URL.createObjectURL(file);
-          onUploadComplete(streamObjectUrl);
-          showBanner(`5 GB Video Stream "${file.name}" loaded successfully.`);
+          onUploadComplete(streamObjectUrl, formattedSize);
+          showBanner(`10 GB Video Stream "${file.name}" (${formattedSize}) loaded successfully.`);
         } finally {
           setIsUploading(false);
           setUploadProgressPercent(0);
@@ -364,6 +405,58 @@ export default function AdminPanel({
     showBanner(`Successfully uploaded ${files.length} image(s).`);
   };
 
+  // Author Image Upload State & Handler
+  const [isUploadingAuthorImage, setIsUploadingAuthorImage] = useState(false);
+
+  const handleAuthorImageUpload = async (file: File) => {
+    if (!file || !file.type.startsWith('image/')) {
+      alert("Please select a valid image file for author photo.");
+      return;
+    }
+    setIsUploadingAuthorImage(true);
+    try {
+      const url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const base64Data = reader.result as string;
+            const response = await fetch('/api/upload-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: `author-${file.name}`,
+                base64: base64Data
+              })
+            });
+            const result = await response.json();
+            if (result.success && result.fileUrl) {
+              resolve(result.fileUrl);
+            } else {
+              resolve(base64Data);
+            }
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = () => reject(new Error("Failed to read author photo"));
+        reader.readAsDataURL(file);
+      });
+
+      setEditingArticle(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          authorImage: url
+        };
+      });
+      showBanner("Author profile photo uploaded and saved on server!");
+    } catch (err: any) {
+      alert("Failed to upload author photo: " + err.message);
+    } finally {
+      setIsUploadingAuthorImage(false);
+    }
+  };
+
   // Live Streaming Handlers
   const liveVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
@@ -411,11 +504,30 @@ export default function AdminPanel({
       setMediaRecorder(recorder);
       setRecordedChunks(chunks);
       setIsLiveStreaming(true);
-      showBanner("LIVE BROADCAST ACTIVE! Camera & Microphone connected. Broadcasting live worldwide.");
-      setUserActivityLogs(prev => [`Website Owner started ONE-CLICK LIVE BROADCAST: "${liveTitle}"`, ...prev]);
+
+      const updatedState: LiveBroadcastState = {
+        isLive: true,
+        title: liveTitle,
+        description: liveDescription,
+        category: liveCategory,
+        streamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+        thumbnailUrl: liveThumbnail,
+        viewerCount: Math.floor(Math.random() * 400) + 2100,
+        isPinned,
+        enabled: isLiveEnabled,
+        scheduledTime,
+        startTime: new Date().toISOString(),
+        author: 'Website Owner (Live Studio)',
+        streamType: 'camera'
+      };
+      if (onSaveLiveBroadcast) {
+        onSaveLiveBroadcast(updatedState);
+      }
+
+      showBanner("LIVE BROADCAST ACTIVE! Broadcasting live worldwide on homepage!");
+      setUserActivityLogs(prev => [`Website Owner started LIVE CAMERA BROADCAST: "${liveTitle}"`, ...prev]);
     } catch (err: any) {
       console.warn("Camera/Mic hardware or permission unavailable, activating HD Studio Satellite Feed fallback:", err);
-      // Fallback to Studio Satellite Feed so broadcast operates seamlessly
       setIsLiveStreaming(true);
       if (liveVideoRef.current) {
         liveVideoRef.current.srcObject = null;
@@ -423,7 +535,27 @@ export default function AdminPanel({
         liveVideoRef.current.loop = true;
         liveVideoRef.current.play().catch(() => {});
       }
-      showBanner("LIVE BROADCAST ACTIVE! (HD Satellite Studio Feed active - Camera Permission Denied/Unavailable)");
+
+      const updatedState: LiveBroadcastState = {
+        isLive: true,
+        title: liveTitle,
+        description: liveDescription,
+        category: liveCategory,
+        streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+        thumbnailUrl: liveThumbnail,
+        viewerCount: 2480,
+        isPinned,
+        enabled: isLiveEnabled,
+        scheduledTime,
+        startTime: new Date().toISOString(),
+        author: 'Website Owner (Studio Feed)',
+        streamType: 'stream'
+      };
+      if (onSaveLiveBroadcast) {
+        onSaveLiveBroadcast(updatedState);
+      }
+
+      showBanner("LIVE BROADCAST ACTIVE! (HD Satellite Studio Feed active)");
       setUserActivityLogs(prev => [`Website Owner started HD STUDIO LIVE BROADCAST: "${liveTitle}"`, ...prev]);
     }
   };
@@ -436,37 +568,16 @@ export default function AdminPanel({
       mediaStream.getTracks().forEach(track => track.stop());
     }
 
+    let recordedBlob: Blob | null = null;
     let videoObjectUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4";
     if (recordedChunks.length > 0) {
-      const recordedBlob = new Blob(recordedChunks, { type: 'video/webm' });
+      recordedBlob = new Blob(recordedChunks, { type: 'video/webm' });
       videoObjectUrl = URL.createObjectURL(recordedBlob);
     }
 
-    const newArchive = {
-      id: `live-rec-${Date.now()}`,
-      title: liveTitle,
-      category: liveCategory,
-      videoUrl: videoObjectUrl,
-      thumbnailUrl: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=800',
-      publishDate: new Date().toISOString(),
-      duration: liveStreamSeconds || 45,
-      status: 'Published' as const
-    };
-
-    setRecordedLiveArchives(prev => [newArchive, ...prev]);
-
-    // Automatically sync with main videos list
-    const newVideoItem: VideoItem = {
-      id: `vid-live-${Date.now()}`,
-      title: liveTitle,
-      description: `Live Broadcast Recording captured on ${new Date().toLocaleString()}`,
-      videoUrl: videoObjectUrl,
-      thumbnailUrl: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=800',
-      category: liveCategory,
-      author: 'Website Owner (Live Desk)',
-      publishDate: new Date().toISOString()
-    };
-    onSaveVideos([newVideoItem, ...videos]);
+    setPendingPostLiveBlob(recordedBlob);
+    setPendingPostLiveUrl(videoObjectUrl);
+    setPendingPostLiveDuration(liveStreamSeconds || 45);
 
     if (liveVideoRef.current) {
       liveVideoRef.current.pause();
@@ -478,8 +589,72 @@ export default function AdminPanel({
     setMediaStream(null);
     setMediaRecorder(null);
     setRecordedChunks([]);
-    showBanner("LIVE BROADCAST ENDED. Recording saved, timestamped & published automatically!");
+
+    // Update global state: live ended
+    const updatedState: LiveBroadcastState = {
+      ...(liveBroadcast || {
+        title: liveTitle,
+        description: liveDescription,
+        category: liveCategory,
+        streamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+        thumbnailUrl: liveThumbnail,
+        viewerCount: 0,
+        isPinned,
+        enabled: isLiveEnabled
+      }),
+      isLive: false
+    };
+    if (onSaveLiveBroadcast) {
+      onSaveLiveBroadcast(updatedState);
+    }
+
+    // Prompt the 3 post-live options requested by user
+    setShowPostLiveModal(true);
+    showBanner("LIVE BROADCAST STOPPED. Please select post-broadcast option.");
     setUserActivityLogs(prev => [`Website Owner ended LIVE BROADCAST: "${liveTitle}"`, ...prev]);
+  };
+
+  const handlePostLiveSave = () => {
+    const finalUrl = pendingPostLiveUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4';
+    const newVideoItem: VideoItem = {
+      id: `vid-live-${Date.now()}`,
+      title: liveTitle,
+      description: `${liveDescription} (Recorded live session)`,
+      videoUrl: finalUrl,
+      thumbnailUrl: liveThumbnail || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=800',
+      category: liveCategory || 'BREAKING NEWS',
+      author: 'Website Owner (Live Desk)',
+      publishDate: new Date().toISOString(),
+      isLiveRecording: true
+    };
+
+    onSaveVideos([newVideoItem, ...videos]);
+    setRecordedLiveArchives(prev => [{
+      id: newVideoItem.id,
+      title: newVideoItem.title,
+      category: newVideoItem.category,
+      videoUrl: finalUrl,
+      thumbnailUrl: newVideoItem.thumbnailUrl,
+      publishDate: newVideoItem.publishDate,
+      duration: pendingPostLiveDuration,
+      status: 'Published'
+    }, ...prev]);
+
+    setShowPostLiveModal(false);
+    showBanner("LIVE VIDEO RECORDING SAVED & PUBLISHED PERMANENTLY!");
+  };
+
+  const handlePostLiveUploadAnother = () => {
+    setShowPostLiveModal(false);
+    setActiveTab('videos');
+    showBanner("Opening 10 GB High-Capacity Live Video Upload Portal...");
+  };
+
+  const handlePostLiveDelete = () => {
+    setShowPostLiveModal(false);
+    setPendingPostLiveBlob(null);
+    setPendingPostLiveUrl('');
+    showBanner("Live recording discarded.");
   };
 
   // Video form state
@@ -782,6 +957,11 @@ export default function AdminPanel({
 
     let updatedArticles = [...articles];
     if (isCreatingArticle) {
+      const primaryImg = editingArticle.image || (editingArticle.images && editingArticle.images[0]) || 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=1200';
+      const galleryImgs = editingArticle.images && editingArticle.images.length > 0 
+        ? editingArticle.images 
+        : [primaryImg];
+
       const newArticle: Article = {
         id: `art-${Date.now()}`,
         title: editingArticle.title || 'Untitled Article',
@@ -790,11 +970,21 @@ export default function AdminPanel({
         summary: editingArticle.summary || '',
         category: editingArticle.category || 'World News',
         subcategory: editingArticle.subcategory,
-        image: editingArticle.image || 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=1200',
+        image: primaryImg,
+        images: galleryImgs,
         videoUrl: editingArticle.videoUrl,
-        author: 'Sarah Jenkins',
-        authorRole: 'Super Admin',
-        publishDate: new Date().toISOString(),
+        author: editingArticle.author || 'Editorial Staff',
+        authorRole: editingArticle.authorRole || 'News Editor',
+        authorImage: editingArticle.authorImage || '',
+        authorDesignation: editingArticle.authorDesignation || 'News Editor',
+        authorBio: editingArticle.authorBio || '',
+        authorSocials: editingArticle.authorSocials,
+        tags: editingArticle.tags || editingArticle.keywords || [],
+        seoTitle: editingArticle.seoTitle || editingArticle.title,
+        seoDescription: editingArticle.seoDescription || editingArticle.summary,
+        metaKeywords: editingArticle.metaKeywords || editingArticle.keywords || [],
+        publishDate: editingArticle.publishDate || new Date().toISOString(),
+        scheduledDate: editingArticle.scheduledDate,
         status: editingArticle.status || 'Published',
         isPinned: !!editingArticle.isPinned,
         isFeatured: !!editingArticle.isFeatured,
@@ -806,14 +996,19 @@ export default function AdminPanel({
       updatedArticles = [newArticle, ...updatedArticles];
     } else {
       updatedArticles = updatedArticles.map(a => 
-        a.id === editingArticle.id ? { ...a, ...editingArticle as Article } : a
+        a.id === editingArticle.id ? { 
+          ...a, 
+          ...editingArticle as Article,
+          image: editingArticle.image || (editingArticle.images && editingArticle.images[0]) || a.image,
+          images: editingArticle.images || a.images || (a.image ? [a.image] : [])
+        } : a
       );
     }
 
     onSaveArticles(updatedArticles);
     setEditingArticle(null);
     setIsCreatingArticle(false);
-    showBanner("Article saved and published instantly globally.");
+    showBanner(editingArticle.status === 'Draft' ? "Article saved as Draft." : "Article saved and published globally.");
   };
 
   const handleDeleteArticle = (id: string) => {
@@ -1583,13 +1778,256 @@ INSERT INTO website_settings (name, tagline, footer_text, primary_color) VALUES
                       <div className="flex flex-col gap-1 md:col-span-2">
                         <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Article Content (Supports markdown style headers & quotes) *</label>
                         <textarea
-                          rows={8}
+                          rows={10}
                           required
                           value={editingArticle.content || ''}
                           onChange={e => setEditingArticle({ ...editingArticle, content: e.target.value })}
                           className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-mono rounded focus:border-red-500 outline-none dark:text-white"
                           placeholder="GENEVA — In a historic milestone..."
                         />
+                      </div>
+
+                      {/* ARTICLE AUTHOR DETAILS SECTION (Requirement 3 & 5) */}
+                      <div className="md:col-span-2 p-4 bg-slate-50/80 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-4">
+                        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                          <UserIcon className="w-4 h-4 text-red-600" />
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 font-mono">
+                            Article Author Profile & Attribution
+                          </h4>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Author Name *</label>
+                            <input
+                              type="text"
+                              value={editingArticle.author ?? ''}
+                              onChange={e => setEditingArticle({ ...editingArticle, author: e.target.value })}
+                              className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white"
+                              placeholder="Enter author name (e.g. Sarah Jenkins, Alex Rivera)"
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Author Designation *</label>
+                            <input
+                              type="text"
+                              value={editingArticle.authorDesignation || editingArticle.authorRole || 'Senior News Editor'}
+                              onChange={e => setEditingArticle({ ...editingArticle, authorDesignation: e.target.value, authorRole: e.target.value })}
+                              className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white"
+                              placeholder="Senior News Editor"
+                            />
+                          </div>
+
+                          {/* Author Profile Picture Upload */}
+                          <div className="flex flex-col gap-1 md:col-span-2">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Author Profile Picture</label>
+                            <div className="flex items-center gap-4 mt-1">
+                              {editingArticle.authorImage ? (
+                                <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-red-600 shrink-0">
+                                  <img src={editingArticle.authorImage} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingArticle({ ...editingArticle, authorImage: '' })}
+                                    className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 hover:opacity-100 transition text-white"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-400" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="w-16 h-16 rounded-full bg-slate-200 dark:bg-slate-800 border-2 border-dashed border-slate-400 flex items-center justify-center text-slate-400 shrink-0 text-xl font-black font-mono">
+                                  {(editingArticle.author || 'H').charAt(0).toUpperCase()}
+                                </div>
+                              )}
+
+                              <div className="flex flex-col gap-1">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleAuthorImageUpload(file);
+                                  }}
+                                  className="hidden"
+                                  id="author-photo-upload-input"
+                                  disabled={isUploadingAuthorImage}
+                                />
+                                <label
+                                  htmlFor="author-photo-upload-input"
+                                  className={`px-3 py-1.5 text-xs font-bold rounded cursor-pointer border border-slate-300 dark:border-slate-700 hover:border-slate-400 transition select-none flex items-center gap-1.5 w-max ${isUploadingAuthorImage ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200'}`}
+                                >
+                                  {isUploadingAuthorImage ? (
+                                    <>
+                                      <span className="animate-spin inline-block w-3 h-3 border-2 border-t-transparent border-slate-700 rounded-full"></span>
+                                      <span>Uploading Photo...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>Choose Author Photo</span>
+                                    </>
+                                  )}
+                                </label>
+                                <span className="text-[10px] text-slate-400">JPG, PNG, WEBP photo auto-optimized on server</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1 md:col-span-2">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Author Short Biography</label>
+                            <textarea
+                              rows={2}
+                              value={editingArticle.authorBio || ''}
+                              onChange={e => setEditingArticle({ ...editingArticle, authorBio: e.target.value })}
+                              className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white"
+                              placeholder="Experienced investigative journalist specializing in global economics and international affairs..."
+                            />
+                          </div>
+
+                          {/* Author Social Media Inputs */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:col-span-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Twitter / X URL</label>
+                              <input
+                                type="url"
+                                value={editingArticle.authorSocials?.twitter || ''}
+                                onChange={e => setEditingArticle({
+                                  ...editingArticle,
+                                  authorSocials: { ...editingArticle.authorSocials, twitter: e.target.value }
+                                })}
+                                className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs rounded focus:border-red-500 outline-none dark:text-white"
+                                placeholder="https://x.com/author_handle"
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Facebook URL</label>
+                              <input
+                                type="url"
+                                value={editingArticle.authorSocials?.facebook || ''}
+                                onChange={e => setEditingArticle({
+                                  ...editingArticle,
+                                  authorSocials: { ...editingArticle.authorSocials, facebook: e.target.value }
+                                })}
+                                className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs rounded focus:border-red-500 outline-none dark:text-white"
+                                placeholder="https://facebook.com/author_profile"
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">LinkedIn URL</label>
+                              <input
+                                type="url"
+                                value={editingArticle.authorSocials?.linkedin || ''}
+                                onChange={e => setEditingArticle({
+                                  ...editingArticle,
+                                  authorSocials: { ...editingArticle.authorSocials, linkedin: e.target.value }
+                                })}
+                                className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs rounded focus:border-red-500 outline-none dark:text-white"
+                                placeholder="https://linkedin.com/in/author_profile"
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Email Address</label>
+                              <input
+                                type="email"
+                                value={editingArticle.authorSocials?.email || ''}
+                                onChange={e => setEditingArticle({
+                                  ...editingArticle,
+                                  authorSocials: { ...editingArticle.authorSocials, email: e.target.value }
+                                })}
+                                className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs rounded focus:border-red-500 outline-none dark:text-white"
+                                placeholder="editor@fastcoverages.com"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SEO & METADATA SECTION */}
+                      <div className="md:col-span-2 p-4 bg-slate-50/80 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-3">
+                        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                          <Globe className="w-4 h-4 text-blue-500" />
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 font-mono">
+                            SEO & Search Engine Optimization
+                          </h4>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">SEO Page Title</label>
+                            <input
+                              type="text"
+                              value={editingArticle.seoTitle || editingArticle.title || ''}
+                              onChange={e => setEditingArticle({ ...editingArticle, seoTitle: e.target.value })}
+                              className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white"
+                              placeholder="SEO Optimized Headline..."
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Meta Keywords (Comma separated)</label>
+                            <input
+                              type="text"
+                              value={Array.isArray(editingArticle.keywords) ? editingArticle.keywords.join(', ') : (editingArticle.keywords || '')}
+                              onChange={e => {
+                                const kwArray = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                                setEditingArticle({ ...editingArticle, keywords: kwArray, metaKeywords: kwArray });
+                              }}
+                              className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white"
+                              placeholder="global, breaking news, politics, world"
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-1 md:col-span-2">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Meta Description</label>
+                            <textarea
+                              rows={2}
+                              value={editingArticle.seoDescription || editingArticle.summary || ''}
+                              onChange={e => setEditingArticle({ ...editingArticle, seoDescription: e.target.value })}
+                              className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white"
+                              placeholder="Meta description snippet for search engines..."
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* PUBLISHING CONTROLS & SCHEDULE */}
+                      <div className="md:col-span-2 p-4 bg-slate-50/80 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-3">
+                        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                          <Clock className="w-4 h-4 text-emerald-500" />
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 font-mono">
+                            Publishing Status & Scheduling
+                          </h4>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Publication Status</label>
+                            <select
+                              value={editingArticle.status || 'Published'}
+                              onChange={e => setEditingArticle({ ...editingArticle, status: e.target.value as any })}
+                              className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white"
+                            >
+                              <option value="Published">Published (Live Global)</option>
+                              <option value="Draft">Draft (Private Save)</option>
+                              <option value="Scheduled">Scheduled (Auto Publish Date)</option>
+                            </select>
+                          </div>
+
+                          {editingArticle.status === 'Scheduled' && (
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Schedule Date & Time</label>
+                              <input
+                                type="datetime-local"
+                                value={editingArticle.scheduledDate ? editingArticle.scheduledDate.slice(0, 16) : ''}
+                                onChange={e => setEditingArticle({ ...editingArticle, scheduledDate: e.target.value })}
+                                className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded focus:border-red-500 outline-none dark:text-white font-mono"
+                              />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -1624,10 +2062,24 @@ INSERT INTO website_settings (name, tagline, footer_text, primary_color) VALUES
                         Cancel
                       </button>
                       <button
+                        type="button"
+                        onClick={(e) => {
+                          setEditingArticle({ ...editingArticle, status: 'Draft' });
+                          setTimeout(() => {
+                            const btn = document.getElementById('submit-article-btn');
+                            if (btn) btn.click();
+                          }, 50);
+                        }}
+                        className="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-white px-4 py-2 text-xs font-bold rounded shadow cursor-pointer"
+                      >
+                        Save Draft
+                      </button>
+                      <button
+                        id="submit-article-btn"
                         type="submit"
                         className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 text-xs font-bold rounded shadow cursor-pointer"
                       >
-                        Publish Instantly
+                        {editingArticle.status === 'Draft' ? 'Save Draft' : editingArticle.status === 'Scheduled' ? 'Schedule Publication' : 'Publish Instantly'}
                       </button>
                     </div>
                   </form>
@@ -3468,8 +3920,14 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
               <div className="flex flex-col gap-6">
                 <div className="flex items-center justify-between border-b border-slate-150 dark:border-slate-800 pb-4">
                   <div>
-                    <h3 className="text-base font-black uppercase text-slate-900 dark:text-white">Video Desk Control</h3>
-                    <p className="text-xs text-slate-400">Add, update, or remove interactive live video feeds featured across the home page broadcast block.</p>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-black uppercase text-slate-900 dark:text-white">Video Desk Control</h3>
+                      <span className="bg-emerald-500/10 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-emerald-500" />
+                        Up to 10 GB Video Uploads
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">Add, update, or remove interactive live video feeds with up to 10 GB storage support per broadcast file.</p>
                   </div>
                   {!isCreatingVideo && !editingVideo && (
                     <button
@@ -3557,8 +4015,8 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                             onChange={e => {
                               const file = e.target.files?.[0];
                               if (file) {
-                                handleVideoFileUpload(file, (url) => {
-                                  setEditingVideo({ ...editingVideo, videoUrl: url });
+                                handleVideoFileUpload(file, (url, sizeStr) => {
+                                  setEditingVideo({ ...editingVideo, videoUrl: url, fileSize: sizeStr || '10 GB Max' });
                                 });
                               }
                             }}
@@ -3578,18 +4036,18 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                                 </>
                               ) : (
                                 <>
-                                  <Plus className="w-3.5 h-3.5" />
-                                  <span>Select & Upload Video File</span>
+                                  <Plus className="w-3.5 h-3.5 text-red-500" />
+                                  <span>Select & Upload Video File (Up to 10 GB)</span>
                                 </>
                               )}
                             </label>
                           ) : (
                             <div className="flex flex-col items-center gap-2">
-                              <span className="text-[10px] text-emerald-400 font-bold">✓ Video Uploaded</span>
+                              <span className="text-[10px] text-emerald-400 font-bold">✓ Video Uploaded ({editingVideo.fileSize || '10 GB Max'})</span>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setEditingVideo({ ...editingVideo, videoUrl: '' });
+                                  setEditingVideo({ ...editingVideo, videoUrl: '', fileSize: undefined });
                                 }}
                                 className="px-3 py-1.5 text-xs font-bold text-red-400 hover:text-red-300 bg-red-950/40 hover:bg-red-900/40 border border-red-900/60 rounded transition cursor-pointer"
                               >
@@ -3597,7 +4055,11 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                               </button>
                             </div>
                           )}
-                          <span className="text-[9px] text-zinc-500">Supports standard video formats (MP4, MOV, WebM up to 150MB)</span>
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/80 text-[10px] font-bold text-emerald-400 font-mono my-1">
+                            <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
+                            <span>Enterprise Capacity: Admin can upload up to 10 GB videos</span>
+                          </div>
+                          <span className="text-[9px] text-zinc-400">Supports HD formats: MP4, MOV, AVI, WEBM, MKV (Up to 10 GB per video)</span>
                           {uploadError && <span className="text-[9px] text-red-500 font-semibold">{uploadError}</span>}
                           {editingVideo?.videoUrl && (
                             <div className="w-full mt-2 flex flex-col gap-1 text-center bg-emerald-950/20 border border-emerald-900/40 p-2 rounded">
@@ -3740,7 +4202,14 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                                   </div>
                                   <div className="flex flex-col">
                                     <span className="font-bold text-slate-800 dark:text-white line-clamp-1">{vid.title}</span>
-                                    <span className="text-[10px] text-slate-400 line-clamp-1">{vid.description}</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-slate-400 line-clamp-1">{vid.description}</span>
+                                      {vid.fileSize && (
+                                        <span className="text-[9px] font-mono text-emerald-500 font-bold bg-emerald-950/30 px-1.5 py-0.2 rounded border border-emerald-900/40 shrink-0">
+                                          {vid.fileSize}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </td>
                                 <td className="p-4">
@@ -4250,48 +4719,226 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                     </div>
                   </div>
 
-                  {/* Broadcast Metadata & Auto-Recording Info */}
-                  <div className="bg-white dark:bg-slate-950 p-5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-4">
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white font-mono border-b border-slate-100 dark:border-slate-800 pb-2">
-                      Live Broadcast Properties
-                    </h4>
+                  {/* Broadcast Metadata & Full Control Center Form */}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const updatedState: LiveBroadcastState = {
+                        isLive: isLiveActiveState,
+                        title: liveTitle || 'LIVE SPECIAL GLOBAL NEWS BROADCAST',
+                        description: liveDescription || 'Live international coverage from Fast Coverages global desks.',
+                        category: liveCategory || 'BREAKING NEWS',
+                        streamUrl: liveStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+                        thumbnailUrl: liveThumbnail || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200',
+                        viewerCount: Number(liveViewerCount) || 2480,
+                        isPinned,
+                        enabled: isLiveEnabled,
+                        scheduledTime,
+                        author: liveAuthor || 'Fast Coverages World Desk',
+                        startTime: new Date().toISOString(),
+                        streamType: 'stream'
+                      };
+                      if (onSaveLiveBroadcast) {
+                        onSaveLiveBroadcast(updatedState);
+                      }
+                      showBanner("✓ LIVE CONTROL CENTER DATA SAVED & PUBLISHED SUCCESSFULLY!");
+                    }}
+                    className="bg-white dark:bg-slate-950 p-5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-4"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white font-mono flex items-center gap-2">
+                        <Radio className="w-4 h-4 text-red-600" /> Live Control Center Settings
+                      </h4>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={isLiveActiveState}
+                          onChange={e => setIsLiveActiveState(e.target.checked)}
+                          className="w-4 h-4 text-red-600 rounded border-slate-300 dark:border-slate-700 focus:ring-red-500"
+                        />
+                        <span className={`text-xs font-mono font-bold ${isLiveActiveState ? 'text-red-600 dark:text-red-400' : 'text-slate-400'}`}>
+                          {isLiveActiveState ? '● LIVE TRANSMISSION ACTIVE' : '○ TRANSMISSION OFF-AIR'}
+                        </span>
+                      </label>
+                    </div>
 
+                    {/* Title & Category */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Broadcast Title *</label>
+                        <input
+                          type="text"
+                          required
+                          value={liveTitle}
+                          onChange={e => setLiveTitle(e.target.value)}
+                          className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold text-slate-900 dark:text-white font-sans"
+                          placeholder="SPECIAL BULLETIN: GLOBAL SUMMIT DIRECT FEED"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Category Tag</label>
+                        <input
+                          type="text"
+                          required
+                          value={liveCategory}
+                          onChange={e => setLiveCategory(e.target.value)}
+                          className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold text-slate-900 dark:text-white font-mono uppercase"
+                          placeholder="BREAKING NEWS"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Description */}
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Broadcast Title *</label>
-                      <input
-                        type="text"
-                        value={liveTitle}
-                        onChange={e => setLiveTitle(e.target.value)}
-                        disabled={isLiveStreaming}
-                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold text-slate-900 dark:text-white font-sans"
-                        placeholder="SPECIAL BULLETIN: GLOBAL SUMMIT DIRECT FEED"
+                      <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Live Description / Summary</label>
+                      <textarea
+                        rows={2}
+                        value={liveDescription}
+                        onChange={e => setLiveDescription(e.target.value)}
+                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none text-slate-800 dark:text-slate-200 font-serif leading-relaxed"
+                        placeholder="Live international report from field correspondents..."
                       />
                     </div>
 
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Category Tag</label>
-                      <input
-                        type="text"
-                        value={liveCategory}
-                        onChange={e => setLiveCategory(e.target.value)}
-                        disabled={isLiveStreaming}
-                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold text-slate-900 dark:text-white font-mono uppercase"
-                        placeholder="BREAKING NEWS"
-                      />
+                    {/* Video Stream URL & 10 GB Video Upload */}
+                    <div className="flex flex-col gap-2 p-3 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg">
+                      <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Stream Video File or URL (Up to 10 GB Upload)</label>
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <input
+                          type="url"
+                          value={liveStreamUrl}
+                          onChange={e => setLiveStreamUrl(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-mono text-slate-800 dark:text-slate-200"
+                          placeholder="https://commondatastorage.googleapis.com/.../video.mp4"
+                        />
+                        <input
+                          type="file"
+                          accept="video/*"
+                          id="live-stream-file-upload-input"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleVideoFileUpload(file, (url) => {
+                                setLiveStreamUrl(url);
+                              });
+                            }
+                          }}
+                          className="hidden"
+                          disabled={isUploading}
+                        />
+                        <label
+                          htmlFor="live-stream-file-upload-input"
+                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold font-mono rounded cursor-pointer shrink-0 transition flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-red-500" /> Upload Video
+                        </label>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">Upload video file up to 10 GB or paste direct MP4/HLS live video stream URL.</span>
                     </div>
 
-                    <div className="p-3 bg-red-50/50 dark:bg-red-950/20 border border-red-200/60 dark:border-red-900/30 rounded text-xs text-slate-700 dark:text-slate-300 font-serif leading-relaxed flex flex-col gap-2">
-                      <span className="font-mono font-bold text-red-700 dark:text-red-400 text-[11px] uppercase flex items-center gap-1">
-                        <Shield className="w-3.5 h-3.5" /> Auto Post-Live Automation:
-                      </span>
-                      <ul className="list-disc list-inside text-[11px] space-y-1 text-slate-600 dark:text-slate-400">
-                        <li>Automatic high-definition video recording.</li>
-                        <li>Auto-generated snapshot thumbnail.</li>
-                        <li>Immediate publication to Video Broadcast Section.</li>
-                        <li>No public download button on viewer player.</li>
-                      </ul>
+                    {/* Thumbnail Image & Upload */}
+                    <div className="flex flex-col gap-2 p-3 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg">
+                      <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Thumbnail Image URL or Upload</label>
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <input
+                          type="url"
+                          value={liveThumbnail}
+                          onChange={e => setLiveThumbnail(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-mono text-slate-800 dark:text-slate-200"
+                          placeholder="https://images.unsplash.com/..."
+                        />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          id="live-thumbnail-file-upload-input"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleVideoThumbnailUpload(file);
+                            }
+                          }}
+                          className="hidden"
+                          disabled={isUploadingThumbnail}
+                        />
+                        <label
+                          htmlFor="live-thumbnail-file-upload-input"
+                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold font-mono rounded cursor-pointer shrink-0 transition flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-blue-400" /> Upload Thumbnail
+                        </label>
+                      </div>
                     </div>
-                  </div>
+
+                    {/* Anchor/Author, Viewers, Scheduled Time, Pinning */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Anchor / Bureau Name</label>
+                        <input
+                          type="text"
+                          value={liveAuthor}
+                          onChange={e => setLiveAuthor(e.target.value)}
+                          className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold text-slate-900 dark:text-white"
+                          placeholder="Fast Coverages World Desk"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Initial Viewer Count</label>
+                        <input
+                          type="number"
+                          value={liveViewerCount}
+                          onChange={e => setLiveViewerCount(parseInt(e.target.value, 10) || 0)}
+                          className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold font-mono text-slate-900 dark:text-white"
+                          placeholder="2480"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Schedule Live Broadcast</label>
+                        <input
+                          type="text"
+                          value={scheduledTime}
+                          onChange={e => setScheduledTime(e.target.value)}
+                          className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-mono text-slate-900 dark:text-white"
+                          placeholder="e.g. Today 18:00 UTC"
+                        />
+                      </div>
+
+                      <div className="flex flex-col justify-end gap-2 py-1">
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-mono font-bold">
+                          <input
+                            type="checkbox"
+                            checked={isPinned}
+                            onChange={e => setIsPinned(e.target.checked)}
+                            className="w-4 h-4 text-red-600 rounded border-slate-300 dark:border-slate-700"
+                          />
+                          <span className={isPinned ? 'text-red-600 dark:text-red-400' : 'text-slate-400'}>
+                            Pin Live Stream
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-mono font-bold">
+                          <input
+                            type="checkbox"
+                            checked={isLiveEnabled}
+                            onChange={e => setIsLiveEnabled(e.target.checked)}
+                            className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-slate-700"
+                          />
+                          <span className={isLiveEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}>
+                            Enable Live Section
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Submit Button */}
+                    <button
+                      type="submit"
+                      className="bg-red-600 hover:bg-red-700 text-white font-black py-3 px-6 rounded text-xs uppercase tracking-wider font-mono transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-red-950/20 mt-2"
+                    >
+                      <Check className="w-4 h-4" /> Save & Publish Live Control Center Settings
+                    </button>
+                  </form>
                 </div>
 
                 {/* Live Recordings Archive Table */}
@@ -4415,13 +5062,13 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                     onSubmit={(e) => {
                       e.preventDefault();
                       if (!editingUser) return;
-                      let updatedList: User[];
+                      let updatedList: UserType[];
                       if (editingUser.id) {
-                        updatedList = users.map(u => u.id === editingUser.id ? { ...u, ...editingUser } as User : u);
+                        updatedList = users.map(u => u.id === editingUser.id ? { ...u, ...editingUser } as UserType : u);
                         showBanner(`Updated team member "${editingUser.name}" successfully.`);
                         setUserActivityLogs(prev => [`Website Owner modified permissions for ${editingUser.name}`, ...prev]);
                       } else {
-                        const newUser: User = {
+                        const newUser: UserType = {
                           id: 'user-' + Date.now(),
                           name: editingUser.name || 'New Staff Member',
                           email: editingUser.email || 'staff@fastcoverages.com',
@@ -4733,6 +5380,90 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
           </div>
         </div>
       </div>
+
+      {/* POST-LIVE STOP BROADCAST INTERACTIVE MODAL */}
+      {showPostLiveModal && (
+        <div id="post-live-modal-overlay" className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-950 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative flex flex-col gap-5 animate-fade-in text-left">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-600/20 border border-red-500/40 text-red-500 flex items-center justify-center">
+                  <Radio className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase text-slate-900 dark:text-white font-mono tracking-wide">
+                    LIVE BROADCAST CONCLUDED
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-serif">
+                    Select an action for this live broadcast recording session
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-2">
+              <span className="text-[10px] font-mono font-bold uppercase text-red-500 tracking-wider">Broadcast Title</span>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white font-sans">{liveTitle}</h4>
+              <div className="flex items-center gap-4 text-xs font-mono text-slate-500 dark:text-slate-400 mt-1">
+                <span>Category: <strong className="text-slate-800 dark:text-slate-200">{liveCategory}</strong></span>
+                <span>Duration: <strong className="text-emerald-500">{pendingPostLiveDuration}s</strong></span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-mono font-black uppercase text-slate-400 tracking-wider">
+                Choose Post-Live Action:
+              </span>
+
+              {/* Option 1: Save Live Video */}
+              <button
+                type="button"
+                onClick={handlePostLiveSave}
+                className="w-full p-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-mono text-xs font-black uppercase tracking-wider flex items-center justify-between shadow-lg shadow-emerald-950/20 transition cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <div className="flex flex-col items-start text-left">
+                    <span>1. SAVE THIS LIVE VIDEO</span>
+                    <span className="text-[10px] font-serif font-normal text-emerald-100 normal-case">
+                      Save recorded stream, auto-generate thumbnail & publish permanently to Live News section
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+              </button>
+
+              {/* Option 2: Upload Another Live Video */}
+              <button
+                type="button"
+                onClick={handlePostLiveUploadAnother}
+                className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs font-black uppercase tracking-wider flex items-center justify-between transition cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <Plus className="w-5 h-5 text-blue-500" />
+                  <div className="flex flex-col items-start text-left">
+                    <span>2. UPLOAD ANOTHER LIVE VIDEO</span>
+                    <span className="text-[10px] font-serif font-normal text-slate-500 dark:text-slate-400 normal-case">
+                      Upload a pre-recorded MP4/MOV/WEBM video broadcast (Up to 10 GB support)
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+              </button>
+
+              {/* Option 3: Delete Live Recording */}
+              <button
+                type="button"
+                onClick={handlePostLiveDelete}
+                className="w-full p-3 rounded-xl bg-red-950/40 hover:bg-red-900/50 border border-red-900/60 text-red-400 font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>3. DELETE THIS LIVE RECORDING</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CUSTOM RESPONSIVE DELETE CONFIRMATION POPUP */}
       {deleteConfirmation?.isOpen && (

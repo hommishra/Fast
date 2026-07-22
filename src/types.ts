@@ -46,11 +46,25 @@ export interface Article {
   category: string;
   subcategory?: string;
   image: string;
-  images?: string[];
+  images?: string[]; // Multiple article images / gallery
   videoUrl?: string;
   author: string;
-  authorRole: UserRole;
+  authorRole?: UserRole;
+  authorImage?: string; // Author profile image URL
+  authorDesignation?: string; // Author designation / title
+  authorBio?: string; // Author biography
+  authorSocials?: {
+    twitter?: string;
+    facebook?: string;
+    linkedin?: string;
+    email?: string;
+  };
+  tags?: string[];
+  seoTitle?: string;
+  seoDescription?: string;
+  metaKeywords?: string[];
   publishDate: string;
+  scheduledDate?: string;
   status: 'Published' | 'Draft' | 'Scheduled';
   isPinned: boolean;
   isFeatured: boolean;
@@ -211,7 +225,7 @@ export interface VideoItem {
   publishDate: string;
   category: string;
   author: string;
-  fileSize?: string; // Up to 5 GB support
+  fileSize?: string; // Up to 10 GB support
   format?: 'MP4' | 'MOV' | 'AVI' | 'WEBM' | 'MKV';
   isLiveRecording?: boolean;
 }
@@ -230,6 +244,22 @@ export interface LiveStreamSession {
   views: number;
   author: string;
   scheduledTime?: string;
+}
+
+export interface LiveBroadcastState {
+  isLive: boolean;
+  title: string;
+  description: string;
+  category: string;
+  streamUrl: string;
+  thumbnailUrl: string;
+  scheduledTime?: string;
+  viewerCount: number;
+  startTime?: string;
+  isPinned?: boolean;
+  author?: string;
+  streamType?: 'camera' | 'upload' | 'stream';
+  enabled?: boolean;
 }
 
 export interface ParentSection {

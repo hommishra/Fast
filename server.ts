@@ -25,8 +25,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: "1gb" }));
-app.use(express.urlencoded({ limit: "1gb", extended: true }));
+app.use(express.json({ limit: "10gb" }));
+app.use(express.urlencoded({ limit: "10gb", extended: true }));
 
 // Serve uploaded video files statically in both dev and production
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
@@ -57,6 +57,24 @@ let videosStore: any[] = [];
 let usersStore: any[] = [];
 let parentSectionsStore: any[] = [];
 let trashStore: any = { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
+
+const defaultLiveBroadcast = {
+  isLive: true,
+  title: "FAST COVERAGES LIVE: GLOBAL SPECIAL NEWS BROADCAST",
+  description: "Live international coverage from field correspondents and studio desks across Washington, London, Delhi, and Tokyo reporting on major geopolitics and market shifts.",
+  category: "BREAKING NEWS",
+  streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+  thumbnailUrl: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200",
+  viewerCount: 2480,
+  isPinned: true,
+  enabled: true,
+  scheduledTime: "",
+  author: "Fast Coverages World Desk",
+  startTime: new Date().toISOString(),
+  streamType: "stream"
+};
+
+let liveBroadcastStore: any = defaultLiveBroadcast;
 
 const fallbackUsers = [
   {
@@ -143,7 +161,8 @@ function broadcastStateUpdate() {
       videos: videosStore,
       users: usersStore,
       parentSections: parentSectionsStore,
-      trash: trashStore
+      trash: trashStore,
+      liveBroadcast: liveBroadcastStore
     }
   });
   
@@ -175,6 +194,7 @@ function loadFromBackup() {
       usersStore = data.users || fallbackUsers;
       parentSectionsStore = data.parentSections || [];
       trashStore = data.trash || { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
+      liveBroadcastStore = data.liveBroadcast || defaultLiveBroadcast;
       
       adminUsernameStore = data.adminUsername || "HariOmMishra";
       adminPasswordSaltStore = data.adminPasswordSalt || "fc_secure_salt_2026_random";
@@ -187,6 +207,7 @@ function loadFromBackup() {
     }
   }
   usersStore = fallbackUsers;
+  liveBroadcastStore = defaultLiveBroadcast;
   console.log("No news_db.json backup found or failed to load. Will load in-memory from React data file.");
 }
 
@@ -205,6 +226,7 @@ function saveToBackup() {
       users: usersStore,
       parentSections: parentSectionsStore,
       trash: trashStore,
+      liveBroadcast: liveBroadcastStore,
       adminUsername: adminUsernameStore,
       adminPasswordSalt: adminPasswordSaltStore,
       adminPasswordHash: adminPasswordHashStore
@@ -393,17 +415,32 @@ app.get("/api/db-state", (req, res) => {
     users: usersStore,
     parentSections: parentSectionsStore,
     trash: trashStore,
+    liveBroadcast: liveBroadcastStore,
     hasBackup: fs.existsSync(DATA_FILE)
   });
 });
 
+// Dedicated Live Broadcast API routes
+app.get("/api/live-broadcast", (req, res) => {
+  res.json({ success: true, liveBroadcast: liveBroadcastStore });
+});
+
+app.post("/api/live-broadcast", (req, res) => {
+  if (req.body) {
+    liveBroadcastStore = { ...liveBroadcastStore, ...req.body };
+    saveToBackup();
+    broadcastStateUpdate();
+  }
+  res.json({ success: true, liveBroadcast: liveBroadcastStore });
+});
+
 // Update DB state from client sync (enables smooth client-server synchronization)
 app.post("/api/db-sync", (req, res) => {
-  const { articles, categories, settings, comments, adSlots, careers, breakingNews, markets, videos, trash, users, parentSections } = req.body;
+  const { articles, categories, settings, comments, adSlots, careers, breakingNews, markets, videos, trash, users, parentSections, liveBroadcast } = req.body;
   
   // Guard administrative changes if an active session is required
   const authHeader = req.headers.authorization;
-  const isUpdatingAdminFields = settings || adSlots || careers || breakingNews || markets || videos || trash || users || parentSections;
+  const isUpdatingAdminFields = settings || adSlots || careers || breakingNews || markets || videos || trash || users || parentSections || liveBroadcast;
   
   let isAdmin = false;
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -433,6 +470,7 @@ app.post("/api/db-sync", (req, res) => {
   if (parentSections) parentSectionsStore = parentSections;
   if (trash) trashStore = trash;
   if (users) usersStore = users;
+  if (liveBroadcast) liveBroadcastStore = liveBroadcast;
   
   saveToBackup();
   broadcastStateUpdate(); // Real-time notification broadcast

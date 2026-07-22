@@ -47,6 +47,7 @@ export default function Navigation({
 
   const baseMenuItems = [
     { name: 'Home', slug: 'home' },
+    { name: '🔴 Live Stream', slug: 'live-news' },
     { name: 'Global Markets', slug: 'global-markets' },
     { name: 'Breaking News', slug: 'breaking-news' },
     { name: 'Latest News', slug: 'latest-news' },
@@ -159,10 +160,14 @@ export default function Navigation({
             })}
           </div>
 
-          <div className="flex items-center gap-1.5 text-[11px] font-black text-editorial-accent uppercase font-mono tracking-widest shrink-0">
-            <span className="w-2 h-2 rounded-full bg-editorial-accent animate-ping"></span>
+          <button
+            type="button"
+            onClick={() => onNavigate('live-news')}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-black uppercase font-mono tracking-widest shrink-0 transition cursor-pointer ${currentPage === 'live-news' ? 'bg-red-600 text-white shadow shadow-red-600/30' : 'text-editorial-accent hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-500/20'}`}
+          >
+            <span className="w-2 h-2 rounded-full bg-red-600 animate-ping"></span>
             <span>LIVE STREAM</span>
-          </div>
+          </button>
         </div>
       </div>
 

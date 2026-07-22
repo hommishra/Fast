@@ -45,6 +45,15 @@ export default function ArticleDetail({
   const [commentBody, setCommentBody] = useState('');
   const [commentSuccess, setCommentSuccess] = useState(false);
 
+  // Lightbox Modal for Article Image Gallery
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // Compile all available article images for the gallery and lightbox
+  const allArticleImages = Array.from(new Set([
+    ...(article.image ? [article.image] : []),
+    ...(article.images || [])
+  ])).filter(Boolean);
+
   // Derive dynamic canonical article URL
   const articleUrl = typeof window !== 'undefined'
     ? `${window.location.origin}${window.location.pathname}?article=${encodeURIComponent(article.id)}`
@@ -346,15 +355,28 @@ export default function ArticleDetail({
             )}
           </div>
 
-          {/* Author & Strict Metadata Line (NO LIKES, NO VIEWS!) */}
+          {/* Author & Strict Metadata Line */}
           <div className="flex flex-wrap items-center justify-between gap-4 border-y border-slate-200 dark:border-white/10 py-4 text-xs">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-editorial-accent/10 border border-editorial-accent/30 flex items-center justify-center text-editorial-accent font-black text-sm font-mono shrink-0">
-                {article.author.charAt(0).toUpperCase()}
-              </div>
+              {article.authorImage ? (
+                <img 
+                  src={article.authorImage} 
+                  alt={article.author || 'Editorial Staff'} 
+                  className="w-11 h-11 rounded-full object-cover border-2 border-editorial-accent/80 shadow-md shrink-0"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-editorial-accent text-white font-black text-base font-mono flex items-center justify-center border-2 border-editorial-accent/80 shadow-md shrink-0">
+                  {(article.author || 'Editorial Staff').charAt(0).toUpperCase()}
+                </div>
+              )}
               <div className="flex flex-col">
-                <span className="font-bold text-slate-900 dark:text-editorial-text text-sm">{article.author}</span>
-                <span className="text-[10px] font-mono font-bold uppercase text-slate-400 dark:text-editorial-text/40">{article.authorRole || 'Senior Editorial Desk'}</span>
+                <span className="font-bold text-slate-900 dark:text-editorial-text text-sm flex items-center gap-1.5">
+                  <span>By {article.author || 'Editorial Staff'}</span>
+                </span>
+                <span className="text-[10px] font-mono font-bold uppercase text-slate-500 dark:text-editorial-text/40">
+                  {article.authorDesignation || article.authorRole || 'Senior News Editor'}
+                </span>
               </div>
             </div>
 
@@ -435,13 +457,22 @@ export default function ArticleDetail({
 
           {/* Featured Image */}
           {article.image && (
-            <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-editorial-bg shadow-sm">
+            <div 
+              className="rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-editorial-bg shadow-sm relative group cursor-pointer"
+              onClick={() => {
+                const imgIdx = allArticleImages.indexOf(article.image);
+                setLightboxIndex(imgIdx >= 0 ? imgIdx : 0);
+              }}
+            >
               <img 
                 src={article.image} 
                 alt={article.title}
-                className="w-full h-auto max-h-[500px] object-cover"
+                className="w-full h-auto max-h-[520px] object-cover group-hover:scale-[1.01] transition duration-300"
                 referrerPolicy="no-referrer"
               />
+              <div className="absolute top-3 right-3 bg-black/75 backdrop-blur-md text-white text-[11px] font-mono px-3 py-1.5 rounded-full flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition">
+                <ExternalLink className="w-3.5 h-3.5 text-red-500" /> Click to view full high-res image
+              </div>
               <div className="p-2.5 bg-slate-50 dark:bg-editorial-bg border-t border-slate-200 dark:border-white/5 text-[11px] font-mono text-slate-500 dark:text-editorial-text/50 flex justify-between items-center">
                 <span>Featured Image • Fast Coverages Global Wire</span>
                 <span>Category: {article.category}</span>
@@ -488,35 +519,103 @@ export default function ArticleDetail({
             );
           })()}
 
-          {/* Coverage Photo Gallery Grid (if images exist) */}
-          {article.images && article.images.length > 0 && (
+          {/* Coverage Photo Gallery Grid */}
+          {allArticleImages.length > 0 && (
             <div className="border-t border-slate-200 dark:border-white/10 pt-6 flex flex-col gap-3">
-              <h3 className="text-xs font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.2em] font-mono flex items-center gap-2">
-                <Layers className="w-4 h-4 text-editorial-accent" />
-                <span>Coverage Gallery ({article.images.length} High-Res Slides)</span>
+              <h3 className="text-xs font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.2em] font-mono flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-editorial-accent" />
+                  <span>Coverage Photo Gallery ({allArticleImages.length} High-Res Slides)</span>
+                </span>
+                <span className="text-[10px] text-slate-400 normal-case font-sans">Click photo to open full-screen viewer</span>
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {article.images.map((imgUrl, idx) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {allArticleImages.map((imgUrl, idx) => (
                   <div 
                     key={idx} 
-                    className="relative aspect-[4/3] rounded overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 group shadow-sm hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => window.open(imgUrl, '_blank')}
+                    className="relative aspect-[4/3] rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 group shadow-sm hover:shadow-md transition-all cursor-pointer"
+                    onClick={() => setLightboxIndex(idx)}
                   >
                     <img 
                       src={imgUrl} 
-                      alt={`Report photo ${idx + 1}`} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                      alt={`Coverage photo ${idx + 1}`} 
+                      className="w-full h-full object-cover group-hover:scale-110 transition duration-300"
                       referrerPolicy="no-referrer"
                     />
-                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-mono font-bold gap-1">
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-mono font-bold gap-1">
                       <ExternalLink className="w-4 h-4" />
-                      <span>Expand</span>
+                      <span>View Slide {idx + 1}</span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {/* Dedicated Author Profile Card (Requirement 3 & 5) */}
+          <div className="border-t-2 border-editorial-accent bg-slate-50 dark:bg-editorial-bg p-6 rounded-lg border border-slate-200/80 dark:border-white/10 flex flex-col md:flex-row items-start gap-5 shadow-sm my-2">
+            {article.authorImage ? (
+              <img 
+                src={article.authorImage} 
+                alt={article.author || 'Editorial Staff'} 
+                className="w-20 h-20 md:w-24 md:h-24 rounded-full object-cover border-2 border-editorial-accent/80 shadow-md shrink-0"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-red-600 to-red-800 text-white font-black text-2xl font-mono flex items-center justify-center border-2 border-editorial-accent shadow-md shrink-0">
+                {(article.author || 'Editorial Staff').charAt(0).toUpperCase()}
+              </div>
+            )}
+
+            <div className="flex-1 flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-white/10 pb-2">
+                <div>
+                  <span className="text-[10px] font-mono font-black uppercase text-editorial-accent tracking-widest block">By</span>
+                  <h4 className="text-lg md:text-xl font-black text-slate-950 dark:text-editorial-text">
+                    {article.author || 'Editorial Staff'}
+                  </h4>
+                  <p className="text-xs font-mono font-bold uppercase text-slate-500 dark:text-editorial-text/50 mt-0.5">
+                    {article.authorDesignation || article.authorRole || 'Senior News Editor'}
+                  </p>
+                </div>
+
+                <div className="text-[11px] font-mono text-slate-500 dark:text-editorial-text/50 bg-white dark:bg-editorial-dark px-3 py-1.5 rounded border border-slate-200 dark:border-white/10 font-semibold">
+                  Published: {formattedPublishDate}
+                </div>
+              </div>
+
+              <p className="text-xs md:text-sm text-slate-600 dark:text-editorial-text/75 font-serif leading-relaxed">
+                {article.authorBio || `${article.author} is a senior editorial correspondent at FAST COVERAGES - GLOBAL NEWS NETWORK, reporting on breaking international developments, political policies, and field disclosures.`}
+              </p>
+
+              {/* Author Social Media Links */}
+              {article.authorSocials && (
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Connect with Author:</span>
+                  {article.authorSocials.twitter && (
+                    <a href={article.authorSocials.twitter} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-full bg-slate-200 dark:bg-white/10 hover:bg-black hover:text-white text-slate-700 dark:text-white transition text-xs">
+                      <Twitter className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  {article.authorSocials.facebook && (
+                    <a href={article.authorSocials.facebook} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-full bg-slate-200 dark:bg-white/10 hover:bg-blue-600 hover:text-white text-slate-700 dark:text-white transition text-xs">
+                      <Facebook className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  {article.authorSocials.linkedin && (
+                    <a href={article.authorSocials.linkedin} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-full bg-slate-200 dark:bg-white/10 hover:bg-blue-700 hover:text-white text-slate-700 dark:text-white transition text-xs">
+                      <Linkedin className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  {article.authorSocials.email && (
+                    <a href={`mailto:${article.authorSocials.email}`} className="p-1.5 rounded-full bg-slate-200 dark:bg-white/10 hover:bg-red-600 hover:text-white text-slate-700 dark:text-white transition text-xs">
+                      <Mail className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Tags & Keywords */}
           {article.keywords && article.keywords.length > 0 && (
@@ -848,6 +947,76 @@ export default function ArticleDetail({
           </button>
         </div>
       </div>
+
+      {/* Full Screen Image Lightbox Modal */}
+      {lightboxIndex !== null && allArticleImages.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-between p-4 sm:p-6 animate-fade-in">
+          {/* Top Bar */}
+          <div className="w-full max-w-6xl flex items-center justify-between text-white border-b border-white/10 pb-3 z-10">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono font-black uppercase text-editorial-accent tracking-widest bg-editorial-accent/20 px-2.5 py-1 rounded border border-editorial-accent/40">
+                Photo {lightboxIndex + 1} of {allArticleImages.length}
+              </span>
+              <span className="text-xs font-mono text-slate-300 hidden sm:inline truncate max-w-md">
+                {article.title}
+              </span>
+            </div>
+
+            <button
+              onClick={() => setLightboxIndex(null)}
+              className="p-2 rounded-full bg-white/10 hover:bg-red-600 text-white transition cursor-pointer"
+              title="Close Full-Screen View"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Main Slide Image */}
+          <div className="relative flex-1 w-full max-w-6xl flex items-center justify-center my-4 overflow-hidden">
+            {allArticleImages.length > 1 && (
+              <button
+                onClick={() => setLightboxIndex((lightboxIndex - 1 + allArticleImages.length) % allArticleImages.length)}
+                className="absolute left-2 sm:left-4 z-20 p-3 rounded-full bg-black/70 hover:bg-red-600 text-white transition cursor-pointer border border-white/20 shadow-xl"
+                title="Previous Image"
+              >
+                <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
+              </button>
+            )}
+
+            <img
+              src={allArticleImages[lightboxIndex]}
+              alt={`Slide ${lightboxIndex + 1}`}
+              className="max-h-[80vh] max-w-full object-contain rounded-lg border border-white/10 shadow-2xl transition duration-200"
+              referrerPolicy="no-referrer"
+            />
+
+            {allArticleImages.length > 1 && (
+              <button
+                onClick={() => setLightboxIndex((lightboxIndex + 1) % allArticleImages.length)}
+                className="absolute right-2 sm:right-4 z-20 p-3 rounded-full bg-black/70 hover:bg-red-600 text-white transition cursor-pointer border border-white/20 shadow-xl"
+                title="Next Image"
+              >
+                <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
+              </button>
+            )}
+          </div>
+
+          {/* Bottom Thumbnails Carousel */}
+          {allArticleImages.length > 1 && (
+            <div className="w-full max-w-4xl flex items-center justify-center gap-2 overflow-x-auto py-2 px-4 bg-black/40 rounded-xl border border-white/10">
+              {allArticleImages.map((img, i) => (
+                <button
+                  key={i}
+                  onClick={() => setLightboxIndex(i)}
+                  className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition shrink-0 ${i === lightboxIndex ? 'border-editorial-accent scale-105 shadow-lg' : 'border-white/20 opacity-50 hover:opacity-100'}`}
+                >
+                  <img src={img} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Premium Share Modal / Popup */}
       {isShareModalOpen && (

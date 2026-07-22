@@ -5,7 +5,7 @@ import {
   initialAdSlots, initialCareers, initialUsers, initialComments,
   initialBreakingNews, initialMarkets, initialVideos, initialParentSections
 } from './data';
-import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection } from './types';
+import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection, LiveBroadcastState } from './types';
 
 // Component Imports
 import OpeningAnimation from './components/OpeningAnimation';
@@ -17,6 +17,7 @@ import AdminPanel from './components/AdminPanel';
 import Footer from './components/Footer';
 import SpecialPages from './components/SpecialPages';
 import ArticleDetail from './components/ArticleDetail';
+import LiveNewsSection from './components/LiveNewsSection';
 
 // Icons
 import { 
@@ -55,6 +56,19 @@ export default function App() {
   const [markets, setMarkets] = useState<MarketItem[]>([]);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [parentSections, setParentSections] = useState<ParentSection[]>([]);
+  const [liveBroadcast, setLiveBroadcast] = useState<LiveBroadcastState>({
+    isLive: true,
+    title: "FAST COVERAGES LIVE: GLOBAL SPECIAL NEWS BROADCAST",
+    description: "Live international coverage from field correspondents and studio desks across Washington, London, Delhi, and Tokyo reporting on major geopolitics and market shifts.",
+    category: "BREAKING NEWS",
+    streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200",
+    viewerCount: 2480,
+    isPinned: true,
+    enabled: true,
+    author: "Fast Coverages World Desk",
+    startTime: new Date().toISOString()
+  });
   const [trash, setTrash] = useState<{
     articles: Article[];
     videos: VideoItem[];
@@ -115,6 +129,8 @@ export default function App() {
         if (data.parentSections) setParentSections(data.parentSections);
         else setParentSections(initialParentSections);
 
+        if (data.liveBroadcast) setLiveBroadcast(data.liveBroadcast);
+
         if (data.trash) setTrash(data.trash);
         else setTrash({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
       })
@@ -153,6 +169,7 @@ export default function App() {
           if (data.videos) setVideos(data.videos);
           if (data.users) setUsers(data.users);
           if (data.parentSections) setParentSections(data.parentSections);
+          if (data.liveBroadcast) setLiveBroadcast(data.liveBroadcast);
           if (data.trash) setTrash(data.trash);
         }
       } catch (err) {
@@ -213,7 +230,8 @@ export default function App() {
     updatedVideos: VideoItem[],
     updatedTrash?: typeof trash,
     updatedUsers?: User[],
-    updatedParentSections?: ParentSection[]
+    updatedParentSections?: ParentSection[],
+    updatedLiveBroadcast?: LiveBroadcastState
   ) => {
     const adminToken = sessionStorage.getItem('fc_admin_token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -236,11 +254,17 @@ export default function App() {
         videos: updatedVideos,
         users: updatedUsers || users,
         parentSections: updatedParentSections || parentSections,
-        trash: updatedTrash || trash
+        trash: updatedTrash || trash,
+        liveBroadcast: updatedLiveBroadcast || liveBroadcast
       })
     }).catch(() => {
       console.log("Offline client sync completed.");
     });
+  };
+
+  const handleUpdateLiveBroadcast = (newLive: LiveBroadcastState) => {
+    setLiveBroadcast(newLive);
+    syncWithServer(articles, categories, settings, adSlots, comments, careers, breakingNews, markets, videos, trash, users, parentSections, newLive);
   };
 
   // State update callbacks
@@ -509,10 +533,17 @@ export default function App() {
               settings={settings}
             />
           </div>
+        ) : currentPage === 'live-news' ? (
+          <LiveNewsSection 
+            liveBroadcast={liveBroadcast} 
+            videos={videos} 
+            onPlayVideo={(v) => setPlayingVideo(v)} 
+            isDarkMode={isDarkMode} 
+          />
         ) : [
           'about-us', 'contact-us', 'advertise-with-us', 'careers',
           'privacy-policy', 'terms-and-conditions', 'disclaimer',
-          'live-news', 'video-news', 'photo-gallery'
+          'video-news', 'photo-gallery'
         ].includes(currentPage) ? (
           /* ================== DYNAMIC CORPORATE & SPECIAL DECK PAGES ================== */
           <SpecialPages
@@ -532,7 +563,8 @@ export default function App() {
           />
         ) : (
           /* ================== STANDARD HOME & ROUTE FEEDS ================== */
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="flex flex-col gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* Main News Stream Column */}
             <div className="lg:col-span-2 flex flex-col gap-6">
@@ -791,26 +823,51 @@ export default function App() {
             </div>
 
           </div>
+          </div>
         )}
 
         {currentPage === 'home' && !selectedArticle && videos && videos.length > 0 && (
           <div className="mt-12 bg-slate-50 dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-6 rounded-lg shadow-sm">
-            <div className="flex items-center justify-between border-b-2 border-editorial-accent pb-2.5 mb-6">
-              <h2 className="text-sm md:text-base font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.25em] font-mono">
-                FEATURED VIDEO BROADCASTS
-              </h2>
+            <div className="flex flex-wrap items-center justify-between border-b-2 border-editorial-accent pb-2.5 mb-6 gap-3">
+              <div 
+                onClick={() => {
+                  setCurrentPage('live-news');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="flex items-center gap-2 cursor-pointer group"
+              >
+                <div className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></div>
+                <h2 className="text-sm md:text-base font-black uppercase text-slate-950 dark:text-editorial-text tracking-[0.25em] font-mono group-hover:text-red-600 transition">
+                  FEATURED VIDEO BROADCASTS
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPage('live-news');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="text-xs font-black font-mono text-red-600 hover:text-red-700 dark:text-red-400 uppercase tracking-wider flex items-center gap-1 cursor-pointer transition"
+              >
+                <span>OPEN LIVE STREAM DESK & ALL VIDEOS</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {videos.map((vid) => (
                 <div 
                   key={vid.id}
-                  onClick={() => setPlayingVideo(vid)}
+                  onClick={() => {
+                    setPlayingVideo(vid);
+                    setCurrentPage('live-news');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                   className="bg-white dark:bg-editorial-bg border border-slate-200 dark:border-white/10 rounded-lg overflow-hidden group cursor-pointer hover:shadow-md transition-all flex flex-col justify-between"
                 >
                   <div className="relative aspect-video overflow-hidden bg-black shrink-0">
                     <img src={vid.thumbnailUrl || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500 opacity-80" alt={vid.title} referrerPolicy="no-referrer" />
                     <div className="absolute inset-0 bg-black/25 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-                      <div className="bg-editorial-accent text-white p-3.5 rounded-full shadow-lg transform group-hover:scale-105 transition-all">
+                      <div className="bg-red-600 text-white p-3.5 rounded-full shadow-lg transform group-hover:scale-105 transition-all">
                         <Play className="w-5 h-5 fill-current ml-0.5" />
                       </div>
                     </div>
@@ -820,7 +877,7 @@ export default function App() {
                   </div>
                   <div className="p-4 flex-1 flex flex-col justify-between gap-2.5">
                     <div className="flex flex-col gap-1">
-                      <h3 className="text-xs md:text-sm font-black text-slate-950 dark:text-editorial-text leading-snug group-hover:text-editorial-accent transition line-clamp-2">{vid.title}</h3>
+                      <h3 className="text-xs md:text-sm font-black text-slate-950 dark:text-editorial-text leading-snug group-hover:text-red-600 transition line-clamp-2">{vid.title}</h3>
                       <p className="text-xs text-slate-500 dark:text-editorial-text/60 line-clamp-2 leading-relaxed">{vid.description}</p>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono border-t border-slate-100 dark:border-white/5 pt-2">
@@ -905,6 +962,8 @@ export default function App() {
           onSaveComments={handleUpdateComments}
           onSaveUsers={handleUpdateUsers}
           onSaveParentSections={handleUpdateParentSections}
+          liveBroadcast={liveBroadcast}
+          onSaveLiveBroadcast={handleUpdateLiveBroadcast}
           onClose={() => {
             setIsAdminOpen(false);
             if (typeof window !== 'undefined' && window.location.pathname === '/admin/login') {
@@ -916,40 +975,98 @@ export default function App() {
 
       {/* 7. Floating Video Player Modal */}
       {playingVideo && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 selection:bg-editorial-accent">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden max-w-4xl w-full flex flex-col shadow-2xl relative">
-            <button 
-              onClick={() => setPlayingVideo(null)}
-              className="absolute top-4 right-4 bg-black/60 hover:bg-black/85 text-white p-2 rounded-full cursor-pointer transition z-10"
-              title="Close Player"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-            
-            <div className="aspect-video bg-black relative flex items-center justify-center">
-              <video 
-                src={playingVideo.videoUrl} 
-                controls 
-                autoPlay 
-                controlsList="nodownload"
-                disablePictureInPicture
-                onContextMenu={(e) => e.preventDefault()}
-                className="w-full h-full"
-              />
-            </div>
-            
-            <div className="p-5 flex flex-col gap-1.5 text-left bg-zinc-900 border-t border-zinc-800 text-white">
-              <span className="text-[10px] font-black uppercase text-editorial-accent font-mono tracking-wider">{playingVideo.category}</span>
-              <h2 className="text-base font-black leading-snug">{playingVideo.title}</h2>
-              <p className="text-xs text-zinc-400 leading-relaxed">{playingVideo.description}</p>
-              <div className="text-[10px] text-zinc-500 font-mono mt-1">
-                Published by {playingVideo.author} on {new Date(playingVideo.publishDate).toLocaleString()}
-              </div>
-            </div>
-          </div>
-        </div>
+        <VideoPlayerModal 
+          video={playingVideo} 
+          onClose={() => setPlayingVideo(null)} 
+        />
       )}
 
+    </div>
+  );
+}
+
+/* ================== ROBUST VIDEO PLAYER MODAL ================== */
+interface VideoPlayerModalProps {
+  video: VideoItem;
+  onClose: () => void;
+}
+
+function VideoPlayerModal({ video, onClose }: VideoPlayerModalProps) {
+  const [currentUrl, setCurrentUrl] = useState<string>(
+    video.videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'
+  );
+  const [hasError, setHasError] = useState(false);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    setCurrentUrl(
+      video.videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'
+    );
+    setHasError(false);
+  }, [video]);
+
+  const handleVideoError = () => {
+    console.warn("Video playback error encountered. Activating studio broadcast stream fallback.");
+    setHasError(true);
+    if (currentUrl !== 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4') {
+      setCurrentUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4 selection:bg-editorial-accent animate-fade-in">
+      <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden max-w-4xl w-full flex flex-col shadow-2xl relative">
+        <button 
+          onClick={onClose}
+          className="absolute top-4 right-4 bg-black/70 hover:bg-red-600 text-white p-2.5 rounded-full cursor-pointer transition z-20 border border-white/20 shadow-lg"
+          title="Close Player"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+
+        <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
+          <video 
+            ref={videoRef}
+            src={currentUrl} 
+            controls 
+            autoPlay 
+            playsInline
+            controlsList="nodownload"
+            disablePictureInPicture
+            onError={handleVideoError}
+            onContextMenu={(e) => e.preventDefault()}
+            className="w-full h-full object-contain"
+          />
+
+          {hasError && (
+            <div className="absolute top-3 left-3 bg-amber-500/90 text-black font-mono font-black text-[10px] px-2.5 py-1 rounded shadow flex items-center gap-1.5 backdrop-blur z-10">
+              <span>⚠ Backup HD Broadcast Feed Active</span>
+            </div>
+          )}
+        </div>
+
+        <div className="p-5 flex flex-col gap-2 text-left bg-zinc-900 border-t border-zinc-800 text-white">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase text-red-500 font-mono tracking-wider bg-red-950/80 border border-red-900/80 px-2.5 py-0.5 rounded">
+              {video.category || 'BROADCAST'}
+            </span>
+            <span className="text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block"></span>
+              Playable Broadcast Feed Active
+            </span>
+          </div>
+
+          <h2 className="text-lg font-black leading-snug">{video.title}</h2>
+          {video.description && (
+            <p className="text-xs text-zinc-300 leading-relaxed font-serif">{video.description}</p>
+          )}
+
+          <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono mt-2 pt-3 border-t border-zinc-800">
+            <span>Uploaded by: <strong className="text-zinc-200">{video.author || 'Fast Coverages Desk'}</strong></span>
+            <span>Published: {new Date(video.publishDate).toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
