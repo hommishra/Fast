@@ -483,7 +483,21 @@ export default function ArticleDetail({
           {/* Article Editorial Body with Dynamic In-Article Advertisements */}
           {(() => {
             const paragraphs = (article.content || '').split('\n\n').filter(p => p.trim());
-            const activeInArticleAds = adSlots.filter(s => (s.type === 'In-Article' || s.type === 'Between-Articles') && s.active);
+            const activeInArticleAds = adSlots.filter(s => {
+              if (!s.active) return false;
+              const posLower = (s.position || s.type || '').toLowerCase();
+              const isInArticleType = posLower.includes('in-article') || posLower.includes('between-articles') || posLower.includes('article');
+              if (!isInArticleType) return false;
+
+              // Check Category Scope
+              if (s.category && s.category !== 'All' && s.category.toLowerCase() !== (article.category || '').toLowerCase()) {
+                return false;
+              }
+              // Check Scope
+              if (s.targetPlacementScope === 'Only Homepage') return false;
+
+              return true;
+            });
 
             if (paragraphs.length <= 1 || activeInArticleAds.length === 0) {
               return (
@@ -497,18 +511,15 @@ export default function ArticleDetail({
               <div className="text-base md:text-lg text-slate-900 dark:text-editorial-text leading-[1.8] space-y-5 font-serif selection:bg-editorial-accent selection:text-white">
                 {paragraphs.map((pText, pIdx) => {
                   const paraNumber = pIdx + 1;
-                  // Check if an ad is configured for this paragraph index
-                  const matchingAd = activeInArticleAds.find(s => s.paragraphPosition === paraNumber) || 
-                    (paraNumber === 1 && !activeInArticleAds.some(s => s.paragraphPosition) ? activeInArticleAds[0] : undefined);
+                  // Find matching ad for this paragraph position (e.g. after 2nd, 4th, 6th paragraph)
+                  const matchingAd = activeInArticleAds.find(s => Number(s.paragraphPosition) === paraNumber) || 
+                    (paraNumber === 2 && !activeInArticleAds.some(s => s.paragraphPosition) ? activeInArticleAds[0] : undefined);
 
                   return (
                     <React.Fragment key={pIdx}>
                       <p className="whitespace-pre-line leading-[1.8]">{pText}</p>
                       {matchingAd && (
                         <div className="my-6 border-y border-slate-100 dark:border-slate-800/80 py-3 bg-slate-50/50 dark:bg-slate-900/20 rounded">
-                          <div className="text-[9px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500 mb-1 tracking-wider text-center">
-                            Sponsored Advertisement • Paragraph {paraNumber}
-                          </div>
                           <AdBanner slot={matchingAd} />
                         </div>
                       )}

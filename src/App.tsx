@@ -5,7 +5,7 @@ import {
   initialAdSlots, initialCareers, initialUsers, initialComments,
   initialBreakingNews, initialMarkets, initialVideos, initialParentSections
 } from './data';
-import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection, LiveBroadcastState } from './types';
+import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection, LiveBroadcastState, EBook, PaymentSettings, EBookPurchase } from './types';
 
 // Component Imports
 import OpeningAnimation from './components/OpeningAnimation';
@@ -18,6 +18,7 @@ import Footer from './components/Footer';
 import SpecialPages from './components/SpecialPages';
 import ArticleDetail from './components/ArticleDetail';
 import LiveNewsSection from './components/LiveNewsSection';
+import { EBooksStore } from './components/EBooksStore';
 
 // Icons
 import { 
@@ -43,6 +44,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [popupDismissed, setPopupDismissed] = useState(false);
 
   // Core synchronized database state
   const [articles, setArticles] = useState<Article[]>([]);
@@ -57,16 +59,16 @@ export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [parentSections, setParentSections] = useState<ParentSection[]>([]);
   const [liveBroadcast, setLiveBroadcast] = useState<LiveBroadcastState>({
-    isLive: true,
-    title: "FAST COVERAGES LIVE: GLOBAL SPECIAL NEWS BROADCAST",
-    description: "Live international coverage from field correspondents and studio desks across Washington, London, Delhi, and Tokyo reporting on major geopolitics and market shifts.",
-    category: "BREAKING NEWS",
-    streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-    thumbnailUrl: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200",
-    viewerCount: 2480,
-    isPinned: true,
+    isLive: false,
+    title: "",
+    description: "",
+    category: "LIVE",
+    streamUrl: "",
+    thumbnailUrl: "",
+    viewerCount: 0,
+    isPinned: false,
     enabled: true,
-    author: "Fast Coverages World Desk",
+    author: "",
     startTime: new Date().toISOString()
   });
   const [trash, setTrash] = useState<{
@@ -76,6 +78,15 @@ export default function App() {
     markets: MarketItem[];
     categories: Category[];
   }>({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
+
+  // E-Books and Payment Gateway state
+  const [ebooks, setEbooks] = useState<EBook[]>([]);
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({
+    razorpay: { keyId: 'rzp_live_fc_global_2026', secretKey: 'fc_razorpay_secret_key', enabled: true, isTestMode: false },
+    upi: { upiId: 'fastcoverages@upi', payeeName: 'FAST COVERAGES MEDIA', enabled: true },
+    paypal: { merchantEmail: 'payments@fastcoverages.com', clientId: 'paypal_client_id_fc_2026', secretKey: 'paypal_secret_key', enabled: true, isSandbox: false }
+  });
+  const [purchases, setPurchases] = useState<EBookPurchase[]>([]);
 
   // Selected Article detail view
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -131,6 +142,10 @@ export default function App() {
 
         if (data.liveBroadcast) setLiveBroadcast(data.liveBroadcast);
 
+        if (data.ebooks) setEbooks(data.ebooks);
+        if (data.paymentSettings) setPaymentSettings(data.paymentSettings);
+        if (data.purchases) setPurchases(data.purchases);
+
         if (data.trash) setTrash(data.trash);
         else setTrash({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
       })
@@ -170,6 +185,9 @@ export default function App() {
           if (data.users) setUsers(data.users);
           if (data.parentSections) setParentSections(data.parentSections);
           if (data.liveBroadcast) setLiveBroadcast(data.liveBroadcast);
+          if (data.ebooks) setEbooks(data.ebooks);
+          if (data.paymentSettings) setPaymentSettings(data.paymentSettings);
+          if (data.purchases) setPurchases(data.purchases);
           if (data.trash) setTrash(data.trash);
         }
       } catch (err) {
@@ -399,6 +417,83 @@ export default function App() {
     handleUpdateArticles(updated);
   };
 
+  // E-Book Handlers
+  const handleSaveEBook = async (ebook: Partial<EBook>) => {
+    try {
+      const isEdit = Boolean(ebook.id);
+      const url = isEdit ? `/api/ebooks/${ebook.id}` : '/api/ebooks';
+      const method = isEdit ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ebook)
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("Server error saving eBook:", res.status, text);
+        return;
+      }
+      const data = await res.json();
+      if (data.success && data.ebook) {
+        if (isEdit) {
+          setEbooks(prev => prev.map(e => e.id === data.ebook.id ? data.ebook : e));
+        } else {
+          setEbooks(prev => [data.ebook, ...prev]);
+        }
+      }
+    } catch (err) {
+      console.error("Error saving eBook:", err);
+    }
+  };
+
+  const handleDeleteEBook = async (id: string) => {
+    try {
+      const res = await fetch(`/api/ebooks/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setEbooks(prev => prev.filter(e => e.id !== id));
+      }
+    } catch (err) {
+      console.error("Error deleting eBook:", err);
+    }
+  };
+
+  const handleSavePaymentSettings = async (newSettings: PaymentSettings) => {
+    try {
+      const res = await fetch('/api/payment-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings)
+      });
+      const data = await res.json();
+      if (data.success && data.paymentSettings) {
+        setPaymentSettings(data.paymentSettings);
+      }
+    } catch (err) {
+      console.error("Error saving payment settings:", err);
+    }
+  };
+
+  const handlePurchaseEBook = async (purchaseData: {
+    ebookId: string;
+    buyerName: string;
+    buyerEmail: string;
+    buyerPhone: string;
+    paymentGateway: 'Razorpay' | 'UPI' | 'PayPal';
+    transactionId?: string;
+  }) => {
+    const res = await fetch('/api/ebooks/purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(purchaseData)
+    });
+    const result = await res.json();
+    if (result.success && result.purchase) {
+      setPurchases(prev => [result.purchase, ...prev]);
+    }
+    return result;
+  };
+
   // Clear selected article and reset URL
   const handleBackToNewsDesk = () => {
     setSelectedArticle(null);
@@ -486,9 +581,25 @@ export default function App() {
         }} 
       />
 
-      {/* Primary Ad Header banner */}
+      {/* Full Screen Popup Advertisement Overlay */}
+      {(() => {
+        const popupAd = adSlots.find(s => s.active && (
+          (s.position || '').toLowerCase().includes('popup') ||
+          (s.type || '').toLowerCase().includes('popup')
+        ));
+        if (!popupAd || popupDismissed) return null;
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div className="max-w-xl w-full bg-slate-900 border border-red-600/40 rounded-2xl p-4 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+              <AdBanner slot={popupAd} onDismiss={() => setPopupDismissed(true)} />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Primary Ad Header / Homepage Top Banner */}
       <div className="max-w-7xl mx-auto w-full px-4 mt-4 shrink-0">
-        <AdBanner slot={adSlots.find(s => s.type === 'Header')} />
+        <AdBanner position="Homepage Top Banner" adSlots={adSlots} />
       </div>
 
       {/* 4. Main Body Grid */}
@@ -540,6 +651,15 @@ export default function App() {
             onPlayVideo={(v) => setPlayingVideo(v)} 
             isDarkMode={isDarkMode} 
           />
+        ) : currentPage === 'ebooks' ? (
+          <div className="w-full">
+            <EBooksStore
+              ebooks={ebooks}
+              paymentSettings={paymentSettings}
+              purchases={purchases}
+              onPurchaseComplete={handlePurchaseEBook}
+            />
+          </div>
         ) : [
           'about-us', 'contact-us', 'advertise-with-us', 'careers',
           'privacy-policy', 'terms-and-conditions', 'disclaimer',
@@ -778,6 +898,11 @@ export default function App() {
                 </div>
               )}
 
+              {/* Homepage Middle Banner Ad Placement */}
+              <div className="w-full my-4">
+                <AdBanner position="Homepage Middle Banner" adSlots={adSlots} />
+              </div>
+
             </div>
 
             {/* Sidebar widget slot columns */}
@@ -892,7 +1017,10 @@ export default function App() {
         )}
 
         {currentPage === 'home' && !selectedArticle && (
-          <div className="mt-8">
+          <div className="mt-8 flex flex-col gap-6">
+            {/* Homepage Bottom Banner */}
+            <AdBanner position="Homepage Bottom Banner" adSlots={adSlots} />
+
             <GlobalMarkets 
               markets={markets} 
               onUpdateMarkets={handleUpdateMarkets} 
@@ -905,7 +1033,7 @@ export default function App() {
 
       {/* Primary Footer Ad Space */}
       <div className="max-w-7xl mx-auto w-full px-4 mb-6 shrink-0">
-        <AdBanner slot={adSlots.find(s => s.type === 'Footer')} />
+        <AdBanner position="Footer Section" adSlots={adSlots} slot={adSlots.find(s => s.type === 'Footer')} />
       </div>
 
       {/* 5. Custom Footer Directory */}
@@ -947,6 +1075,12 @@ export default function App() {
           breakingNews={breakingNews}
           markets={markets}
           videos={videos}
+          ebooks={ebooks}
+          paymentSettings={paymentSettings}
+          purchases={purchases}
+          onSaveEBook={handleSaveEBook}
+          onDeleteEBook={handleDeleteEBook}
+          onSavePaymentSettings={handleSavePaymentSettings}
           trash={trash}
           comments={comments}
           parentSections={parentSections}
@@ -992,25 +1126,18 @@ interface VideoPlayerModalProps {
 }
 
 function VideoPlayerModal({ video, onClose }: VideoPlayerModalProps) {
-  const [currentUrl, setCurrentUrl] = useState<string>(
-    video.videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'
-  );
+  const [currentUrl, setCurrentUrl] = useState<string>(video.videoUrl || '');
   const [hasError, setHasError] = useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    setCurrentUrl(
-      video.videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'
-    );
+    setCurrentUrl(video.videoUrl || '');
     setHasError(false);
   }, [video]);
 
   const handleVideoError = () => {
-    console.warn("Video playback error encountered. Activating studio broadcast stream fallback.");
+    console.warn("Video playback error encountered.");
     setHasError(true);
-    if (currentUrl !== 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4') {
-      setCurrentUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4');
-    }
   };
 
   return (

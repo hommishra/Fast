@@ -5,6 +5,7 @@ export interface UserPermissions {
   partialWebsiteControl: boolean;
   articleManagement: boolean;
   advertisementManagement: boolean;
+  ebookManagement?: boolean;
   videoManagement: boolean;
   breakingNewsManagement: boolean;
   seoManagement: boolean;
@@ -93,24 +94,47 @@ export type AdSlotType =
   | 'In-Article' 
   | 'Between-Articles' 
   | 'Homepage' 
+  | 'Homepage Top Banner'
+  | 'Homepage Middle Banner'
+  | 'Homepage Bottom Banner'
+  | 'Article Top Section'
+  | 'Article Middle Section'
+  | 'Article Bottom Section'
   | 'Breaking-News-Section' 
+  | 'Live Section'
   | 'Video-Ad' 
-  | 'Popup';
+  | 'Popup'
+  | string;
 
 export type AdFormatType = 'Google AdSense' | 'Banner' | 'Native' | 'Custom HTML' | 'Video Ad' | 'Image Ad';
 
 export interface AdSlot {
   id: string;
   type: AdSlotType;
+  title?: string;
+  description?: string;
   label: string;
   code?: string;
+  mediaType?: 'image' | 'video' | 'html';
   imageUrl?: string;
-  targetUrl?: string;
+  videoUrl?: string;
+  mediaUrl?: string;
+  targetUrl?: string; // Target redirect URL for advertiser website
+  position?: string; // Placement position
   active: boolean;
-  paragraphPosition?: number; // Decides which paragraph to show inside (e.g. 1, 2, 3...)
+  isPinned?: boolean;
+  paragraphPosition?: number; // Decides which paragraph to show inside (e.g. 2, 4, 6)
   adSize?: string; // e.g. '728x90', '300x250', 'Fluid', 'Video'
-  category?: string;
+  category?: string; // Category filter, e.g. 'All' or 'Politics'
+  targetPlacementScope?: 'Every Article' | 'Selected Categories' | 'Only Homepage' | 'Hide Specific Articles' | string;
   adType?: AdFormatType;
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string;   // YYYY-MM-DD
+  autoPlay?: boolean;
+  muted?: boolean;
+  views?: number;  // Impression count
+  clicks?: number; // Clicks count
+  createdAt?: string;
 }
 
 export interface PhoneContact {
@@ -135,6 +159,14 @@ export interface OfficeAddressItem {
   mapUrl?: string;
   googleMapsUrl?: string;
   active: boolean;
+}
+
+export interface MultiLanguageSettings {
+  enabled: boolean;
+  defaultLanguage: string;
+  autoTranslate: boolean;
+  disabledLanguages?: string[];
+  customLanguages?: { code: string; name: string; nativeName: string; flag: string }[];
 }
 
 export interface WebsiteSettings {
@@ -167,6 +199,9 @@ export interface WebsiteSettings {
   officeAddresses?: OfficeAddressItem[];
   googleMapsEmbedUrl?: string;
   googleMapsLocationUrl?: string;
+
+  // Multi-Language AI Translation Settings
+  multiLanguageSettings?: MultiLanguageSettings;
 
   // Breaking News Ticker Speed Options
   tickerSpeed?: 'slow' | 'medium' | 'fast' | 'custom';
@@ -268,6 +303,77 @@ export interface ParentSection {
   slug: string;
   active: boolean;
 }
+
+export interface EBook {
+  id: string;
+  title: string;
+  subtitle?: string;
+  author: string;
+  description: string;
+  category: string;
+  price: number;
+  discountPrice?: number;
+  currency: string;
+  pdfUrl: string;
+  pdfFileName?: string;
+  pdfFileSize?: string;
+  coverImage: string;
+  bannerImage?: string;
+  published: boolean;
+  publishDate?: string;
+  scheduledDate?: string;
+  salesCount?: number;
+  revenue?: number;
+  createdAt: string;
+  isFree?: boolean;
+}
+
+export interface RazorpaySettings {
+  keyId: string;
+  secretKey: string;
+  enabled: boolean;
+  isTestMode: boolean;
+}
+
+export interface UPISettings {
+  upiId: string;
+  payeeName: string;
+  enabled: boolean;
+  customQrUrl?: string;
+}
+
+export interface PayPalSettings {
+  merchantEmail: string;
+  clientId: string;
+  secretKey: string;
+  enabled: boolean;
+  isSandbox: boolean;
+}
+
+export interface PaymentSettings {
+  razorpay: RazorpaySettings;
+  upi: UPISettings;
+  paypal: PayPalSettings;
+}
+
+export interface EBookPurchase {
+  id: string;
+  ebookId: string;
+  ebookTitle: string;
+  coverImage: string;
+  pdfUrl?: string;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone?: string;
+  amountPaid: number;
+  currency: string;
+  paymentGateway: 'Razorpay' | 'UPI' | 'PayPal' | 'Free';
+  transactionId: string;
+  paymentStatus: 'Success' | 'Pending' | 'Failed';
+  downloadToken: string;
+  purchasedAt: string;
+}
+
 
 
 

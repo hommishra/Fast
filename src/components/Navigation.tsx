@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Category, WebsiteSettings, ParentSection } from '../types';
 import { 
   Search, Shield, Sun, Moon, Menu, X, Clock, 
-  MapPin, AlertTriangle, Play, ChevronRight 
+  MapPin, AlertTriangle, Play, ChevronRight, Globe
 } from 'lucide-react';
 import FCLogo from './FCLogo';
+import { LanguageSelector } from './LanguageSelector';
 
 interface NavigationProps {
   categories: Category[];
@@ -48,6 +49,7 @@ export default function Navigation({
   const baseMenuItems = [
     { name: 'Home', slug: 'home' },
     { name: '🔴 Live Stream', slug: 'live-news' },
+    { name: '📚 E-Books', slug: 'ebooks' },
     { name: 'Global Markets', slug: 'global-markets' },
     { name: 'Breaking News', slug: 'breaking-news' },
     { name: 'Latest News', slug: 'latest-news' },
@@ -129,8 +131,10 @@ export default function Navigation({
           <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
         </div>
 
-        {/* Theme Toggler and mobile actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Language Selector & Theme Toggler */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <LanguageSelector />
+
           <button 
             onClick={onToggleDarkMode}
             className="p-2.5 rounded-full bg-slate-100 dark:bg-editorial-dark hover:bg-slate-200 dark:hover:bg-white/10 text-slate-600 dark:text-editorial-text/85 transition-colors cursor-pointer"
@@ -196,6 +200,13 @@ export default function Navigation({
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
         <div className="lg:hidden absolute top-[calc(100%-1px)] left-0 w-full bg-white dark:bg-editorial-bg border-b border-slate-200 dark:border-white/10 p-4 shadow-xl flex flex-col gap-3 z-50 overflow-y-auto max-h-[75vh]">
+          
+          {/* Language Selector in Mobile Drawer */}
+          <div className="flex items-center justify-between bg-slate-50 dark:bg-editorial-dark p-2.5 rounded-xl border border-slate-200 dark:border-white/10">
+            <span className="text-xs font-bold text-slate-700 dark:text-editorial-text">Select Language:</span>
+            <LanguageSelector compact={true} />
+          </div>
+
           {/* Search bar inside drawer */}
           <div className="flex items-center relative w-full mb-2">
             <input

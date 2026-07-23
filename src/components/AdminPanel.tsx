@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import FCLogo from './FCLogo';
-import { Article, Category, User as UserType, AdSlot, WebsiteSettings, CareerListing, BreakingNewsItem, MarketItem, VideoItem, Comment, ParentSection, LiveBroadcastState } from '../types';
+import AdManagerAdmin from './AdManagerAdmin';
+import { EBookManagerAdmin } from './EBookManagerAdmin';
+import { Article, Category, User as UserType, AdSlot, WebsiteSettings, CareerListing, BreakingNewsItem, MarketItem, VideoItem, Comment, ParentSection, LiveBroadcastState, EBook, PaymentSettings, EBookPurchase } from '../types';
 import { 
   FileText, FolderPlus, Settings as SettingsIcon, Image as ImageIcon, 
   Video, Eye, Calendar, Sparkles, LogOut, CheckCircle2, AlertTriangle, 
@@ -8,7 +10,8 @@ import {
   TrendingUp, BarChart3, Layout, MessageSquare, Briefcase, HelpCircle,
   Shield, Lock, KeyRound, Radio, TrendingUp as TrendIcon, Check, Power, Layers,
   Phone, Mail, Share2, MapPin, Globe, MessageCircle, Copy, ExternalLink,
-  Facebook, Twitter, Instagram, Youtube, Compass, Map, User as UserIcon, Clock, ChevronRight
+  Facebook, Twitter, Instagram, Youtube, Compass, Map, User as UserIcon, Clock, ChevronRight, Bell,
+  BookOpen, CreditCard
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -21,6 +24,12 @@ interface AdminPanelProps {
   breakingNews: BreakingNewsItem[];
   markets: MarketItem[];
   videos: VideoItem[];
+  ebooks?: EBook[];
+  paymentSettings?: PaymentSettings;
+  purchases?: EBookPurchase[];
+  onSaveEBook?: (ebook: Partial<EBook>) => Promise<void>;
+  onDeleteEBook?: (id: string) => Promise<void>;
+  onSavePaymentSettings?: (settings: PaymentSettings) => Promise<void>;
   trash: {
     articles: Article[];
     videos: VideoItem[];
@@ -63,6 +72,16 @@ export default function AdminPanel({
   breakingNews,
   markets,
   videos = [],
+  ebooks = [],
+  paymentSettings = {
+    razorpay: { keyId: 'rzp_live_fc_global_2026', secretKey: 'fc_razorpay_secret_key', enabled: true, isTestMode: false },
+    upi: { upiId: 'fastcoverages@upi', payeeName: 'FAST COVERAGES MEDIA', enabled: true },
+    paypal: { merchantEmail: 'payments@fastcoverages.com', clientId: 'paypal_client_id_fc_2026', secretKey: 'paypal_secret_key', enabled: true, isSandbox: false }
+  },
+  purchases = [],
+  onSaveEBook = async () => {},
+  onDeleteEBook = async () => {},
+  onSavePaymentSettings = async () => {},
   trash,
   comments,
   parentSections = [],
@@ -96,7 +115,7 @@ export default function AdminPanel({
   const [otpSecondsLeft, setOtpSecondsLeft] = useState(30);
 
   // General Tabs
-  const [activeTab, setActiveTab] = useState<'articles' | 'ai-writer' | 'breaking-news' | 'markets' | 'categories' | 'parent-sections' | 'ads' | 'settings' | 'contact-social' | 'server-deploy' | 'videos' | 'live-broadcast' | 'trash-bin' | 'comments' | 'users'>('articles');
+  const [activeTab, setActiveTab] = useState<'articles' | 'ai-writer' | 'breaking-news' | 'markets' | 'categories' | 'parent-sections' | 'ads' | 'ebooks' | 'settings' | 'contact-social' | 'server-deploy' | 'videos' | 'live-broadcast' | 'trash-bin' | 'comments' | 'users'>('articles');
 
   // Live Video Streaming System State
   const [isLiveStreaming, setIsLiveStreaming] = useState(false);
@@ -104,16 +123,16 @@ export default function AdminPanel({
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
-  const [liveTitle, setLiveTitle] = useState(liveBroadcast?.title || 'LIVE SPECIAL GLOBAL NEWS BROADCAST');
+  const [liveTitle, setLiveTitle] = useState(liveBroadcast?.title || '');
   const [liveCategory, setLiveCategory] = useState(liveBroadcast?.category || 'BREAKING NEWS');
-  const [liveDescription, setLiveDescription] = useState(liveBroadcast?.description || 'Live international coverage from Fast Coverages global desks.');
-  const [liveThumbnail, setLiveThumbnail] = useState(liveBroadcast?.thumbnailUrl || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200');
-  const [liveStreamUrl, setLiveStreamUrl] = useState(liveBroadcast?.streamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4');
+  const [liveDescription, setLiveDescription] = useState(liveBroadcast?.description || '');
+  const [liveThumbnail, setLiveThumbnail] = useState(liveBroadcast?.thumbnailUrl || '');
+  const [liveStreamUrl, setLiveStreamUrl] = useState(liveBroadcast?.streamUrl || '');
   const [liveAuthor, setLiveAuthor] = useState(liveBroadcast?.author || 'Fast Coverages World Desk');
-  const [liveViewerCount, setLiveViewerCount] = useState<number>(liveBroadcast?.viewerCount || 2480);
-  const [isLiveActiveState, setIsLiveActiveState] = useState(liveBroadcast?.isLive !== false);
+  const [liveViewerCount, setLiveViewerCount] = useState<number>(liveBroadcast?.viewerCount || 0);
+  const [isLiveActiveState, setIsLiveActiveState] = useState(liveBroadcast?.isLive || false);
   const [scheduledTime, setScheduledTime] = useState(liveBroadcast?.scheduledTime || '');
-  const [isPinned, setIsPinned] = useState(liveBroadcast?.isPinned !== false);
+  const [isPinned, setIsPinned] = useState(liveBroadcast?.isPinned || false);
   const [isLiveEnabled, setIsLiveEnabled] = useState(liveBroadcast?.enabled !== false);
   const [liveCameraFacing, setLiveCameraFacing] = useState<'user' | 'environment'>('user');
 
@@ -125,10 +144,10 @@ export default function AdminPanel({
       setLiveThumbnail(liveBroadcast.thumbnailUrl || '');
       setLiveStreamUrl(liveBroadcast.streamUrl || '');
       setLiveAuthor(liveBroadcast.author || 'Fast Coverages World Desk');
-      setLiveViewerCount(liveBroadcast.viewerCount || 2480);
-      setIsLiveActiveState(liveBroadcast.isLive !== false);
+      setLiveViewerCount(liveBroadcast.viewerCount || 0);
+      setIsLiveActiveState(liveBroadcast.isLive || false);
       setScheduledTime(liveBroadcast.scheduledTime || '');
-      setIsPinned(liveBroadcast.isPinned !== false);
+      setIsPinned(liveBroadcast.isPinned || false);
       setIsLiveEnabled(liveBroadcast.enabled !== false);
     }
   }, [liveBroadcast]);
@@ -507,17 +526,17 @@ export default function AdminPanel({
 
       const updatedState: LiveBroadcastState = {
         isLive: true,
-        title: liveTitle,
+        title: liveTitle || 'LIVE BROADCAST',
         description: liveDescription,
-        category: liveCategory,
-        streamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+        category: liveCategory || 'BREAKING NEWS',
+        streamUrl: liveStreamUrl,
         thumbnailUrl: liveThumbnail,
-        viewerCount: Math.floor(Math.random() * 400) + 2100,
+        viewerCount: 1,
         isPinned,
         enabled: isLiveEnabled,
         scheduledTime,
         startTime: new Date().toISOString(),
-        author: 'Website Owner (Live Studio)',
+        author: liveAuthor || 'Website Owner',
         streamType: 'camera'
       };
       if (onSaveLiveBroadcast) {
@@ -525,38 +544,35 @@ export default function AdminPanel({
       }
 
       showBanner("LIVE BROADCAST ACTIVE! Broadcasting live worldwide on homepage!");
-      setUserActivityLogs(prev => [`Website Owner started LIVE CAMERA BROADCAST: "${liveTitle}"`, ...prev]);
+      setUserActivityLogs(prev => [`Website Owner started LIVE CAMERA BROADCAST: "${liveTitle || 'Live Stream'}"`, ...prev]);
     } catch (err: any) {
-      console.warn("Camera/Mic hardware or permission unavailable, activating HD Studio Satellite Feed fallback:", err);
-      setIsLiveStreaming(true);
-      if (liveVideoRef.current) {
-        liveVideoRef.current.srcObject = null;
-        liveVideoRef.current.src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4";
-        liveVideoRef.current.loop = true;
-        liveVideoRef.current.play().catch(() => {});
-      }
+      console.warn("Camera/Mic hardware or permission unavailable:", err);
+      if (liveStreamUrl) {
+        setIsLiveStreaming(true);
+        const updatedState: LiveBroadcastState = {
+          isLive: true,
+          title: liveTitle || 'LIVE BROADCAST',
+          description: liveDescription,
+          category: liveCategory || 'BREAKING NEWS',
+          streamUrl: liveStreamUrl,
+          thumbnailUrl: liveThumbnail,
+          viewerCount: 1,
+          isPinned,
+          enabled: isLiveEnabled,
+          scheduledTime,
+          startTime: new Date().toISOString(),
+          author: liveAuthor || 'Website Owner',
+          streamType: 'stream'
+        };
+        if (onSaveLiveBroadcast) {
+          onSaveLiveBroadcast(updatedState);
+        }
 
-      const updatedState: LiveBroadcastState = {
-        isLive: true,
-        title: liveTitle,
-        description: liveDescription,
-        category: liveCategory,
-        streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-        thumbnailUrl: liveThumbnail,
-        viewerCount: 2480,
-        isPinned,
-        enabled: isLiveEnabled,
-        scheduledTime,
-        startTime: new Date().toISOString(),
-        author: 'Website Owner (Studio Feed)',
-        streamType: 'stream'
-      };
-      if (onSaveLiveBroadcast) {
-        onSaveLiveBroadcast(updatedState);
+        showBanner("LIVE BROADCAST ACTIVE! Streaming via live video URL.");
+        setUserActivityLogs(prev => [`Website Owner started LIVE BROADCAST via URL: "${liveTitle}"`, ...prev]);
+      } else {
+        showBanner("⚠️ Camera/Mic permission denied or no camera available. Please allow camera access or enter a Video Stream URL.");
       }
-
-      showBanner("LIVE BROADCAST ACTIVE! (HD Satellite Studio Feed active)");
-      setUserActivityLogs(prev => [`Website Owner started HD STUDIO LIVE BROADCAST: "${liveTitle}"`, ...prev]);
     }
   };
 
@@ -569,7 +585,7 @@ export default function AdminPanel({
     }
 
     let recordedBlob: Blob | null = null;
-    let videoObjectUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4";
+    let videoObjectUrl = liveStreamUrl || "";
     if (recordedChunks.length > 0) {
       recordedBlob = new Blob(recordedChunks, { type: 'video/webm' });
       videoObjectUrl = URL.createObjectURL(recordedBlob);
@@ -592,16 +608,14 @@ export default function AdminPanel({
 
     // Update global state: live ended
     const updatedState: LiveBroadcastState = {
-      ...(liveBroadcast || {
-        title: liveTitle,
-        description: liveDescription,
-        category: liveCategory,
-        streamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-        thumbnailUrl: liveThumbnail,
-        viewerCount: 0,
-        isPinned,
-        enabled: isLiveEnabled
-      }),
+      title: liveTitle,
+      description: liveDescription,
+      category: liveCategory,
+      streamUrl: liveStreamUrl,
+      thumbnailUrl: liveThumbnail,
+      viewerCount: 0,
+      isPinned,
+      enabled: isLiveEnabled,
       isLive: false
     };
     if (onSaveLiveBroadcast) {
@@ -615,15 +629,15 @@ export default function AdminPanel({
   };
 
   const handlePostLiveSave = () => {
-    const finalUrl = pendingPostLiveUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4';
+    const finalUrl = pendingPostLiveUrl || liveStreamUrl || '';
     const newVideoItem: VideoItem = {
       id: `vid-live-${Date.now()}`,
-      title: liveTitle,
-      description: `${liveDescription} (Recorded live session)`,
+      title: liveTitle || 'Recorded Live Session',
+      description: liveDescription ? `${liveDescription} (Recorded live session)` : 'Recorded live broadcast',
       videoUrl: finalUrl,
-      thumbnailUrl: liveThumbnail || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=800',
+      thumbnailUrl: liveThumbnail || '',
       category: liveCategory || 'BREAKING NEWS',
-      author: 'Website Owner (Live Desk)',
+      author: liveAuthor || 'Fast Coverages Desk',
       publishDate: new Date().toISOString(),
       isLiveRecording: true
     };
@@ -1532,6 +1546,13 @@ INSERT INTO website_settings (name, tagline, footer_text, primary_color) VALUES
               className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'ads' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
             >
               <Layout className="w-4.5 h-4.5" /> Advertisements
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('ebooks'); }}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'ebooks' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+            >
+              <BookOpen className="w-4.5 h-4.5 text-amber-500" /> E-Books Management
             </button>
 
             <button
@@ -2779,89 +2800,27 @@ INSERT INTO website_settings (name, tagline, footer_text, primary_color) VALUES
 
             {/* ADVERTISEMENTS */}
             {activeTab === 'ads' && (
-              <form onSubmit={handleUpdateAds} className="bg-white dark:bg-slate-950 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-6">
-                <div>
-                  <h3 className="text-base font-black uppercase text-slate-900 dark:text-white">Commercial Space Management</h3>
-                  <p className="text-xs text-slate-400">Control Google AdSense blocks, custom banner URLs, and active placements instantly across mobile and desktop viewpoints.</p>
-                </div>
+              <AdManagerAdmin
+                adSlots={adForm}
+                categories={categories}
+                onSaveAdSlots={(updated) => {
+                  setAdForm(updated);
+                  onSaveAdSlots(updated);
+                }}
+                showBanner={showBanner}
+              />
+            )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {adForm.map((slot, idx) => (
-                    <div key={slot.id} className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col gap-3">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-850">
-                        <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">{slot.type} Placement</span>
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={slot.active}
-                            onChange={e => {
-                              const updated = [...adForm];
-                              updated[idx].active = e.target.checked;
-                              setAdForm(updated);
-                            }}
-                            className="rounded border-slate-300 dark:border-slate-700 text-red-600 focus:ring-red-500"
-                          />
-                          <span className="text-xs font-bold text-slate-500">Active</span>
-                        </label>
-                      </div>
-
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[10px] uppercase font-bold text-slate-450 dark:text-slate-400">Ad Title / Tracking Identifier</label>
-                        <input
-                          type="text"
-                          value={slot.label}
-                          onChange={e => {
-                            const updated = [...adForm];
-                            updated[idx].label = e.target.value;
-                            setAdForm(updated);
-                          }}
-                          className="w-full border border-slate-250 dark:border-slate-750 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs rounded outline-none dark:text-white font-sans"
-                        />
-                      </div>
-
-                      {slot.imageUrl !== undefined && (
-                        <div className="grid grid-cols-1 gap-2">
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[10px] uppercase font-bold text-slate-450 dark:text-slate-400">Image Creative Link</label>
-                            <input
-                              type="text"
-                              value={slot.imageUrl}
-                              onChange={e => {
-                                const updated = [...adForm];
-                                updated[idx].imageUrl = e.target.value;
-                                setAdForm(updated);
-                              }}
-                              className="w-full border border-slate-250 dark:border-slate-750 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs rounded outline-none dark:text-white font-mono"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[10px] uppercase font-bold text-slate-450 dark:text-slate-400">Destination Redirect URL</label>
-                            <input
-                              type="text"
-                              value={slot.targetUrl || ''}
-                              onChange={e => {
-                                const updated = [...adForm];
-                                updated[idx].targetUrl = e.target.value;
-                                setAdForm(updated);
-                              }}
-                              className="w-full border border-slate-250 dark:border-slate-750 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs rounded outline-none dark:text-white font-mono"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="submit"
-                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-6 rounded text-xs uppercase tracking-wider transition cursor-pointer"
-                  >
-                    Save Placements Instantly
-                  </button>
-                </div>
-              </form>
+            {/* E-BOOKS MANAGEMENT */}
+            {activeTab === 'ebooks' && (
+              <EBookManagerAdmin
+                ebooks={ebooks || []}
+                paymentSettings={paymentSettings}
+                purchases={purchases || []}
+                onSaveEBook={onSaveEBook}
+                onDeleteEBook={onDeleteEBook}
+                onSavePaymentSettings={onSavePaymentSettings}
+              />
             )}
 
             {/* WEBSITE SETTINGS */}
@@ -4725,12 +4684,12 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                       e.preventDefault();
                       const updatedState: LiveBroadcastState = {
                         isLive: isLiveActiveState,
-                        title: liveTitle || 'LIVE SPECIAL GLOBAL NEWS BROADCAST',
-                        description: liveDescription || 'Live international coverage from Fast Coverages global desks.',
+                        title: liveTitle,
+                        description: liveDescription,
                         category: liveCategory || 'BREAKING NEWS',
-                        streamUrl: liveStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-                        thumbnailUrl: liveThumbnail || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200',
-                        viewerCount: Number(liveViewerCount) || 2480,
+                        streamUrl: liveStreamUrl,
+                        thumbnailUrl: liveThumbnail,
+                        viewerCount: Number(liveViewerCount) || 0,
                         isPinned,
                         enabled: isLiveEnabled,
                         scheduledTime,
@@ -4890,7 +4849,7 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                           value={liveViewerCount}
                           onChange={e => setLiveViewerCount(parseInt(e.target.value, 10) || 0)}
                           className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold font-mono text-slate-900 dark:text-white"
-                          placeholder="2480"
+                          placeholder="e.g. 0"
                         />
                       </div>
 

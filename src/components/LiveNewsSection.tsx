@@ -28,25 +28,15 @@ export default function LiveNewsSection({
   const [volume, setVolume] = useState(0.8);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [copiedShare, setCopiedShare] = useState(false);
-  const [viewers, setViewers] = useState(liveBroadcast?.viewerCount || 2480);
+  const [viewers, setViewers] = useState(liveBroadcast?.viewerCount || 0);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Sync viewers with liveBroadcast prop from Admin Panel
+  // Sync viewers with liveBroadcast prop from real server state
   useEffect(() => {
     if (liveBroadcast?.viewerCount !== undefined) {
       setViewers(liveBroadcast.viewerCount);
     }
   }, [liveBroadcast?.viewerCount]);
-
-  // Dynamic viewer count simulation to look authentic & live
-  useEffect(() => {
-    if (!liveBroadcast?.isLive) return;
-    const interval = setInterval(() => {
-      const delta = Math.floor(Math.random() * 15) - 7;
-      setViewers(prev => Math.max(120, prev + delta));
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [liveBroadcast?.isLive]);
 
   // Sync playback properties
   useEffect(() => {
@@ -98,19 +88,19 @@ export default function LiveNewsSection({
 
   return (
     <section className="w-full bg-slate-950 text-white border-y border-red-900/40 shadow-2xl overflow-hidden my-6">
-      {/* Network Header Bar - Displays real Admin Panel Live Broadcast Data */}
+      {/* Network Header Bar */}
       <div className="bg-gradient-to-r from-red-900 via-red-800 to-red-950 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs font-mono font-bold tracking-wider border-b border-red-500/30">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 bg-black/40 px-2.5 py-0.5 rounded text-white border border-white/20">
             <span className="relative flex h-2.5 w-2.5">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${liveBroadcast.isLive ? 'bg-red-400' : 'bg-slate-400'} opacity-75`}></span>
-              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${liveBroadcast.isLive ? 'bg-red-500' : 'bg-slate-500'}`}></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${liveBroadcast.isLive ? 'bg-red-400' : 'bg-slate-500'} opacity-75`}></span>
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${liveBroadcast.isLive ? 'bg-red-500' : 'bg-slate-400'}`}></span>
             </span>
             <span className={`${liveBroadcast.isLive ? 'text-red-400' : 'text-slate-300'} font-black tracking-widest uppercase`}>
-              {liveBroadcast.isLive ? 'LIVE' : 'OFF-AIR'}
+              {liveBroadcast.isLive ? 'LIVE' : 'LIVE HUB'}
             </span>
           </div>
-          {liveBroadcast.title && (
+          {liveBroadcast.isLive && liveBroadcast.title && (
             <span className="text-white font-bold tracking-wider uppercase hidden sm:inline-block line-clamp-1 max-w-md">
               {liveBroadcast.title}
             </span>
@@ -118,13 +108,13 @@ export default function LiveNewsSection({
         </div>
 
         <div className="flex items-center gap-4 text-[11px] text-red-100">
-          {liveBroadcast.isLive && viewers > 0 && (
+          {liveBroadcast.isLive && (
             <div className="flex items-center gap-1.5 bg-black/40 px-2.5 py-0.5 rounded border border-white/10">
               <Eye className="w-3.5 h-3.5 text-red-400" />
               <span className="font-mono text-white font-bold">{viewers.toLocaleString()}</span>
             </div>
           )}
-          {liveBroadcast.author && (
+          {liveBroadcast.isLive && liveBroadcast.author && (
             <div className="hidden md:flex items-center gap-1 text-[10px] text-red-200 uppercase tracking-widest font-mono">
               <span>{liveBroadcast.author}</span>
             </div>
@@ -144,7 +134,7 @@ export default function LiveNewsSection({
               <div className="relative aspect-video bg-slate-900 flex items-center justify-center overflow-hidden">
                 <video
                   ref={videoRef}
-                  src={liveBroadcast.streamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'}
+                  src={liveBroadcast.streamUrl}
                   poster={liveBroadcast.thumbnailUrl}
                   autoPlay
                   loop
@@ -315,7 +305,19 @@ export default function LiveNewsSection({
               </div>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-3 shadow-xl my-2">
+            <div className="w-12 h-12 rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-red-500">
+              <Radio className="w-6 h-6" />
+            </div>
+            <h3 className="text-base md:text-lg font-bold font-sans text-slate-200">
+              No LIVE broadcast is currently available.
+            </h3>
+            <p className="text-xs text-slate-400 max-w-md font-serif">
+              The broadcast studio is currently in standby. When the admin starts a live transmission from the Admin Panel, it will appear here instantly.
+            </p>
+          </div>
+        )}
 
         {/* REPLAY OF PREVIOUS LIVE BROADCASTS & LIVE NEWS VIDEOS */}
         <div className="flex flex-col gap-4 border-t border-slate-800/80 pt-6">

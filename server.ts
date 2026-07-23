@@ -56,22 +56,29 @@ let marketsStore: any[] = [];
 let videosStore: any[] = [];
 let usersStore: any[] = [];
 let parentSectionsStore: any[] = [];
+let ebooksStore: any[] = [];
+let paymentSettingsStore: any = {
+  razorpay: { keyId: "rzp_live_fc_global_2026", secretKey: "fc_razorpay_secret_key", enabled: true, isTestMode: false },
+  upi: { upiId: "fastcoverages@upi", payeeName: "FAST COVERAGES MEDIA", enabled: true },
+  paypal: { merchantEmail: "payments@fastcoverages.com", clientId: "paypal_client_id_fc_2026", secretKey: "paypal_secret_key", enabled: true, isSandbox: false }
+};
+let purchasesStore: any[] = [];
 let trashStore: any = { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
 
 const defaultLiveBroadcast = {
-  isLive: true,
-  title: "FAST COVERAGES LIVE: GLOBAL SPECIAL NEWS BROADCAST",
-  description: "Live international coverage from field correspondents and studio desks across Washington, London, Delhi, and Tokyo reporting on major geopolitics and market shifts.",
-  category: "BREAKING NEWS",
-  streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-  thumbnailUrl: "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&q=80&w=1200",
-  viewerCount: 2480,
-  isPinned: true,
+  isLive: false,
+  title: "",
+  description: "",
+  category: "LIVE",
+  streamUrl: "",
+  thumbnailUrl: "",
+  viewerCount: 0,
+  isPinned: false,
   enabled: true,
   scheduledTime: "",
-  author: "Fast Coverages World Desk",
-  startTime: new Date().toISOString(),
-  streamType: "stream"
+  author: "",
+  startTime: "",
+  streamType: "camera"
 };
 
 let liveBroadcastStore: any = defaultLiveBroadcast;
@@ -193,6 +200,9 @@ function loadFromBackup() {
       videosStore = data.videos || [];
       usersStore = data.users || fallbackUsers;
       parentSectionsStore = data.parentSections || [];
+      ebooksStore = data.ebooks || [];
+      paymentSettingsStore = data.paymentSettings || paymentSettingsStore;
+      purchasesStore = data.purchases || [];
       trashStore = data.trash || { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
       liveBroadcastStore = data.liveBroadcast || defaultLiveBroadcast;
       
@@ -208,7 +218,13 @@ function loadFromBackup() {
   }
   usersStore = fallbackUsers;
   liveBroadcastStore = defaultLiveBroadcast;
-  console.log("No news_db.json backup found or failed to load. Will load in-memory from React data file.");
+  initDefaultEbooks();
+  console.log("No news_db.json backup found or failed to load. Loaded in-memory defaults.");
+}
+
+function initDefaultEbooks() {
+  ebooksStore = [];
+  purchasesStore = [];
 }
 
 function saveToBackup() {
@@ -225,6 +241,9 @@ function saveToBackup() {
       videos: videosStore,
       users: usersStore,
       parentSections: parentSectionsStore,
+      ebooks: ebooksStore,
+      paymentSettings: paymentSettingsStore,
+      purchases: purchasesStore,
       trash: trashStore,
       liveBroadcast: liveBroadcastStore,
       adminUsername: adminUsernameStore,
@@ -395,8 +414,18 @@ app.get("/api/realtime-sync", (req, res) => {
   
   sseClients.push(res);
   
+  // Update real active viewer count when broadcast is live
+  if (liveBroadcastStore && liveBroadcastStore.isLive) {
+    liveBroadcastStore.viewerCount = Math.max(1, sseClients.length);
+    broadcastStateUpdate();
+  }
+
   req.on("close", () => {
     sseClients = sseClients.filter(c => c !== res);
+    if (liveBroadcastStore && liveBroadcastStore.isLive) {
+      liveBroadcastStore.viewerCount = Math.max(1, sseClients.length);
+      broadcastStateUpdate();
+    }
   });
 });
 
@@ -414,6 +443,9 @@ app.get("/api/db-state", (req, res) => {
     videos: videosStore,
     users: usersStore,
     parentSections: parentSectionsStore,
+    ebooks: ebooksStore,
+    paymentSettings: paymentSettingsStore,
+    purchases: purchasesStore,
     trash: trashStore,
     liveBroadcast: liveBroadcastStore,
     hasBackup: fs.existsSync(DATA_FILE)
@@ -428,6 +460,11 @@ app.get("/api/live-broadcast", (req, res) => {
 app.post("/api/live-broadcast", (req, res) => {
   if (req.body) {
     liveBroadcastStore = { ...liveBroadcastStore, ...req.body };
+    if (liveBroadcastStore.isLive) {
+      liveBroadcastStore.viewerCount = Math.max(1, sseClients.length);
+    } else {
+      liveBroadcastStore.viewerCount = 0;
+    }
     saveToBackup();
     broadcastStateUpdate();
   }
@@ -436,11 +473,11 @@ app.post("/api/live-broadcast", (req, res) => {
 
 // Update DB state from client sync (enables smooth client-server synchronization)
 app.post("/api/db-sync", (req, res) => {
-  const { articles, categories, settings, comments, adSlots, careers, breakingNews, markets, videos, trash, users, parentSections, liveBroadcast } = req.body;
+  const { articles, categories, settings, comments, adSlots, careers, breakingNews, markets, videos, trash, users, parentSections, liveBroadcast, ebooks, paymentSettings, purchases } = req.body;
   
   // Guard administrative changes if an active session is required
   const authHeader = req.headers.authorization;
-  const isUpdatingAdminFields = settings || adSlots || careers || breakingNews || markets || videos || trash || users || parentSections || liveBroadcast;
+  const isUpdatingAdminFields = settings || adSlots || careers || breakingNews || markets || videos || trash || users || parentSections || liveBroadcast || ebooks || paymentSettings;
   
   let isAdmin = false;
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -471,6 +508,9 @@ app.post("/api/db-sync", (req, res) => {
   if (trash) trashStore = trash;
   if (users) usersStore = users;
   if (liveBroadcast) liveBroadcastStore = liveBroadcast;
+  if (ebooks) ebooksStore = ebooks;
+  if (paymentSettings) paymentSettingsStore = paymentSettings;
+  if (purchases) purchasesStore = purchases;
   
   saveToBackup();
   broadcastStateUpdate(); // Real-time notification broadcast
@@ -542,7 +582,7 @@ app.delete("/api/admin/delete-content", (req, res) => {
         break;
       case 'ad':
       case 'advertisement':
-        adSlotsStore = adSlotsStore.map(slot => slot.id === id ? { ...slot, active: false, label: "Empty Space", imageUrl: "", targetUrl: "" } : slot);
+        adSlotsStore = adSlotsStore.filter(slot => slot.id !== id);
         deleted = true;
         break;
       case 'comment':
@@ -573,6 +613,126 @@ app.delete("/api/admin/delete-content", (req, res) => {
     console.error("Delete Content Endpoint Error:", error);
     return res.status(500).json({ success: false, message: "Unable to Delete Content due to an internal server error." });
   }
+});
+
+// --- ADVERTISEMENT MANAGEMENT ENDPOINTS ---
+
+// GET /api/ads - Fetch all advertisement slots & items
+app.get("/api/ads", (req, res) => {
+  const today = new Date().toISOString().split("T")[0];
+  const processedAds = adSlotsStore.map((ad: any) => {
+    let active = ad.active !== false;
+    // Check auto scheduling expiry
+    if (ad.endDate && ad.endDate < today) {
+      active = false;
+    }
+    return {
+      ...ad,
+      active,
+      views: ad.views || 0,
+      clicks: ad.clicks || 0
+    };
+  });
+  res.json({ success: true, ads: processedAds });
+});
+
+// POST /api/ads - Create or update advertisement
+app.post("/api/ads", (req, res) => {
+  const adData = req.body;
+  if (!adData) {
+    return res.status(400).json({ success: false, message: "Advertisement data required" });
+  }
+
+  const adId = adData.id || `ad-${Date.now()}`;
+  const existingIdx = adSlotsStore.findIndex((a: any) => a.id === adId);
+
+  const formattedAd = {
+    id: adId,
+    title: adData.title || adData.label || "Sponsored Advertisement",
+    label: adData.label || adData.title || "Sponsored Advertisement",
+    description: adData.description || "",
+    type: adData.position || adData.type || "Homepage Top Banner",
+    position: adData.position || adData.type || "Homepage Top Banner",
+    mediaType: adData.mediaType || (adData.videoUrl ? "video" : "image"),
+    imageUrl: adData.imageUrl || adData.mediaUrl || "",
+    videoUrl: adData.videoUrl || (adData.mediaType === "video" ? adData.mediaUrl : "") || "",
+    mediaUrl: adData.mediaUrl || adData.imageUrl || adData.videoUrl || "",
+    targetUrl: adData.targetUrl || "https://fastcoverages.com",
+    active: adData.active !== false,
+    isPinned: !!adData.isPinned,
+    paragraphPosition: Number(adData.paragraphPosition) || 2,
+    category: adData.category || "All",
+    targetPlacementScope: adData.targetPlacementScope || "Every Article",
+    adType: adData.adType || (adData.videoUrl ? "Video Ad" : "Image Ad"),
+    startDate: adData.startDate || "",
+    endDate: adData.endDate || "",
+    autoPlay: adData.autoPlay !== false,
+    muted: adData.muted !== false,
+    views: Number(adData.views) || 0,
+    clicks: Number(adData.clicks) || 0,
+    createdAt: adData.createdAt || new Date().toISOString()
+  };
+
+  if (existingIdx >= 0) {
+    adSlotsStore[existingIdx] = { ...adSlotsStore[existingIdx], ...formattedAd };
+  } else {
+    adSlotsStore.unshift(formattedAd);
+  }
+
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, ad: formattedAd, ads: adSlotsStore });
+});
+
+// PUT /api/ads/:id - Update advertisement by ID
+app.put("/api/ads/:id", (req, res) => {
+  const { id } = req.params;
+  const existingIdx = adSlotsStore.findIndex((a: any) => a.id === id);
+  if (existingIdx === -1) {
+    return res.status(404).json({ success: false, message: "Advertisement not found" });
+  }
+
+  adSlotsStore[existingIdx] = {
+    ...adSlotsStore[existingIdx],
+    ...req.body
+  };
+
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, ad: adSlotsStore[existingIdx], ads: adSlotsStore });
+});
+
+// DELETE /api/ads/:id - Delete advertisement by ID
+app.delete("/api/ads/:id", (req, res) => {
+  const { id } = req.params;
+  adSlotsStore = adSlotsStore.filter((a: any) => a.id !== id);
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, message: "Advertisement deleted successfully", ads: adSlotsStore });
+});
+
+// POST /api/ads/:id/impression - Record view impression
+app.post("/api/ads/:id/impression", (req, res) => {
+  const { id } = req.params;
+  const ad = adSlotsStore.find((a: any) => a.id === id);
+  if (ad) {
+    ad.views = (Number(ad.views) || 0) + 1;
+    saveToBackup();
+    return res.json({ success: true, views: ad.views });
+  }
+  res.status(404).json({ success: false, message: "Advertisement not found" });
+});
+
+// POST /api/ads/:id/click - Record click & return destination targetUrl
+app.post("/api/ads/:id/click", (req, res) => {
+  const { id } = req.params;
+  const ad = adSlotsStore.find((a: any) => a.id === id);
+  if (ad) {
+    ad.clicks = (Number(ad.clicks) || 0) + 1;
+    saveToBackup();
+    return res.json({ success: true, targetUrl: ad.targetUrl || "https://fastcoverages.com", clicks: ad.clicks });
+  }
+  res.status(404).json({ success: false, message: "Advertisement not found" });
 });
 
 // AI Assisted article writer via Google Gemini
@@ -681,6 +841,326 @@ app.post("/api/upload-image", (req, res) => {
   } catch (err: any) {
     console.error("Image Upload Error:", err);
     res.status(500).json({ error: err.message || "Failed to save uploaded image on server." });
+  }
+});
+
+// Endpoint to directly upload a PDF document file as base64 and save it on server
+app.post("/api/upload-pdf", (req, res) => {
+  const { name, base64 } = req.body;
+  if (!name || !base64) {
+    return res.status(400).json({ error: "Filename and base64 PDF data are required" });
+  }
+
+  try {
+    const uploadsDir = path.join(process.cwd(), "uploads");
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    // Extract raw base64 data by removing potential data URI prefix
+    const base64Data = base64.replace(/^data:application\/pdf;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+
+    const ext = path.extname(name) || ".pdf";
+    const filename = `ebook-${Date.now()}-${Math.floor(Math.random() * 1000)}${ext}`;
+    const filePath = path.join(uploadsDir, filename);
+
+    fs.writeFileSync(filePath, buffer);
+    const sizeInMB = (buffer.length / (1024 * 1024)).toFixed(1) + " MB";
+    console.log(`PDF Document uploaded successfully and saved to ${filePath}`);
+
+    res.json({
+      success: true,
+      fileUrl: `/uploads/${filename}`,
+      fileName: name,
+      fileSize: sizeInMB
+    });
+  } catch (err: any) {
+    console.error("PDF Upload Error:", err);
+    res.status(500).json({ error: err.message || "Failed to save uploaded PDF file on server." });
+  }
+});
+
+// --- E-BOOK MARKETPLACE API ENDPOINTS ---
+
+// GET /api/ebooks - Get all published E-Books
+app.get("/api/ebooks", (req, res) => {
+  res.json({
+    success: true,
+    ebooks: ebooksStore,
+    totalSales: ebooksStore.reduce((acc: number, e: any) => acc + (e.salesCount || 0), 0),
+    totalRevenue: ebooksStore.reduce((acc: number, e: any) => acc + (e.revenue || 0), 0)
+  });
+});
+
+// POST /api/ebooks & PUT /api/ebooks/:id - Create or Update E-Book
+const handleSaveEbookRoute = (req: any, res: any) => {
+  const ebook = req.body || {};
+  if (req.params && req.params.id && !ebook.id) {
+    ebook.id = req.params.id;
+  }
+  if (!ebook || !ebook.title) {
+    return res.status(400).json({ error: "E-Book title and mandatory details required" });
+  }
+
+  const id = ebook.id || `ebook-${Date.now()}`;
+  const existingIdx = ebooksStore.findIndex((e: any) => e.id === id);
+
+  const formattedBook = {
+    id,
+    title: ebook.title,
+    subtitle: ebook.subtitle || "",
+    author: ebook.author || "FAST COVERAGES Editorial",
+    description: ebook.description || "",
+    category: ebook.category || "General",
+    price: Number(ebook.price) || 0,
+    discountPrice: ebook.discountPrice ? Number(ebook.discountPrice) : undefined,
+    currency: ebook.currency || "₹",
+    pdfUrl: ebook.pdfUrl || "",
+    pdfFileName: ebook.pdfFileName || "document.pdf",
+    pdfFileSize: ebook.pdfFileSize || "2.5 MB",
+    coverImage: ebook.coverImage || "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&q=80&w=800",
+    bannerImage: ebook.bannerImage || "",
+    published: ebook.published !== false,
+    publishDate: ebook.publishDate || new Date().toISOString().split('T')[0],
+    scheduledDate: ebook.scheduledDate || "",
+    salesCount: existingIdx >= 0 ? ebooksStore[existingIdx].salesCount || 0 : 0,
+    revenue: existingIdx >= 0 ? ebooksStore[existingIdx].revenue || 0 : 0,
+    createdAt: existingIdx >= 0 ? ebooksStore[existingIdx].createdAt : new Date().toISOString(),
+    isFree: ebook.price === 0 || !!ebook.isFree
+  };
+
+  if (existingIdx >= 0) {
+    ebooksStore[existingIdx] = { ...ebooksStore[existingIdx], ...formattedBook };
+  } else {
+    ebooksStore.unshift(formattedBook);
+  }
+
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, ebook: formattedBook, ebooks: ebooksStore });
+};
+
+app.post("/api/ebooks", handleSaveEbookRoute);
+app.put("/api/ebooks/:id", handleSaveEbookRoute);
+app.post("/api/ebooks/:id", handleSaveEbookRoute);
+
+// DELETE /api/ebooks/:id
+app.delete("/api/ebooks/:id", (req, res) => {
+  const { id } = req.params;
+  ebooksStore = ebooksStore.filter((e: any) => e.id !== id);
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, message: "E-Book deleted successfully", ebooks: ebooksStore });
+});
+
+// GET /api/payment-settings - Get payment gateway settings
+app.get("/api/payment-settings", (req, res) => {
+  res.json({
+    success: true,
+    paymentSettings: paymentSettingsStore
+  });
+});
+
+// POST /api/payment-settings - Save payment gateway settings
+app.post("/api/payment-settings", (req, res) => {
+  const settings = req.body;
+  if (!settings) {
+    return res.status(400).json({ error: "Payment settings required" });
+  }
+
+  paymentSettingsStore = {
+    ...paymentSettingsStore,
+    ...settings
+  };
+
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, paymentSettings: paymentSettingsStore });
+});
+
+// POST /api/ebooks/purchase - Process E-Book purchase & unlock access
+app.post("/api/ebooks/purchase", (req, res) => {
+  const { ebookId, buyerName, buyerEmail, buyerPhone, paymentGateway, transactionId } = req.body;
+
+  const ebook = ebooksStore.find((e: any) => e.id === ebookId);
+  if (!ebook) {
+    return res.status(404).json({ error: "E-Book not found" });
+  }
+
+  const finalAmount = ebook.discountPrice !== undefined && ebook.discountPrice > 0 
+    ? ebook.discountPrice 
+    : ebook.price;
+
+  const downloadToken = crypto.randomBytes(24).toString("hex");
+  const txnId = transactionId || `TXN-${paymentGateway.toUpperCase()}-${Date.now().toString().slice(-6)}`;
+
+  const purchaseRecord = {
+    id: `pur-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    ebookId: ebook.id,
+    ebookTitle: ebook.title,
+    coverImage: ebook.coverImage,
+    pdfUrl: ebook.pdfUrl,
+    buyerName: buyerName || "Valued Reader",
+    buyerEmail: buyerEmail || "reader@fastcoverages.com",
+    buyerPhone: buyerPhone || "",
+    amountPaid: finalAmount,
+    currency: ebook.currency || "₹",
+    paymentGateway: paymentGateway || "UPI",
+    transactionId: txnId,
+    paymentStatus: "Success",
+    downloadToken: downloadToken,
+    purchasedAt: new Date().toISOString()
+  };
+
+  purchasesStore.unshift(purchaseRecord);
+
+  // Update sales statistics
+  ebook.salesCount = (ebook.salesCount || 0) + 1;
+  ebook.revenue = (ebook.revenue || 0) + finalAmount;
+
+  saveToBackup();
+  broadcastStateUpdate();
+
+  res.json({
+    success: true,
+    purchase: purchaseRecord,
+    downloadUrl: `/api/ebooks/download/${ebook.id}?token=${downloadToken}&email=${encodeURIComponent(purchaseRecord.buyerEmail)}`
+  });
+});
+
+// GET /api/ebooks/my-purchases - Get purchased E-Books for user email
+app.get("/api/ebooks/my-purchases", (req, res) => {
+  const email = (req.query.email as string || "").trim().toLowerCase();
+  if (!email) {
+    return res.json({ success: true, purchases: purchasesStore });
+  }
+
+  const userPurchases = purchasesStore.filter(p => (p.buyerEmail || "").trim().toLowerCase() === email);
+  res.json({ success: true, purchases: userPurchases });
+});
+
+// GET /api/ebooks/download/:id - Secure token-based PDF download & stream
+app.get("/api/ebooks/download/:id", (req, res) => {
+  const { id } = req.params;
+  const token = req.query.token as string;
+  const email = req.query.email as string;
+
+  const ebook = ebooksStore.find((e: any) => e.id === id);
+  if (!ebook) {
+    return res.status(404).send("E-Book record not found");
+  }
+
+  // Free eBooks can be downloaded directly
+  const isFree = ebook.price === 0 || ebook.isFree;
+  let authorized = isFree;
+
+  if (!authorized && (token || email)) {
+    const purchase = purchasesStore.find(
+      p => p.ebookId === id && (p.downloadToken === token || (email && p.buyerEmail.toLowerCase() === email.toLowerCase()))
+    );
+    if (purchase && purchase.paymentStatus === "Success") {
+      authorized = true;
+    }
+  }
+
+  if (!authorized) {
+    return res.status(403).send("Unauthorized Access. Valid payment verification or purchase token required to download this E-Book.");
+  }
+
+  // Check physical file path
+  let relativePath = ebook.pdfUrl || "";
+  if (relativePath.startsWith("/")) {
+    relativePath = relativePath.substring(1);
+  }
+
+  const filePath = path.join(process.cwd(), relativePath);
+
+  if (fs.existsSync(filePath)) {
+    const fileName = ebook.pdfFileName || `${ebook.title.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    const fileStream = fs.createReadStream(filePath);
+    return fileStream.pipe(res);
+  } else {
+    // If PDF file is hosted on external CDN/URL or sample file
+    if (ebook.pdfUrl && ebook.pdfUrl.startsWith("http")) {
+      return res.redirect(ebook.pdfUrl);
+    }
+
+    // Generate readable fallback sample PDF buffer on the fly if physical file absent
+    const sampleText = `%PDF-1.4
+1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj
+2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj
+3 0 obj <</Type /Page /Parent 2 0 R /Resources <</Font <</F1 4 0 R>>>> /Contents 5 0 R>> endobj
+4 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica>> endobj
+5 0 obj <</Length 120>> stream
+BT
+/F1 18 Tf
+50 700 Td
+(FAST COVERAGES GLOBAL NEWS NETWORK) Tj
+0 -30 Td
+(${ebook.title}) Tj
+0 -20 Td
+(Author: ${ebook.author}) Tj
+0 -20 Td
+(Official E-Book Publication) Tj
+ET
+endstream endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000062 00000 n 
+0000000117 00000 n 
+0000000220 00000 n 
+0000000293 00000 n 
+trailer <</Size 6 /Root 1 0 R>>
+startxref
+460
+%%EOF`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${ebook.pdfFileName || 'FAST_COVERAGES_EBOOK.pdf'}"`);
+    return res.send(Buffer.from(sampleText));
+  }
+});
+
+// POST /api/translate - AI Multi-Language Translation API endpoint
+app.post("/api/translate", async (req, res) => {
+  try {
+    const { text, texts, targetLanguage = "Hindi" } = req.body;
+    if (!text && (!texts || !Array.isArray(texts) || texts.length === 0)) {
+      return res.status(400).json({ error: "Text or array of texts required for translation" });
+    }
+
+    const ai = getAi();
+    if (text) {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `You are an expert real-time news translator for FAST COVERAGES - GLOBAL NEWS NETWORK. Translate the following news text accurately into ${targetLanguage}. Maintain news tone and clean grammar. Output ONLY the translated text without commentary or quotation marks.\n\nText: ${text}`
+      });
+      const translatedText = response.text ? response.text.trim() : text;
+      return res.json({ success: true, translatedText, targetLanguage });
+    }
+
+    if (texts && Array.isArray(texts)) {
+      const prompt = `Translate the following array of news texts into ${targetLanguage}. Return a JSON array of strings corresponding to each input text in order. Output valid JSON array only.\n\nJSON Input: ${JSON.stringify(texts)}`;
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+      let translatedTexts = texts;
+      try {
+        const cleaned = response.text ? response.text.replace(/```json/g, '').replace(/```/g, '').trim() : '';
+        translatedTexts = JSON.parse(cleaned);
+      } catch (e) {
+        translatedTexts = texts;
+      }
+      return res.json({ success: true, translatedTexts, targetLanguage });
+    }
+  } catch (err: any) {
+    console.error("Translation API error:", err);
+    res.status(500).json({ error: "Translation failed", message: err.message });
   }
 });
 
