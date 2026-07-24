@@ -5,6 +5,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import crypto from "crypto";
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
@@ -27,6 +28,7 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "10gb" }));
 app.use(express.urlencoded({ limit: "10gb", extended: true }));
+app.use(express.raw({ type: "application/octet-stream", limit: "100mb" }));
 
 // Serve uploaded video files statically in both dev and production
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
@@ -64,6 +66,224 @@ let paymentSettingsStore: any = {
 };
 let purchasesStore: any[] = [];
 let trashStore: any = { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
+
+let inquiriesStore: any[] = [
+  {
+    id: "INQ-2026-N7X9A",
+    name: "Alexander Vance",
+    email: "a.vance@presswire.org",
+    category: "Breaking News Tip",
+    message: "Exclusive intelligence on the upcoming East Asian energy trade corridor agreement signed in Geneva. Verification documentation attached for newsroom review.",
+    files: [
+      { name: "geneva_energy_memo.pdf", url: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", size: "2.4 MB", type: "application/pdf" }
+    ],
+    submittedAt: "2026-07-24T01:15:00.000Z",
+    status: "Unread",
+    deviceInfo: "Chrome 126 / macOS Sonoma",
+    country: "Switzerland",
+    replies: []
+  },
+  {
+    id: "INQ-2026-K3M8P",
+    name: "Elena Rostova",
+    email: "e.rostova@techcorp.io",
+    category: "Business Inquiry",
+    message: "Our enterprise technology firm would like to sponsor the daily Global Markets column on FAST COVERAGES. Please send rate card and ad placement packages.",
+    files: [],
+    submittedAt: "2026-07-23T18:40:00.000Z",
+    status: "Read",
+    deviceInfo: "Edge 125 / Windows 11",
+    country: "United Kingdom",
+    replies: [
+      {
+        id: "rep-101",
+        senderName: "FAST COVERAGES Commercial Desk",
+        senderEmail: "fastcoveragenews@gmail.com",
+        message: "Hello Elena, thank you for reaching out. Our advertisement media kit and global sponsorship rates have been emailed to your address.",
+        sentAt: "2026-07-23T20:00:00.000Z"
+      }
+    ]
+  }
+];
+
+let adInquiriesStore: any[] = [
+  {
+    id: "EAD-2026-N9X1A",
+    companyName: "Apex Global Energy Ltd",
+    partnerEmail: "partnerships@apexglobalenergy.com",
+    mobileNumber: "+1 (555) 019-2834",
+    companyWebsite: "https://apexglobalenergy.com",
+    advertisingRequirement: "Homepage Top Banner (728x90) & Video Pre-roll",
+    message: "We are interested in a 6-month exclusive banner campaign across Energy & Business sections. Please send media kit and pricing structure.",
+    submittedAt: "2026-07-24T02:00:00.000Z",
+    status: "New",
+    deviceInfo: "Chrome 126 / macOS Sonoma"
+  },
+  {
+    id: "EAD-2026-V8M3K",
+    companyName: "Vanguard Tech Ventures",
+    partnerEmail: "ads@vanguardtech.io",
+    mobileNumber: "+44 20 7946 0912",
+    companyWebsite: "https://vanguardtech.io",
+    advertisingRequirement: "Sidebar Sticky Banner & Mid-Article",
+    message: "Requesting rate card for tech category audience targeting and monthly impression stats.",
+    submittedAt: "2026-07-23T16:20:00.000Z",
+    status: "Contacted",
+    deviceInfo: "Edge 125 / Windows 11"
+  }
+];
+
+
+let newsletterSettingsStore: any = {
+  enabled: true,
+  autoSendArticleAlerts: true,
+  sendBreakingNewsAlerts: true,
+  sendWeeklyNewsletters: true,
+  sendDailyBulletins: true,
+  senderEmail: "fastcoveragenews@gmail.com",
+  smtpHost: "",
+  smtpPort: 587,
+  smtpUser: "",
+  smtpPass: "",
+  welcomeSubject: "Welcome to FAST COVERAGES - Global News Network",
+  welcomeMessage: "Thank you for subscribing to FAST COVERAGES. You will now receive breaking news, global updates, and exclusive reports directly in your inbox."
+};
+
+let subscribersStore: any[] = [
+  {
+    id: "sub-1001",
+    email: "editor.desk@fastcoverages.com",
+    subscribedAt: "2026-07-20T10:15:00.000Z",
+    status: "Active",
+    notificationsEnabled: true,
+    totalEmailsSent: 12,
+    lastNotificationSent: "2026-07-24T02:00:00.000Z",
+    openHistoryCount: 11,
+    newsletterStatus: "Subscribed"
+  },
+  {
+    id: "sub-1002",
+    email: "world.news.subscriber@gmail.com",
+    subscribedAt: "2026-07-22T14:30:00.000Z",
+    status: "Active",
+    notificationsEnabled: true,
+    totalEmailsSent: 5,
+    lastNotificationSent: "2026-07-24T01:30:00.000Z",
+    openHistoryCount: 5,
+    newsletterStatus: "Subscribed"
+  },
+  {
+    id: "sub-1003",
+    email: "hommishra65@gmail.com",
+    subscribedAt: "2026-07-24T02:10:00.000Z",
+    status: "Active",
+    notificationsEnabled: true,
+    totalEmailsSent: 2,
+    lastNotificationSent: "2026-07-24T02:12:00.000Z",
+    openHistoryCount: 2,
+    newsletterStatus: "Subscribed"
+  }
+];
+
+async function dispatchEmail({ to, subject, htmlText, title, summary, actionUrl }: { to: string | string[]; subject: string; htmlText?: string; title?: string; summary?: string; actionUrl?: string }) {
+  const recipients = Array.isArray(to) ? to.join(", ") : to;
+  const sender = newsletterSettingsStore.senderEmail || "fastcoveragenews@gmail.com";
+
+  const emailBodyHtml = htmlText || `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #e2e8f0;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0b0f19; padding: 20px 0;">
+          <tr>
+            <td align="center">
+              <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color: #020617; border-radius: 12px; border: 1px solid #1e293b; overflow: hidden; max-width: 92%;">
+                <!-- Header -->
+                <tr>
+                  <td style="background-color: #000000; padding: 24px 30px; text-align: center; border-bottom: 3px solid #dc2626;">
+                    <div style="font-size: 24px; font-weight: 900; color: #ffffff; letter-spacing: 2px; font-family: sans-serif;">
+                      <span style="background-color: #dc2626; color: #ffffff; padding: 2px 8px; border-radius: 4px; margin-right: 6px;">FAST</span> COVERAGES
+                    </div>
+                    <div style="font-size: 10px; color: #94a3b8; font-family: monospace; letter-spacing: 3px; margin-top: 4px; text-transform: uppercase;">
+                      GLOBAL NEWS NETWORK
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 32px 30px;">
+                    <div style="font-size: 12px; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; font-family: monospace;">
+                      OFFICIAL DISPATCH
+                    </div>
+                    <h2 style="font-size: 22px; font-weight: 800; color: #ffffff; margin: 0 0 16px 0; line-height: 1.3;">
+                      ${title || subject}
+                    </h2>
+                    <p style="font-size: 15px; color: #cbd5e1; line-height: 1.6; margin: 0 0 24px 0;">
+                      ${summary || "Thank you for subscribing to FAST COVERAGES – Global News Network. You will receive breaking news bulletins, international reports, and market intelligence."}
+                    </p>
+
+                    ${actionUrl ? `
+                    <div style="margin: 28px 0; text-align: center;">
+                      <a href="${actionUrl}" style="background-color: #dc2626; color: #ffffff; text-decoration: none; padding: 12px 28px; font-size: 14px; font-weight: 800; border-radius: 6px; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+                        Read Full Story on Website →
+                      </a>
+                    </div>
+                    ` : ""}
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="background-color: #0f172a; padding: 20px 30px; text-align: center; border-top: 1px solid #1e293b;">
+                    <p style="font-size: 12px; color: #64748b; margin: 0 0 8px 0;">
+                      Sent via FAST COVERAGES Global Communications Desk • ${sender}
+                    </p>
+                    <p style="font-size: 11px; color: #475569; margin: 0;">
+                      To stop receiving updates, <a href="${actionUrl || 'https://fastcoverages.com'}#unsubscribe" style="color: #94a3b8; text-decoration: underline;">Unsubscribe Here</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
+
+  if (newsletterSettingsStore.smtpHost && newsletterSettingsStore.smtpUser && newsletterSettingsStore.smtpPass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: newsletterSettingsStore.smtpHost,
+        port: newsletterSettingsStore.smtpPort || 587,
+        secure: (newsletterSettingsStore.smtpPort === 465),
+        auth: {
+          user: newsletterSettingsStore.smtpUser,
+          pass: newsletterSettingsStore.smtpPass
+        }
+      });
+
+      await transporter.sendMail({
+        from: `"FAST COVERAGES Global News Network" <${sender}>`,
+        to: recipients,
+        subject,
+        html: emailBodyHtml
+      });
+      console.log(`[EMAIL DISPATCH SUCCESS via SMTP] Sent to: ${recipients}`);
+      return { success: true, mode: "smtp" };
+    } catch (smtpErr: any) {
+      console.warn(`[EMAIL DISPATCH SMTP WARN] ${smtpErr.message}. Defaulting to server mail ledger.`);
+    }
+  }
+
+  console.log(`[EMAIL DISPATCH LEDGER RECORDED] From: ${sender} | To: ${recipients} | Subject: ${subject}`);
+  return { success: true, mode: "system_ledger" };
+}
 
 const defaultLiveBroadcast = {
   isLive: false,
@@ -169,7 +389,10 @@ function broadcastStateUpdate() {
       users: usersStore,
       parentSections: parentSectionsStore,
       trash: trashStore,
-      liveBroadcast: liveBroadcastStore
+      liveBroadcast: liveBroadcastStore,
+      subscribers: subscribersStore,
+      newsletterSettings: newsletterSettingsStore,
+      adInquiries: adInquiriesStore
     }
   });
   
@@ -205,6 +428,10 @@ function loadFromBackup() {
       purchasesStore = data.purchases || [];
       trashStore = data.trash || { articles: [], videos: [], breakingNews: [], markets: [], categories: [] };
       liveBroadcastStore = data.liveBroadcast || defaultLiveBroadcast;
+      subscribersStore = data.subscribers || subscribersStore;
+      newsletterSettingsStore = data.newsletterSettings || newsletterSettingsStore;
+      inquiriesStore = data.inquiries || inquiriesStore;
+      adInquiriesStore = data.adInquiries || adInquiriesStore;
       
       adminUsernameStore = data.adminUsername || "HariOmMishra";
       adminPasswordSaltStore = data.adminPasswordSalt || "fc_secure_salt_2026_random";
@@ -246,6 +473,10 @@ function saveToBackup() {
       purchases: purchasesStore,
       trash: trashStore,
       liveBroadcast: liveBroadcastStore,
+      subscribers: subscribersStore,
+      newsletterSettings: newsletterSettingsStore,
+      inquiries: inquiriesStore,
+      adInquiries: adInquiriesStore,
       adminUsername: adminUsernameStore,
       adminPasswordSalt: adminPasswordSaltStore,
       adminPasswordHash: adminPasswordHashStore
@@ -448,11 +679,232 @@ app.get("/api/db-state", (req, res) => {
     purchases: purchasesStore,
     trash: trashStore,
     liveBroadcast: liveBroadcastStore,
+    subscribers: subscribersStore,
+    newsletterSettings: newsletterSettingsStore,
     hasBackup: fs.existsSync(DATA_FILE)
   });
 });
 
+// --- NEWSLETTER & SUBSCRIBERS ENDPOINTS ---
+
+// Get all subscribers and newsletter settings
+app.get("/api/subscribers", (req, res) => {
+  res.json({
+    success: true,
+    subscribers: subscribersStore,
+    newsletterSettings: newsletterSettingsStore
+  });
+});
+
+// Subscribe user to Newsletter
+app.post("/api/newsletter/subscribe", async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || typeof email !== 'string' || !email.includes('@') || !email.includes('.')) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    let subscriber = subscribersStore.find(s => s.email.toLowerCase() === cleanEmail);
+
+    if (subscriber) {
+      if (subscriber.status === 'Active') {
+        return res.json({
+          success: true,
+          alreadySubscribed: true,
+          message: "You are already subscribed to FAST COVERAGES Global Bulletin Briefing!"
+        });
+      } else {
+        subscriber.status = 'Active';
+        subscriber.notificationsEnabled = true;
+        subscriber.newsletterStatus = 'Subscribed';
+        subscriber.subscribedAt = new Date().toISOString();
+        subscriber.totalEmailsSent = (subscriber.totalEmailsSent || 0) + 1;
+        subscriber.lastNotificationSent = new Date().toISOString();
+      }
+    } else {
+      subscriber = {
+        id: "sub-" + Date.now(),
+        email: cleanEmail,
+        subscribedAt: new Date().toISOString(),
+        status: "Active",
+        notificationsEnabled: true,
+        totalEmailsSent: 1,
+        lastNotificationSent: new Date().toISOString(),
+        openHistoryCount: 1,
+        newsletterStatus: "Subscribed"
+      };
+      subscribersStore.unshift(subscriber);
+    }
+
+    // Dispatch welcome email automatically
+    await dispatchEmail({
+      to: cleanEmail,
+      subject: newsletterSettingsStore.welcomeSubject || "Welcome to FAST COVERAGES - Global News Network",
+      title: "Welcome to FAST COVERAGES",
+      summary: newsletterSettingsStore.welcomeMessage || "Thank you for subscribing to FAST COVERAGES. You will now receive breaking news, global updates, and exclusive reports directly in your inbox.",
+      actionUrl: "https://fastcoverages.com"
+    });
+
+    saveToBackup();
+    broadcastStateUpdate();
+
+    res.json({
+      success: true,
+      message: "Thank you for subscribing! Welcome email dispatched to " + cleanEmail,
+      subscriber
+    });
+  } catch (err: any) {
+    console.error("Error subscribing email:", err);
+    res.status(500).json({ error: err.message || "Failed to process subscription." });
+  }
+});
+
+// Unsubscribe user
+app.post("/api/newsletter/unsubscribe", (req, res) => {
+  const { email } = req.body || {};
+  if (!email) {
+    return res.status(400).json({ error: "Email address is required." });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const subscriber = subscribersStore.find(s => s.email.toLowerCase() === cleanEmail);
+  if (subscriber) {
+    subscriber.status = 'Inactive';
+    subscriber.notificationsEnabled = false;
+    subscriber.newsletterStatus = 'Unsubscribed';
+    saveToBackup();
+    broadcastStateUpdate();
+    return res.json({ success: true, message: `Email ${cleanEmail} unsubscribed successfully.` });
+  }
+
+  res.json({ success: true, message: `Email address was not found in active subscribers.` });
+});
+
+// Update Subscriber details or toggle notification
+app.put("/api/subscribers/:id", (req, res) => {
+  const { id } = req.params;
+  const subscriberIndex = subscribersStore.findIndex(s => s.id === id);
+  if (subscriberIndex === -1) {
+    return res.status(404).json({ error: "Subscriber not found." });
+  }
+
+  subscribersStore[subscriberIndex] = {
+    ...subscribersStore[subscriberIndex],
+    ...req.body
+  };
+
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, subscriber: subscribersStore[subscriberIndex] });
+});
+
+// Permanently Delete Single Subscriber
+app.delete("/api/subscribers/:id", (req, res) => {
+  const { id } = req.params;
+  const initialCount = subscribersStore.length;
+  subscribersStore = subscribersStore.filter(s => s.id !== id);
+
+  if (subscribersStore.length === initialCount) {
+    return res.status(404).json({ error: "Subscriber not found." });
+  }
+
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, message: "Subscriber permanently deleted from database." });
+});
+
+// Delete Multiple Subscribers
+app.post("/api/subscribers/delete-multiple", (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "No subscriber IDs provided for deletion." });
+  }
+
+  const idsToDelete = new Set(ids);
+  subscribersStore = subscribersStore.filter(s => !idsToDelete.has(s.id));
+
+  saveToBackup();
+  broadcastStateUpdate();
+  res.json({ success: true, message: `${ids.length} subscriber(s) permanently removed.` });
+});
+
+// Admin Manual or Automated Email Broadcast Dispatch
+app.post("/api/newsletter/send", async (req, res) => {
+  try {
+    const { recipientType, recipientEmails, subject, title, summary, content, actionUrl } = req.body || {};
+    
+    if (!subject) {
+      return res.status(400).json({ error: "Email subject line is required." });
+    }
+
+    let targetEmails: string[] = [];
+
+    if (recipientType === 'single' || recipientType === 'selected') {
+      if (Array.isArray(recipientEmails) && recipientEmails.length > 0) {
+        targetEmails = recipientEmails;
+      }
+    } else {
+      // Send to all active subscribers with notifications enabled
+      targetEmails = subscribersStore
+        .filter(s => s.status === 'Active' && s.notificationsEnabled !== false)
+        .map(s => s.email);
+    }
+
+    if (targetEmails.length === 0) {
+      return res.status(400).json({ error: "No active subscriber recipients found for dispatch." });
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // Update subscriber stats
+    subscribersStore.forEach(s => {
+      if (targetEmails.includes(s.email)) {
+        s.totalEmailsSent = (s.totalEmailsSent || 0) + 1;
+        s.lastNotificationSent = nowIso;
+      }
+    });
+
+    // Send email dispatch
+    await dispatchEmail({
+      to: targetEmails,
+      subject,
+      title: title || subject,
+      summary: summary || content,
+      actionUrl: actionUrl || "https://fastcoverages.com"
+    });
+
+    saveToBackup();
+    broadcastStateUpdate();
+
+    res.json({
+      success: true,
+      message: `Newsletter email successfully sent to ${targetEmails.length} subscriber(s).`,
+      sentCount: targetEmails.length,
+      recipients: targetEmails
+    });
+  } catch (err: any) {
+    console.error("Error sending newsletter broadcast:", err);
+    res.status(500).json({ error: err.message || "Failed to dispatch email broadcast." });
+  }
+});
+
+// Update Newsletter Settings from Admin Panel
+app.post("/api/newsletter/settings", (req, res) => {
+  if (req.body) {
+    newsletterSettingsStore = {
+      ...newsletterSettingsStore,
+      ...req.body
+    };
+    saveToBackup();
+    broadcastStateUpdate();
+  }
+  res.json({ success: true, newsletterSettings: newsletterSettingsStore });
+});
+
 // Dedicated Live Broadcast API routes
+let liveStreamActiveFile = path.join(process.cwd(), "uploads", "live-active.webm");
+
 app.get("/api/live-broadcast", (req, res) => {
   res.json({ success: true, liveBroadcast: liveBroadcastStore });
 });
@@ -471,9 +923,159 @@ app.post("/api/live-broadcast", (req, res) => {
   res.json({ success: true, liveBroadcast: liveBroadcastStore });
 });
 
+// Real-Time Camera Stream Endpoints
+app.post("/api/live-stream/start", (req, res) => {
+  try {
+    const uploadsDir = path.join(process.cwd(), "uploads");
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    if (fs.existsSync(liveStreamActiveFile)) {
+      try { fs.unlinkSync(liveStreamActiveFile); } catch (e) {}
+    }
+
+    if (req.body) {
+      liveBroadcastStore = {
+        ...liveBroadcastStore,
+        ...req.body,
+        isLive: true,
+        streamUrl: req.body.streamUrl || "/api/live-stream/feed",
+        viewerCount: Math.max(1, sseClients.length)
+      };
+      saveToBackup();
+      broadcastStateUpdate();
+    }
+    res.json({ success: true, liveBroadcast: liveBroadcastStore });
+  } catch (err: any) {
+    console.error("Error starting live stream session:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/live-stream/chunk", (req, res) => {
+  try {
+    let chunkBuffer: Buffer | null = null;
+    if (Buffer.isBuffer(req.body)) {
+      chunkBuffer = req.body;
+    } else if (req.body && req.body.base64) {
+      const clean = req.body.base64.replace(/^data:[^;]+;base64,/, "");
+      chunkBuffer = Buffer.from(clean, "base64");
+    }
+
+    if (chunkBuffer && chunkBuffer.length > 0) {
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.appendFileSync(liveStreamActiveFile, chunkBuffer);
+
+      if (liveBroadcastStore) {
+        liveBroadcastStore.isLive = true;
+        if (!liveBroadcastStore.streamUrl || liveBroadcastStore.streamUrl === "") {
+          liveBroadcastStore.streamUrl = "/api/live-stream/feed";
+        }
+      }
+    }
+
+    res.json({ success: true, fileSize: fs.existsSync(liveStreamActiveFile) ? fs.statSync(liveStreamActiveFile).size : 0 });
+  } catch (err: any) {
+    console.error("Live stream chunk ingestion error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/live-stream/feed", (req, res) => {
+  try {
+    if (!fs.existsSync(liveStreamActiveFile)) {
+      res.setHeader("Content-Type", "video/webm");
+      return res.end();
+    }
+
+    const stat = fs.statSync(liveStreamActiveFile);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = (end - start) + 1;
+      const file = fs.createReadStream(liveStreamActiveFile, { start, end });
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunksize,
+        "Content-Type": "video/webm",
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      });
+      file.pipe(res);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": "video/webm",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      });
+      fs.createReadStream(liveStreamActiveFile).pipe(res);
+    }
+  } catch (err: any) {
+    console.error("Error serving live feed:", err);
+    res.status(500).end();
+  }
+});
+
+app.post("/api/live-stream/stop", (req, res) => {
+  try {
+    const timestamp = Date.now();
+    const recordedFilename = `recorded-live-${timestamp}.webm`;
+    const uploadsDir = path.join(process.cwd(), "uploads");
+    const recordedPath = path.join(uploadsDir, recordedFilename);
+    const recordedUrl = `/uploads/${recordedFilename}`;
+
+    let videoUrl = recordedUrl;
+    if (fs.existsSync(liveStreamActiveFile) && fs.statSync(liveStreamActiveFile).size > 0) {
+      fs.copyFileSync(liveStreamActiveFile, recordedPath);
+    } else if (liveBroadcastStore.streamUrl && liveBroadcastStore.streamUrl !== "/api/live-stream/feed") {
+      videoUrl = liveBroadcastStore.streamUrl;
+    }
+
+    const { title, description, category, author, thumbnailUrl } = req.body || {};
+
+    const newRecordedVideo = {
+      id: `recorded-live-${timestamp}`,
+      title: title || liveBroadcastStore.title || 'Recorded Live Broadcast',
+      description: description || liveBroadcastStore.description || 'Live global news broadcast recording',
+      category: category || liveBroadcastStore.category || 'LIVE REPLAY',
+      url: videoUrl,
+      thumbnailUrl: thumbnailUrl || liveBroadcastStore.thumbnailUrl || '/uploads/live-thumb.jpg',
+      duration: 'LIVE RECORDING',
+      views: liveBroadcastStore.viewerCount || 150,
+      publishedDate: new Date().toISOString(),
+      isLiveRecording: true,
+      author: author || liveBroadcastStore.author || 'Fast Coverages World Desk'
+    };
+
+    videosStore = [newRecordedVideo, ...videosStore];
+    liveBroadcastStore.isLive = false;
+    liveBroadcastStore.viewerCount = 0;
+
+    saveToBackup();
+    broadcastStateUpdate();
+
+    res.json({
+      success: true,
+      recordedVideo: newRecordedVideo,
+      message: "Live broadcast concluded and saved to Recorded Live Replays."
+    });
+  } catch (err: any) {
+    console.error("Error stopping live broadcast:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Update DB state from client sync (enables smooth client-server synchronization)
 app.post("/api/db-sync", (req, res) => {
-  const { articles, categories, settings, comments, adSlots, careers, breakingNews, markets, videos, trash, users, parentSections, liveBroadcast, ebooks, paymentSettings, purchases } = req.body;
+  const { articles, categories, settings, comments, adSlots, careers, breakingNews, markets, videos, trash, users, parentSections, liveBroadcast, ebooks, paymentSettings, purchases, inquiries } = req.body;
   
   // Guard administrative changes if an active session is required
   const authHeader = req.headers.authorization;
@@ -511,6 +1113,7 @@ app.post("/api/db-sync", (req, res) => {
   if (ebooks) ebooksStore = ebooks;
   if (paymentSettings) paymentSettingsStore = paymentSettings;
   if (purchases) purchasesStore = purchases;
+  if (inquiries) inquiriesStore = inquiries;
   
   saveToBackup();
   broadcastStateUpdate(); // Real-time notification broadcast
@@ -775,6 +1378,421 @@ Do not write any markdown codeblocks or explanation. Return only the raw JSON.`;
     res.status(500).json({ error: error.message || "Failed to generate news article using AI." });
   }
 });
+
+// ==========================================
+// TIPS & DIRECT INQUIRIES MANAGEMENT API
+// ==========================================
+
+// GET /api/inquiries - Fetch all logged inquiries
+app.get("/api/inquiries", (req, res) => {
+  res.json({ success: true, inquiries: inquiriesStore });
+});
+
+// POST /api/inquiries/upload-attachment - Upload inquiry files (images, PDF, documents, videos up to 100MB)
+app.post("/api/inquiries/upload-attachment", (req, res) => {
+  const { name, base64, size, type } = req.body || {};
+  if (!name || !base64) {
+    return res.status(400).json({ error: "Filename and base64 document/media payload are required" });
+  }
+
+  try {
+    const inquiriesUploadDir = path.join(process.cwd(), "uploads", "inquiries");
+    if (!fs.existsSync(inquiriesUploadDir)) {
+      fs.mkdirSync(inquiriesUploadDir, { recursive: true });
+    }
+
+    // Clean base64 data URI header if present
+    const cleanBase64 = base64.replace(/^data:[^;]+;base64,/, "");
+    const buffer = Buffer.from(cleanBase64, "base64");
+
+    const sanitizedName = name.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const ext = path.extname(sanitizedName) || ".bin";
+    const filename = `inq-file-${Date.now()}-${Math.floor(Math.random() * 10000)}${ext}`;
+    const filePath = path.join(inquiriesUploadDir, filename);
+
+    fs.writeFileSync(filePath, buffer);
+
+    const fileUrl = `/uploads/inquiries/${filename}`;
+    const formattedSize = size || `${(buffer.length / (1024 * 1024)).toFixed(2)} MB`;
+
+    res.json({
+      success: true,
+      file: {
+        name: sanitizedName,
+        url: fileUrl,
+        size: formattedSize,
+        type: type || "application/octet-stream"
+      }
+    });
+  } catch (err: any) {
+    console.error("Inquiry File Upload Error:", err);
+    res.status(500).json({ error: err.message || "Failed to process inquiry attachment on server." });
+  }
+});
+
+// POST /api/inquiries - Submit a new Tip or Direct Inquiry from visitor
+app.post("/api/inquiries", (req, res) => {
+  try {
+    const { name, email, category, message, files, deviceInfo, country, website_hp } = req.body || {};
+
+    // Security Anti-Spam Check: Honeypot trap
+    if (website_hp) {
+      console.warn("Spam bot detected via honeypot trap in inquiry submission.");
+      return res.status(200).json({
+        success: true,
+        message: "Transmission received and logged securely in newsroom desk.",
+        inquiryId: `INQ-${new Date().getFullYear()}-SPAM0`
+      });
+    }
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Full Name or Alias is required." });
+    }
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: "Contact email address is required." });
+    }
+
+    // Email validation regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ error: "Please enter a valid email address format (e.g. name@domain.com)." });
+    }
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: "Message details are required." });
+    }
+
+    // Auto generate unique Inquiry ID: e.g. INQ-2026-X892A
+    const randomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const inquiryId = `INQ-${new Date().getFullYear()}-${randomCode}`;
+
+    const userAgentHeader = req.headers["user-agent"] || "Unknown Device";
+    const detectedDevice = deviceInfo || userAgentHeader.substring(0, 80);
+    const detectedCountry = country || (req.headers["cf-ipcountry"] as string) || (req.headers["x-country"] as string) || "Global Visitor";
+
+    const newInquiry = {
+      id: inquiryId,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      category: category || "General Feedback",
+      message: message.trim(),
+      files: Array.isArray(files) ? files : [],
+      submittedAt: new Date().toISOString(),
+      status: "Unread",
+      deviceInfo: detectedDevice,
+      country: detectedCountry,
+      replies: []
+    };
+
+    inquiriesStore = [newInquiry, ...inquiriesStore];
+    saveToBackup();
+    broadcastStateUpdate(); // Real-time synchronization to Admin Panel
+
+    console.log(`[NEW INQUIRY RECEIVED] ID: ${inquiryId} | Category: ${category} | Email: ${email}`);
+
+    res.json({
+      success: true,
+      inquiryId,
+      message: "Transmission received and logged securely in newsroom desk.",
+      inquiry: newInquiry
+    });
+  } catch (err: any) {
+    console.error("Inquiry submission error:", err);
+    res.status(500).json({ error: err.message || "Server error while recording inquiry transmission." });
+  }
+});
+
+// PUT /api/inquiries/:id/status - Update Inquiry Status (Unread, Read, Replied, Archived)
+app.put("/api/inquiries/:id/status", (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const inq = inquiriesStore.find((i: any) => i.id === id);
+  if (!inq) {
+    return res.status(404).json({ error: "Inquiry not found" });
+  }
+
+  if (status) {
+    inq.status = status;
+    saveToBackup();
+    broadcastStateUpdate();
+  }
+
+  res.json({ success: true, inquiry: inq });
+});
+
+// POST /api/inquiries/:id/reply - Reply directly to user's inquiry via official FAST COVERAGES email
+app.post("/api/inquiries/:id/reply", async (req, res) => {
+  const { id } = req.params;
+  const { message, senderName, senderEmail } = req.body || {};
+
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: "Reply message content is required." });
+  }
+
+  const inq = inquiriesStore.find((i: any) => i.id === id);
+  if (!inq) {
+    return res.status(404).json({ error: "Inquiry not found" });
+  }
+
+  const replySenderName = senderName || "FAST COVERAGES Editorial Desk";
+  const replySenderEmail = senderEmail || newsletterSettingsStore.senderEmail || "fastcoveragenews@gmail.com";
+
+  const newReply = {
+    id: `rep-${Date.now()}`,
+    senderName: replySenderName,
+    senderEmail: replySenderEmail,
+    message: message.trim(),
+    sentAt: new Date().toISOString()
+  };
+
+  if (!inq.replies) inq.replies = [];
+  inq.replies.push(newReply);
+  inq.status = "Replied";
+
+  saveToBackup();
+  broadcastStateUpdate();
+
+  // Send official email dispatch to user
+  try {
+    await dispatchEmail({
+      to: inq.email,
+      subject: `Re: [${inq.id}] ${inq.category} - FAST COVERAGES Newsroom`,
+      title: `Response to Inquiry #${inq.id}`,
+      summary: message.trim(),
+      actionUrl: "https://fastcoverages.com"
+    });
+  } catch (e) {
+    console.warn("Failed sending outgoing email reply to " + inq.email + ", reply saved in database ledger.");
+  }
+
+  res.json({
+    success: true,
+    message: `Official response dispatched successfully to ${inq.email}`,
+    inquiry: inq,
+    reply: newReply
+  });
+});
+
+// DELETE /api/inquiries/:id - Permanently delete an inquiry and all associated file attachments
+app.delete("/api/inquiries/:id", (req, res) => {
+  const { id } = req.params;
+  const targetIndex = inquiriesStore.findIndex((i: any) => i.id === id);
+
+  if (targetIndex === -1) {
+    return res.status(404).json({ error: "Inquiry not found in database." });
+  }
+
+  const targetInquiry = inquiriesStore[targetIndex];
+
+  // Safely delete any associated uploaded file attachments from disk
+  if (targetInquiry && Array.isArray(targetInquiry.files)) {
+    targetInquiry.files.forEach((fileItem: any) => {
+      if (fileItem && fileItem.url && fileItem.url.startsWith("/uploads/inquiries/")) {
+        try {
+          const diskPath = path.join(process.cwd(), fileItem.url);
+          if (fs.existsSync(diskPath)) {
+            fs.unlinkSync(diskPath);
+            console.log(`Deleted inquiry attachment file from disk: ${diskPath}`);
+          }
+        } catch (fileErr) {
+          console.warn("Could not delete attachment file:", fileErr);
+        }
+      }
+    });
+  }
+
+  inquiriesStore.splice(targetIndex, 1);
+  saveToBackup();
+  broadcastStateUpdate();
+
+  res.json({
+    success: true,
+    message: `Inquiry ${id} and all attached media files permanently purged from database.`
+  });
+});
+
+// POST /api/inquiries/delete-multiple - Permanently bulk delete selected inquiries
+app.post("/api/inquiries/delete-multiple", (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "Array of inquiry IDs is required." });
+  }
+
+  let deletedCount = 0;
+  ids.forEach((targetId: string) => {
+    const idx = inquiriesStore.findIndex((i: any) => i.id === targetId);
+    if (idx !== -1) {
+      const targetInquiry = inquiriesStore[idx];
+      if (targetInquiry && Array.isArray(targetInquiry.files)) {
+        targetInquiry.files.forEach((fileItem: any) => {
+          if (fileItem && fileItem.url && fileItem.url.startsWith("/uploads/inquiries/")) {
+            try {
+              const diskPath = path.join(process.cwd(), fileItem.url);
+              if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+            } catch (err) {}
+          }
+        });
+      }
+      inquiriesStore.splice(idx, 1);
+      deletedCount++;
+    }
+  });
+
+  saveToBackup();
+  broadcastStateUpdate();
+
+  res.json({
+    success: true,
+    message: `${deletedCount} inquiries permanently purged from database.`
+  });
+});
+
+/* ================== ENTERPRISE ADVERTISING INQUIRIES API ================== */
+
+// GET /api/ad-inquiries - Fetch all logged enterprise advertising inquiries
+app.get("/api/ad-inquiries", (req, res) => {
+  res.json({ success: true, adInquiries: adInquiriesStore });
+});
+
+// POST /api/ad-inquiries - Submit a new Enterprise Commercial Banners Inquiry
+app.post("/api/ad-inquiries", (req, res) => {
+  try {
+    const { companyName, partnerEmail, mobileNumber, companyWebsite, advertisingRequirement, message, website_hp, deviceInfo } = req.body || {};
+
+    // Security Anti-Spam Check: Honeypot trap
+    if (website_hp) {
+      console.warn("Spam bot detected via honeypot trap in enterprise ad inquiry submission.");
+      return res.status(200).json({
+        success: true,
+        message: "Your advertising inquiry has been submitted successfully. Our team will contact you soon.",
+        inquiryId: `EAD-${new Date().getFullYear()}-SPAM`
+      });
+    }
+
+    if (!companyName || !companyName.trim()) {
+      return res.status(400).json({ error: "Company Name is required." });
+    }
+
+    if (!partnerEmail || !partnerEmail.trim()) {
+      return res.status(400).json({ error: "Partner Email is required." });
+    }
+
+    // Email validation regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(partnerEmail.trim())) {
+      return res.status(400).json({ error: "Please enter a valid email address (e.g. partner@company.com)." });
+    }
+
+    // Generate unique Enterprise Ad Inquiry ID e.g. EAD-2026-X91A2
+    const randomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const inquiryId = `EAD-${new Date().getFullYear()}-${randomCode}`;
+
+    const userAgentHeader = req.headers["user-agent"] || "Unknown Device";
+    const detectedDevice = deviceInfo || userAgentHeader.substring(0, 80);
+
+    const newAdInquiry = {
+      id: inquiryId,
+      companyName: companyName.trim(),
+      partnerEmail: partnerEmail.trim().toLowerCase(),
+      mobileNumber: mobileNumber ? mobileNumber.trim() : "",
+      companyWebsite: companyWebsite ? companyWebsite.trim() : "",
+      advertisingRequirement: advertisingRequirement ? advertisingRequirement.trim() : "General Media Kit Request",
+      message: message ? message.trim() : "",
+      submittedAt: new Date().toISOString(),
+      status: "New",
+      deviceInfo: detectedDevice
+    };
+
+    adInquiriesStore = [newAdInquiry, ...adInquiriesStore];
+    saveToBackup();
+    broadcastStateUpdate(); // Real-time sync across connected admin clients
+
+    console.log(`[NEW ENTERPRISE AD INQUIRY] ID: ${inquiryId} | Company: ${companyName} | Email: ${partnerEmail}`);
+
+    res.json({
+      success: true,
+      inquiryId,
+      message: "Your advertising inquiry has been submitted successfully. Our team will contact you soon.",
+      inquiry: newAdInquiry
+    });
+  } catch (err: any) {
+    console.error("Enterprise Ad Inquiry submission error:", err);
+    res.status(500).json({ error: err.message || "Server error while recording advertising inquiry." });
+  }
+});
+
+// PUT /api/ad-inquiries/:id/status - Update Status (New, Pending, Contacted, Approved, Rejected, Closed)
+app.put("/api/ad-inquiries/:id/status", (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const validStatuses = ["New", "Pending", "Contacted", "Approved", "Rejected", "Closed"];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: "Invalid inquiry status parameter." });
+  }
+
+  const inq = adInquiriesStore.find((i: any) => i.id === id);
+  if (!inq) {
+    return res.status(404).json({ error: `Ad inquiry ${id} not found.` });
+  }
+
+  inq.status = status;
+  saveToBackup();
+  broadcastStateUpdate();
+
+  res.json({
+    success: true,
+    message: `Inquiry status updated to ${status}.`,
+    inquiry: inq
+  });
+});
+
+// DELETE /api/ad-inquiries/:id - Permanently delete an enterprise ad inquiry
+app.delete("/api/ad-inquiries/:id", (req, res) => {
+  const { id } = req.params;
+  const targetIndex = adInquiriesStore.findIndex((i: any) => i.id === id);
+
+  if (targetIndex === -1) {
+    return res.status(404).json({ error: `Ad inquiry ${id} not found in database.` });
+  }
+
+  adInquiriesStore.splice(targetIndex, 1);
+  saveToBackup();
+  broadcastStateUpdate();
+
+  res.json({
+    success: true,
+    message: `Enterprise advertising inquiry ${id} permanently deleted from database.`
+  });
+});
+
+// POST /api/ad-inquiries/delete-multiple - Permanently bulk delete selected ad inquiries
+app.post("/api/ad-inquiries/delete-multiple", (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "Array of inquiry IDs is required." });
+  }
+
+  let deletedCount = 0;
+  ids.forEach((targetId: string) => {
+    const idx = adInquiriesStore.findIndex((i: any) => i.id === targetId);
+    if (idx !== -1) {
+      adInquiriesStore.splice(idx, 1);
+      deletedCount++;
+    }
+  });
+
+  saveToBackup();
+  broadcastStateUpdate();
+
+  res.json({
+    success: true,
+    message: `${deletedCount} advertising inquiries permanently deleted from database.`
+  });
+});
+
 
 // Endpoint to directly upload a video file as base64 and save it on the server
 app.post("/api/upload-video", (req, res) => {

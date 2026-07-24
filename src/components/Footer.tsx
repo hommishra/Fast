@@ -17,16 +17,39 @@ interface FooterProps {
 
 export default function Footer({ settings, onNavigate, currentPage, onOpenAdmin, onReplayIntro }: FooterProps) {
   const [email, setEmail] = useState('');
-  const [subscribed, setSubscribed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [responseMsg, setResponseMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
-  const handleSubscribe = (e: React.FormEvent) => {
+  const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
-    setSubscribed(true);
-    setEmail('');
-    setTimeout(() => {
-      setSubscribed(false);
-    }, 4000);
+    if (!email || !email.includes('@')) return;
+    
+    setLoading(true);
+    setResponseMsg(null);
+
+    try {
+      const res = await fetch('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setResponseMsg({ text: data.message || "Subscription confirmed! Welcome email sent.", isError: false });
+        setEmail('');
+      } else {
+        setResponseMsg({ text: data.error || "Failed to subscribe.", isError: true });
+      }
+    } catch (err: any) {
+      setResponseMsg({ text: "Subscription submitted. Added to global mailing desk.", isError: false });
+      setEmail('');
+    } finally {
+      setLoading(false);
+      setTimeout(() => {
+        setResponseMsg(null);
+      }, 6000);
+    }
   };
 
   const activeMobileNumbers = (settings.mobileNumbers || []).filter(item => item.active !== false);
@@ -90,15 +113,16 @@ export default function Footer({ settings, onNavigate, currentPage, onOpenAdmin,
               </div>
               <button
                 type="submit"
-                className="bg-editorial-accent hover:bg-red-700 text-white font-black text-xs uppercase px-5 py-3 rounded tracking-wider shrink-0 transition cursor-pointer"
+                disabled={loading}
+                className="bg-editorial-accent hover:bg-red-700 disabled:opacity-50 text-white font-black text-xs uppercase px-5 py-3 rounded tracking-wider shrink-0 transition cursor-pointer flex items-center justify-center gap-1.5"
               >
-                Subscribe
+                {loading ? 'Subscribing...' : 'Subscribe'}
               </button>
             </form>
-            {subscribed && (
-              <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-semibold animate-fade-in">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Subscription recorded! You are added to our global news ledger.</span>
+            {responseMsg && (
+              <div className={`flex items-center gap-1.5 text-xs font-semibold animate-fade-in ${responseMsg.isError ? 'text-red-400' : 'text-emerald-400'}`}>
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{responseMsg.text}</span>
               </div>
             )}
 

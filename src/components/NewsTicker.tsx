@@ -32,13 +32,13 @@ export default function NewsTicker({ breakingNews, settings, onSelectHeadline }:
     <div id="breaking-ticker-bar" className="w-full bg-[#E10600] text-white flex items-stretch border-y border-red-700 font-sans shadow-md selection:bg-black shrink-0 relative z-20">
       
       {/* Premium CNN Style sharp breaking news tag */}
-      <div className="bg-black text-white px-5 py-3 font-black uppercase text-xs tracking-[0.25em] flex items-center gap-2 shrink-0 z-20 shadow-[4px_0_15px_rgba(0,0,0,0.4)] relative">
+      <div className="bg-black text-white px-2.5 sm:px-4 md:px-5 py-2.5 md:py-3 font-black uppercase text-[10px] md:text-xs tracking-wider md:tracking-[0.25em] flex items-center gap-1.5 md:gap-2 shrink-0 z-20 shadow-[4px_0_15px_rgba(0,0,0,0.4)] relative">
         <span className="flex h-2 w-2 relative">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
           <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
         </span>
-        <Radio className="w-4 h-4 text-[#E10600] animate-pulse shrink-0" />
-        <span className="font-sans">BREAKING NEWS</span>
+        <Radio className="w-3.5 h-3.5 md:w-4 md:h-4 text-[#E10600] animate-pulse shrink-0" />
+        <span className="font-sans whitespace-nowrap">BREAKING<span className="hidden xs:inline"> NEWS</span></span>
       </div>
 
       {/* Marquee slider container */}

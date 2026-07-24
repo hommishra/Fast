@@ -356,23 +356,77 @@ export interface PaymentSettings {
   paypal: PayPalSettings;
 }
 
-export interface EBookPurchase {
+export interface InquiryReply {
   id: string;
-  ebookId: string;
-  ebookTitle: string;
-  coverImage: string;
-  pdfUrl?: string;
-  buyerName: string;
-  buyerEmail: string;
-  buyerPhone?: string;
-  amountPaid: number;
-  currency: string;
-  paymentGateway: 'Razorpay' | 'UPI' | 'PayPal' | 'Free';
-  transactionId: string;
-  paymentStatus: 'Success' | 'Pending' | 'Failed';
-  downloadToken: string;
-  purchasedAt: string;
+  senderName: string;
+  senderEmail: string;
+  message: string;
+  sentAt: string;
 }
+
+export interface InquiryFile {
+  name: string;
+  url: string;
+  size?: string;
+  type?: string;
+}
+
+export interface Inquiry {
+  id: string;
+  name: string;
+  email: string;
+  category: 'Breaking News Tip' | 'Anonymous News Tip' | 'Business Inquiry' | 'Advertisement Inquiry' | 'Editorial Inquiry' | 'Partnership Proposal' | 'Technical Support' | 'General Feedback' | 'Other' | string;
+  message: string;
+  files?: InquiryFile[];
+  submittedAt: string;
+  status: 'Unread' | 'Read' | 'Replied' | 'Archived';
+  deviceInfo?: string;
+  country?: string;
+  replies?: InquiryReply[];
+}
+
+export interface Subscriber {
+  id: string;
+  email: string;
+  subscribedAt: string; // ISO date string
+  status: 'Active' | 'Inactive';
+  notificationsEnabled: boolean;
+  totalEmailsSent: number;
+  lastNotificationSent?: string;
+  openHistoryCount?: number;
+  newsletterStatus?: 'Subscribed' | 'Unsubscribed' | 'Pending Verification';
+}
+
+export interface NewsletterSettings {
+  enabled: boolean;
+  autoSendArticleAlerts: boolean;
+  sendBreakingNewsAlerts: boolean;
+  sendWeeklyNewsletters: boolean;
+  sendDailyBulletins: boolean;
+  senderEmail: string; // fastcoveragenews@gmail.com
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  smtpPass?: string;
+  welcomeSubject?: string;
+  welcomeMessage?: string;
+}
+
+export type EnterpriseAdInquiryStatus = 'New' | 'Pending' | 'Contacted' | 'Approved' | 'Rejected' | 'Closed';
+
+export interface EnterpriseAdInquiry {
+  id: string;
+  companyName: string;
+  partnerEmail: string;
+  mobileNumber?: string;
+  companyWebsite?: string;
+  advertisingRequirement?: string;
+  message?: string;
+  submittedAt: string;
+  status: EnterpriseAdInquiryStatus;
+  deviceInfo?: string;
+}
+
 
 
 

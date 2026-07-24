@@ -5,7 +5,7 @@ import {
   initialAdSlots, initialCareers, initialUsers, initialComments,
   initialBreakingNews, initialMarkets, initialVideos, initialParentSections
 } from './data';
-import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection, LiveBroadcastState, EBook, PaymentSettings, EBookPurchase } from './types';
+import { Article, Category, WebsiteSettings, AdSlot, CareerListing, User, Comment, BreakingNewsItem, MarketItem, VideoItem, ParentSection, LiveBroadcastState, EBook, PaymentSettings, EBookPurchase, Subscriber, NewsletterSettings } from './types';
 
 // Component Imports
 import OpeningAnimation from './components/OpeningAnimation';
@@ -19,6 +19,7 @@ import SpecialPages from './components/SpecialPages';
 import ArticleDetail from './components/ArticleDetail';
 import LiveNewsSection from './components/LiveNewsSection';
 import { EBooksStore } from './components/EBooksStore';
+import { useDeviceDetect } from './useDeviceDetect';
 
 // Icons
 import { 
@@ -28,6 +29,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  const deviceInfo = useDeviceDetect();
   const [showIntro, setShowIntro] = useState(() => {
     if (typeof window === 'undefined') return true;
     const lastAnim = localStorage.getItem('fc_last_animation_time');
@@ -88,6 +90,19 @@ export default function App() {
   });
   const [purchases, setPurchases] = useState<EBookPurchase[]>([]);
 
+  // Newsletter & Subscribers state
+  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [newsletterSettings, setNewsletterSettings] = useState<NewsletterSettings>({
+    enabled: true,
+    autoSendArticleAlerts: true,
+    sendBreakingNewsAlerts: true,
+    sendWeeklyNewsletters: true,
+    sendDailyBulletins: true,
+    senderEmail: 'fastcoveragenews@gmail.com',
+    welcomeSubject: 'Welcome to FAST COVERAGES - Global News Network',
+    welcomeMessage: 'Thank you for subscribing to FAST COVERAGES. You will now receive breaking news, global updates, and exclusive reports directly in your inbox.'
+  });
+
   // Selected Article detail view
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [playingVideo, setPlayingVideo] = useState<VideoItem | null>(null);
@@ -145,6 +160,8 @@ export default function App() {
         if (data.ebooks) setEbooks(data.ebooks);
         if (data.paymentSettings) setPaymentSettings(data.paymentSettings);
         if (data.purchases) setPurchases(data.purchases);
+        if (data.subscribers) setSubscribers(data.subscribers);
+        if (data.newsletterSettings) setNewsletterSettings(data.newsletterSettings);
 
         if (data.trash) setTrash(data.trash);
         else setTrash({ articles: [], videos: [], breakingNews: [], markets: [], categories: [] });
@@ -188,6 +205,8 @@ export default function App() {
           if (data.ebooks) setEbooks(data.ebooks);
           if (data.paymentSettings) setPaymentSettings(data.paymentSettings);
           if (data.purchases) setPurchases(data.purchases);
+          if (data.subscribers) setSubscribers(data.subscribers);
+          if (data.newsletterSettings) setNewsletterSettings(data.newsletterSettings);
           if (data.trash) setTrash(data.trash);
         }
       } catch (err) {
@@ -548,7 +567,11 @@ export default function App() {
   const featuredHero = articles.find(a => a.isFeatured && a.status === 'Published') || articles[0];
 
   return (
-    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDarkMode ? 'dark bg-editorial-bg text-editorial-text' : 'bg-[#fafaf6] text-slate-950'}`}>
+    <div 
+      data-device-type={deviceInfo.deviceType}
+      data-orientation={deviceInfo.orientation}
+      className={`min-h-screen flex flex-col transition-colors duration-300 ultrawide-container ${isDarkMode ? 'dark bg-editorial-bg text-editorial-text' : 'bg-[#fafaf6] text-slate-950'}`}
+    >
       
       {/* 1. Global Navigation */}
       <Navigation
@@ -605,6 +628,43 @@ export default function App() {
       {/* 4. Main Body Grid */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
         
+        {/* Active Homepage Live Stream Banner Alert */}
+        {currentPage === 'home' && !selectedArticle && liveBroadcast && liveBroadcast.isLive && liveBroadcast.enabled !== false && (
+          <div className="bg-gradient-to-r from-red-950 via-slate-950 to-red-950 border border-red-600/60 rounded-xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4 animate-fade-in text-white">
+            <div className="flex items-center gap-3">
+              <div className="relative flex h-3 w-3 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="bg-red-600 text-white font-mono font-black text-[10px] px-2 py-0.5 rounded uppercase tracking-widest">
+                    LIVE NOW
+                  </span>
+                  <span className="text-xs font-mono text-slate-300">
+                    {liveBroadcast.viewerCount || 1} Viewers Watching
+                  </span>
+                </div>
+                <h3 className="text-sm md:text-base font-black font-sans text-white mt-1 line-clamp-1">
+                  {liveBroadcast.title || 'FAST COVERAGES LIVE BROADCAST'}
+                </h3>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPage('live-news');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white font-mono font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded shadow-lg transition flex items-center gap-2 cursor-pointer shrink-0"
+            >
+              <span>Watch Live Stream</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+            </button>
+          </div>
+        )}
+
         {selectedArticle ? (
           /* ================== DETAILED ARTICLE READING ROOM ================== */
           <ArticleDetail
@@ -1096,6 +1156,10 @@ export default function App() {
           onSaveComments={handleUpdateComments}
           onSaveUsers={handleUpdateUsers}
           onSaveParentSections={handleUpdateParentSections}
+          subscribers={subscribers}
+          newsletterSettings={newsletterSettings}
+          onSaveSubscribers={(updated) => setSubscribers(updated)}
+          onSaveNewsletterSettings={(updated) => setNewsletterSettings(updated)}
           liveBroadcast={liveBroadcast}
           onSaveLiveBroadcast={handleUpdateLiveBroadcast}
           onClose={() => {

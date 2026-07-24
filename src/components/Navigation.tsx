@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { Category, WebsiteSettings, ParentSection } from '../types';
 import { 
   Search, Shield, Sun, Moon, Menu, X, Clock, 
-  MapPin, AlertTriangle, Play, ChevronRight, Globe
+  MapPin, AlertTriangle, Play, ChevronRight, Globe,
+  Smartphone, Tablet, Laptop, Monitor, Tv, Smartphone as FoldableIcon
 } from 'lucide-react';
 import FCLogo from './FCLogo';
 import { LanguageSelector } from './LanguageSelector';
+import { useDeviceDetect } from '../useDeviceDetect';
 
 interface NavigationProps {
   categories: Category[];
@@ -34,6 +36,7 @@ export default function Navigation({
 }: NavigationProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [utcTime, setUtcTime] = useState('');
+  const deviceInfo = useDeviceDetect();
 
   // Update UTC clock in real-time (world-news feeling)
   useEffect(() => {
@@ -93,8 +96,29 @@ export default function Navigation({
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Top header clean micro bar right side */}
+        <div className="flex items-center gap-3">
+          {/* Automatic Device Detection Badge */}
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-200/70 dark:bg-white/10 text-slate-700 dark:text-slate-300 text-[10px] font-mono font-bold uppercase tracking-wider" title={`Auto Detected: ${deviceInfo.deviceType.toUpperCase()} | ${deviceInfo.browserName} | ${deviceInfo.screenWidth}x${deviceInfo.screenHeight}`}>
+            {deviceInfo.deviceType === 'mobile' && <Smartphone className="w-3 h-3 text-editorial-accent" />}
+            {deviceInfo.deviceType === 'tablet' && <Tablet className="w-3 h-3 text-editorial-accent" />}
+            {deviceInfo.deviceType === 'laptop' && <Laptop className="w-3 h-3 text-editorial-accent" />}
+            {deviceInfo.deviceType === 'desktop' && <Monitor className="w-3 h-3 text-editorial-accent" />}
+            {deviceInfo.deviceType === 'ultrawide' && <Monitor className="w-3 h-3 text-editorial-accent" />}
+            {deviceInfo.deviceType === 'tv' && <Tv className="w-3 h-3 text-editorial-accent" />}
+            {deviceInfo.deviceType === 'foldable' && <Smartphone className="w-3 h-3 text-editorial-accent" />}
+            
+            <span>
+              {deviceInfo.deviceType === 'mobile' && 'Mobile View'}
+              {deviceInfo.deviceType === 'tablet' && 'Tablet View'}
+              {deviceInfo.deviceType === 'laptop' && 'Laptop View'}
+              {deviceInfo.deviceType === 'desktop' && 'Desktop View'}
+              {deviceInfo.deviceType === 'ultrawide' && 'Ultra-Wide'}
+              {deviceInfo.deviceType === 'tv' && 'Smart TV View'}
+              {deviceInfo.deviceType === 'foldable' && 'Foldable View'}
+            </span>
+            <span className="opacity-40">|</span>
+            <span className="text-[9px] opacity-80">{deviceInfo.browserName}</span>
+          </div>
         </div>
       </div>
 

@@ -367,15 +367,74 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
     }
   };
 
-  // Delete Ad
-  const handleDeleteAd = async (id: string) => {
-    const item = ads.find(a => a.id === id);
-    if (!window.confirm(`Are you sure you want to permanently delete the advertisement "${item?.title || item?.label}"?`)) {
+  const [selectedAdIds, setSelectedAdIds] = useState<string[]>([]);
+
+  // Toggle selection for bulk delete
+  const toggleSelectAd = (id: string) => {
+    setSelectedAdIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedAdIds.length === filteredAds.length) {
+      setSelectedAdIds([]);
+    } else {
+      setSelectedAdIds(filteredAds.map(a => a.id));
+    }
+  };
+
+  // One-Click Permanent Bulk Delete
+  const handleBulkDelete = async () => {
+    if (selectedAdIds.length === 0) return;
+
+    const count = selectedAdIds.length;
+    const updated = ads.filter(a => !selectedAdIds.includes(a.id));
+    setAds(updated);
+    onSaveAdSlots(updated);
+
+    for (const id of selectedAdIds) {
+      try {
+        await fetch(`/api/ads/${id}`, { method: 'DELETE' });
+      } catch (err) {}
+    }
+
+    showBanner(`✓ Successfully purged ${count} advertisement(s) permanently.`);
+    setSelectedAdIds([]);
+  };
+
+  // One-Click Purge Expired Ads
+  const handlePurgeExpiredAds = async () => {
+    const expiredAds = ads.filter(a => a.endDate && a.endDate < todayStr);
+    if (expiredAds.length === 0) {
+      showBanner("No expired advertisements found to purge.");
       return;
     }
 
+    const expiredIds = expiredAds.map(a => a.id);
+    const count = expiredAds.length;
+    const updated = ads.filter(a => !expiredIds.includes(a.id));
+    setAds(updated);
+    onSaveAdSlots(updated);
+
+    for (const id of expiredIds) {
+      try {
+        await fetch(`/api/ads/${id}`, { method: 'DELETE' });
+      } catch (err) {}
+    }
+
+    showBanner(`✓ Purged ${count} expired advertisement(s) permanently.`);
+  };
+
+  // Delete Ad (1-Click Smooth Permanent Delete)
+  const handleDeleteAd = async (id: string, adTitle?: string) => {
+    const item = ads.find(a => a.id === id);
+    const title = adTitle || item?.title || item?.label || 'Advertisement';
+
+    // Instant smooth deletion from state & slots
     const updated = ads.filter(a => a.id !== id);
     setAds(updated);
+    setSelectedAdIds(prev => prev.filter(i => i !== id));
     onSaveAdSlots(updated);
 
     try {
@@ -383,7 +442,7 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
     } catch (err) {
       // ignore error
     }
-    showBanner(`Advertisement permanently deleted.`);
+    showBanner(`✓ Advertisement "${title}" deleted permanently.`);
   };
 
   const filteredAds = ads.filter(a => {
@@ -412,6 +471,29 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {selectedAdIds.length > 0 && (
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              className="bg-red-700 hover:bg-red-800 text-white font-black px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all cursor-pointer font-mono animate-pulse"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Delete Selected ({selectedAdIds.length}) Permanently</span>
+            </button>
+          )}
+
+          {expiredAdsCount > 0 && (
+            <button
+              type="button"
+              onClick={handlePurgeExpiredAds}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all cursor-pointer font-mono"
+              title="Delete all expired advertisements in one click"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Purge Expired ({expiredAdsCount})</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => handleOpenAddModal('image')}
@@ -502,6 +584,15 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[10px] font-mono font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
+                <th className="p-3.5 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={filteredAds.length > 0 && selectedAdIds.length === filteredAds.length}
+                    onChange={toggleSelectAll}
+                    className="rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                    title="Select All Advertisements"
+                  />
+                </th>
                 <th className="p-3.5">Media & Creative</th>
                 <th className="p-3.5">Title & Link</th>
                 <th className="p-3.5">Placement Position</th>
@@ -514,7 +605,7 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
               {filteredAds.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-400 font-mono">
+                  <td colSpan={8} className="p-8 text-center text-slate-400 font-mono">
                     No advertisements match the selected filter. Click "Upload Image Ad" or "Upload Video Ad" above to create one.
                   </td>
                 </tr>
@@ -525,9 +616,19 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
                   const views = ad.views || 0;
                   const clicks = ad.clicks || 0;
                   const ctr = views > 0 ? ((clicks / views) * 100).toFixed(1) : '0.0';
+                  const isSelected = selectedAdIds.includes(ad.id);
 
                   return (
-                    <tr key={ad.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                    <tr key={ad.id} className={`transition-colors ${isSelected ? 'bg-red-500/5 dark:bg-red-500/10' : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/30'}`}>
+                      {/* Checkbox */}
+                      <td className="p-3.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectAd(ad.id)}
+                          className="rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                        />
+                      </td>
                       {/* Media Preview */}
                       <td className="p-3.5">
                         <div className="w-20 h-12 bg-slate-900 rounded-lg overflow-hidden border border-slate-700/60 relative group shrink-0 flex items-center justify-center">
@@ -671,14 +772,15 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
                             <Edit3 className="w-4 h-4" />
                           </button>
 
-                          {/* Delete */}
+                          {/* Delete (1-Click Permanent) */}
                           <button
                             type="button"
-                            onClick={() => handleDeleteAd(ad.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-500/10 rounded transition cursor-pointer"
-                            title="Delete Advertisement"
+                            onClick={() => handleDeleteAd(ad.id, ad.title || ad.label)}
+                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[10px] font-bold font-mono uppercase tracking-wider flex items-center gap-1 shadow transition cursor-pointer"
+                            title="Delete Advertisement Permanently in 1 Click"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
                           </button>
                         </div>
                       </td>
@@ -1022,21 +1124,37 @@ export default function AdManagerAdmin({ adSlots, categories, onSaveAdSlots, sho
               </div>
 
               {/* Submit Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white font-bold cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUploading}
-                  className="bg-red-600 hover:bg-red-700 text-white font-black px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider cursor-pointer shadow-lg transition-all font-mono"
-                >
-                  {isUploading ? 'Uploading File...' : editingAd ? 'Update Advertisement' : 'Publish Advertisement'}
-                </button>
+              <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                {editingAd ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDeleteAd(editingAd.id, editingAd.title || editingAd.label);
+                      setIsModalOpen(false);
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition font-mono shadow"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Permanently</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUploading}
+                    className="bg-red-600 hover:bg-red-700 text-white font-black px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider cursor-pointer shadow-lg transition-all font-mono"
+                  >
+                    {isUploading ? 'Uploading File...' : editingAd ? 'Update Advertisement' : 'Publish Advertisement'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

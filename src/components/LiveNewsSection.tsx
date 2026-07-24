@@ -77,6 +77,31 @@ export default function LiveNewsSection({
     }
   };
 
+  const [streamCacheBuster, setStreamCacheBuster] = useState<number>(Date.now());
+
+  const effectiveStreamUrl = (liveBroadcast?.streamUrl && liveBroadcast.streamUrl.trim() !== '') 
+    ? (liveBroadcast.streamUrl.includes('?') ? `${liveBroadcast.streamUrl}&t=${streamCacheBuster}` : `${liveBroadcast.streamUrl}?t=${streamCacheBuster}`)
+    : `/api/live-stream/feed?t=${streamCacheBuster}`;
+
+  const handleVideoError = () => {
+    console.warn("Live video stream buffer updating, refreshing stream URL...");
+    setTimeout(() => {
+      setStreamCacheBuster(Date.now());
+      if (videoRef.current) {
+        videoRef.current.load();
+        videoRef.current.play().catch(() => {});
+      }
+    }, 1000);
+  };
+
+  const handleManualReconnect = () => {
+    setStreamCacheBuster(Date.now());
+    if (videoRef.current) {
+      videoRef.current.load();
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
   const liveReplays = videos.filter(v => 
     v.isLiveRecording || 
     v.category?.toLowerCase().includes('live') || 
@@ -134,12 +159,14 @@ export default function LiveNewsSection({
               <div className="relative aspect-video bg-slate-900 flex items-center justify-center overflow-hidden">
                 <video
                   ref={videoRef}
-                  src={liveBroadcast.streamUrl}
+                  key={(liveBroadcast.startTime || 'live') + effectiveStreamUrl}
+                  src={effectiveStreamUrl}
                   poster={liveBroadcast.thumbnailUrl}
                   autoPlay
-                  loop
                   playsInline
                   muted={isMuted}
+                  onError={handleVideoError}
+                  onStalled={handleVideoError}
                   className="w-full h-full object-cover"
                 />
 
@@ -202,6 +229,16 @@ export default function LiveNewsSection({
                       <span className="text-[10px] text-slate-300 hidden sm:inline">
                         {isMuted ? 'UNMUTE SOUND' : 'AUDIO ON'}
                       </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleManualReconnect}
+                      className="p-1.5 rounded hover:bg-white/10 text-slate-300 hover:text-white transition cursor-pointer flex items-center gap-1 font-mono text-[10px]"
+                      title="Sync / Reconnect Live Stream"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-red-400" />
+                      <span className="hidden md:inline">SYNC LIVE</span>
                     </button>
                   </div>
 

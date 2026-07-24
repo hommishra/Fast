@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import FCLogo from './FCLogo';
 import AdManagerAdmin from './AdManagerAdmin';
 import { EBookManagerAdmin } from './EBookManagerAdmin';
-import { Article, Category, User as UserType, AdSlot, WebsiteSettings, CareerListing, BreakingNewsItem, MarketItem, VideoItem, Comment, ParentSection, LiveBroadcastState, EBook, PaymentSettings, EBookPurchase } from '../types';
+import { Article, Category, User as UserType, AdSlot, WebsiteSettings, CareerListing, BreakingNewsItem, MarketItem, VideoItem, Comment, ParentSection, LiveBroadcastState, EBook, PaymentSettings, EBookPurchase, Subscriber, NewsletterSettings, Inquiry, InquiryReply, InquiryFile, EnterpriseAdInquiry, EnterpriseAdInquiryStatus } from '../types';
 import { 
   FileText, FolderPlus, Settings as SettingsIcon, Image as ImageIcon, 
   Video, Eye, Calendar, Sparkles, LogOut, CheckCircle2, AlertTriangle, 
@@ -11,7 +11,8 @@ import {
   Shield, Lock, KeyRound, Radio, TrendingUp as TrendIcon, Check, Power, Layers,
   Phone, Mail, Share2, MapPin, Globe, MessageCircle, Copy, ExternalLink,
   Facebook, Twitter, Instagram, Youtube, Compass, Map, User as UserIcon, Clock, ChevronRight, Bell,
-  BookOpen, CreditCard
+  BookOpen, CreditCard, Paperclip, Search, Filter, CheckSquare, Square, Inbox, FileSpreadsheet, Maximize2, CornerDownRight,
+  Megaphone, Building2
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -59,6 +60,10 @@ interface AdminPanelProps {
   onSaveParentSections: (sections: ParentSection[]) => void;
   liveBroadcast?: LiveBroadcastState;
   onSaveLiveBroadcast?: (liveBroadcast: LiveBroadcastState) => void;
+  subscribers?: Subscriber[];
+  newsletterSettings?: NewsletterSettings;
+  onSaveSubscribers?: (subscribers: Subscriber[]) => void;
+  onSaveNewsletterSettings?: (settings: NewsletterSettings) => void;
   onClose: () => void;
 }
 
@@ -79,9 +84,22 @@ export default function AdminPanel({
     paypal: { merchantEmail: 'payments@fastcoverages.com', clientId: 'paypal_client_id_fc_2026', secretKey: 'paypal_secret_key', enabled: true, isSandbox: false }
   },
   purchases = [],
+  subscribers = [],
+  newsletterSettings = {
+    enabled: true,
+    autoSendArticleAlerts: true,
+    sendBreakingNewsAlerts: true,
+    sendWeeklyNewsletters: true,
+    sendDailyBulletins: true,
+    senderEmail: 'fastcoveragenews@gmail.com',
+    welcomeSubject: 'Welcome to FAST COVERAGES - Global News Network',
+    welcomeMessage: 'Thank you for subscribing to FAST COVERAGES. You will now receive breaking news, global updates, and exclusive reports directly in your inbox.'
+  },
   onSaveEBook = async () => {},
   onDeleteEBook = async () => {},
   onSavePaymentSettings = async () => {},
+  onSaveSubscribers = () => {},
+  onSaveNewsletterSettings = () => {},
   trash,
   comments,
   parentSections = [],
@@ -115,7 +133,29 @@ export default function AdminPanel({
   const [otpSecondsLeft, setOtpSecondsLeft] = useState(30);
 
   // General Tabs
-  const [activeTab, setActiveTab] = useState<'articles' | 'ai-writer' | 'breaking-news' | 'markets' | 'categories' | 'parent-sections' | 'ads' | 'ebooks' | 'settings' | 'contact-social' | 'server-deploy' | 'videos' | 'live-broadcast' | 'trash-bin' | 'comments' | 'users'>('articles');
+  const [activeTab, setActiveTab] = useState<'articles' | 'ai-writer' | 'breaking-news' | 'markets' | 'categories' | 'parent-sections' | 'ads' | 'enterprise-ads' | 'ebooks' | 'subscribers' | 'inquiries' | 'settings' | 'contact-social' | 'server-deploy' | 'videos' | 'live-broadcast' | 'trash-bin' | 'comments' | 'users'>('articles');
+
+  // Tips & Direct Inquiries Management State
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [inquiriesLoading, setInquiriesLoading] = useState(false);
+  const [selectedInquiry, setSelectedInquiry] = useState<Inquiry | null>(null);
+  const [replyModalInquiry, setReplyModalInquiry] = useState<Inquiry | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [inquirySearch, setInquirySearch] = useState('');
+  const [inquiryCategoryFilter, setInquiryCategoryFilter] = useState('All');
+  const [inquiryStatusFilter, setInquiryStatusFilter] = useState('All');
+  const [inquiryDateFilter, setInquiryDateFilter] = useState('All');
+  const [selectedInquiryIds, setSelectedInquiryIds] = useState<string[]>([]);
+
+  // Enterprise Commercial Banners Inquiries State
+  const [adInquiries, setAdInquiries] = useState<EnterpriseAdInquiry[]>([]);
+  const [adInquiriesLoading, setAdInquiriesLoading] = useState(false);
+  const [selectedAdInquiry, setSelectedAdInquiry] = useState<EnterpriseAdInquiry | null>(null);
+  const [adInquirySearch, setAdInquirySearch] = useState('');
+  const [adInquiryStatusFilter, setAdInquiryStatusFilter] = useState<string>('All');
+  const [adInquiryDateFilter, setAdInquiryDateFilter] = useState<string>('All');
+  const [deleteConfirmAdInquiryId, setDeleteConfirmAdInquiryId] = useState<string | null>(null);
 
   // Live Video Streaming System State
   const [isLiveStreaming, setIsLiveStreaming] = useState(false);
@@ -192,6 +232,228 @@ export default function AdminPanel({
   // Video Upload State
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Inquiries Fetching & Real-time Synchronization
+  const fetchInquiries = async () => {
+    try {
+      const res = await fetch('/api/inquiries');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.inquiries)) {
+        setInquiries(data.inquiries);
+      }
+    } catch (err) {
+      console.warn('Failed fetching inquiries from server:', err);
+    }
+  };
+
+  const fetchAdInquiries = async () => {
+    try {
+      const res = await fetch('/api/ad-inquiries');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.adInquiries)) {
+        setAdInquiries(data.adInquiries);
+      }
+    } catch (err) {
+      console.warn('Failed fetching enterprise ad inquiries:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchInquiries();
+      fetchAdInquiries();
+      const interval = setInterval(() => {
+        fetchInquiries();
+        fetchAdInquiries();
+      }, 4000); // Live sync every 4 seconds across devices
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated]);
+
+  const handleUpdateAdInquiryStatus = async (id: string, newStatus: EnterpriseAdInquiryStatus) => {
+    try {
+      const res = await fetch(`/api/ad-inquiries/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdInquiries(prev => prev.map(i => i.id === id ? { ...i, status: newStatus } : i));
+        if (selectedAdInquiry?.id === id) {
+          setSelectedAdInquiry(prev => prev ? { ...prev, status: newStatus } : null);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating ad inquiry status:', err);
+    }
+  };
+
+  const handleDeleteAdInquiry = async (id: string) => {
+    try {
+      const res = await fetch(`/api/ad-inquiries/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdInquiries(prev => prev.filter(i => i.id !== id));
+        if (selectedAdInquiry?.id === id) {
+          setSelectedAdInquiry(null);
+        }
+        setDeleteConfirmAdInquiryId(null);
+      }
+    } catch (err) {
+      console.error('Error deleting ad inquiry:', err);
+    }
+  };
+
+  const handleUpdateInquiryStatus = async (id: string, newStatus: 'Read' | 'Unread' | 'Replied' | 'Archived') => {
+    try {
+      const res = await fetch(`/api/inquiries/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInquiries(prev => prev.map(i => i.id === id ? { ...i, status: newStatus } : i));
+        if (selectedInquiry?.id === id) {
+          setSelectedInquiry(prev => prev ? { ...prev, status: newStatus } : null);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating status:', err);
+    }
+  };
+
+  const handleDeleteInquiry = async (id: string) => {
+    if (!window.confirm("Permanently delete this inquiry and all associated media/file attachments from the database?")) return;
+    try {
+      const res = await fetch(`/api/inquiries/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setInquiries(prev => prev.filter(i => i.id !== id));
+        if (selectedInquiry?.id === id) setSelectedInquiry(null);
+        showBanner("Inquiry permanently purged from database.");
+      }
+    } catch (err) {
+      alert("Error deleting inquiry");
+    }
+  };
+
+  const handleBulkDeleteInquiries = async () => {
+    if (selectedInquiryIds.length === 0) return;
+    if (!window.confirm(`Permanently delete ${selectedInquiryIds.length} selected inquiries and attached files?`)) return;
+    try {
+      const res = await fetch('/api/inquiries/delete-multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedInquiryIds })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInquiries(prev => prev.filter(i => !selectedInquiryIds.includes(i.id)));
+        setSelectedInquiryIds([]);
+        showBanner(`${selectedInquiryIds.length} inquiries permanently purged.`);
+      }
+    } catch (err) {
+      alert("Error bulk deleting inquiries");
+    }
+  };
+
+  const handleSendReply = async (inquiryId: string) => {
+    if (!replyText.trim()) return;
+    setReplySending(true);
+    try {
+      const res = await fetch(`/api/inquiries/${inquiryId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: replyText,
+          senderName: 'FAST COVERAGES Editorial Desk',
+          senderEmail: settings.contactEmail || newsletterSettings.senderEmail || 'fastcoveragenews@gmail.com'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInquiries(prev => prev.map(i => i.id === inquiryId ? data.inquiry : i));
+        if (selectedInquiry?.id === inquiryId) setSelectedInquiry(data.inquiry);
+        setReplyModalInquiry(null);
+        setReplyText('');
+        showBanner(`Official reply dispatched successfully to ${data.inquiry.email}`);
+      } else {
+        alert(data.error || "Failed sending reply.");
+      }
+    } catch (err) {
+      alert("Failed sending reply.");
+    } finally {
+      setReplySending(false);
+    }
+  };
+
+  const exportInquiriesToCSV = () => {
+    if (inquiries.length === 0) {
+      alert("No inquiry records to export.");
+      return;
+    }
+
+    const headers = ["Inquiry ID", "Name / Alias", "Contact Email", "Category", "Submission Date", "Status", "Country", "Device", "Message", "Attachments Count", "Replies Count"];
+    const rows = inquiries.map(i => [
+      i.id,
+      `"${(i.name || '').replace(/"/g, '""')}"`,
+      i.email,
+      i.category,
+      new Date(i.submittedAt).toLocaleString(),
+      i.status,
+      `"${(i.country || '').replace(/"/g, '""')}"`,
+      `"${(i.deviceInfo || '').replace(/"/g, '""')}"`,
+      `"${(i.message || '').replace(/"/g, '""')}"`,
+      (i.files || []).length,
+      (i.replies || []).length
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `FastCoverages_Tips_And_Inquiries_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportAdInquiriesToCSV = () => {
+    if (adInquiries.length === 0) {
+      alert("No enterprise advertising inquiry records to export.");
+      return;
+    }
+
+    const headers = ["Inquiry ID", "Company Name", "Partner Email", "Mobile Number", "Company Website", "Advertising Requirement", "Submission Date", "Status", "Device", "Message"];
+    const rows = adInquiries.map(i => [
+      i.id,
+      `"${(i.companyName || '').replace(/"/g, '""')}"`,
+      i.partnerEmail,
+      `"${(i.mobileNumber || '').replace(/"/g, '""')}"`,
+      `"${(i.companyWebsite || '').replace(/"/g, '""')}"`,
+      `"${(i.advertisingRequirement || '').replace(/"/g, '""')}"`,
+      new Date(i.submittedAt).toLocaleString(),
+      i.status,
+      `"${(i.deviceInfo || '').replace(/"/g, '""')}"`,
+      `"${(i.message || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `FastCoverages_Enterprise_Ad_Inquiries_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const unreadInquiriesCount = inquiries.filter(i => i.status === 'Unread').length;
+  const newAdInquiriesCount = adInquiries.filter(i => i.status === 'New').length;
 
   // Thumbnail Upload State
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
@@ -479,6 +741,176 @@ export default function AdminPanel({
   // Live Streaming Handlers
   const liveVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
+  // Newsletter Subscribers Tab States
+  const [subscriberSearch, setSubscriberSearch] = useState('');
+  const [subscriberStatusFilter, setSubscriberStatusFilter] = useState<'All' | 'Active' | 'Inactive'>('All');
+  const [selectedSubIds, setSelectedSubIds] = useState<string[]>([]);
+  
+  // Modals for Newsletter
+  const [isComposeNewsletterOpen, setIsComposeNewsletterOpen] = useState(false);
+  const [isNewsletterSettingsOpen, setIsNewsletterSettingsOpen] = useState(false);
+  const [isSendingBroadcast, setIsSendingBroadcast] = useState(false);
+
+  const [composeForm, setComposeForm] = useState({
+    recipientType: 'all' as 'all' | 'selected' | 'single',
+    singleEmail: '',
+    subject: 'Breaking News Alert - FAST COVERAGES',
+    title: 'FAST COVERAGES Global News Bulletin',
+    summary: 'Here is your latest breaking report from FAST COVERAGES Global News Network.',
+    actionUrl: 'https://fastcoverages.com'
+  });
+
+  const [localNewsletterSettings, setLocalNewsletterSettings] = useState<NewsletterSettings>(newsletterSettings);
+
+  useEffect(() => {
+    if (newsletterSettings) {
+      setLocalNewsletterSettings(newsletterSettings);
+    }
+  }, [newsletterSettings]);
+
+  // Handlers for Subscribers
+  const handleToggleSubscriberNotification = async (sub: Subscriber) => {
+    const updated = subscribers.map(s => s.id === sub.id ? { ...s, notificationsEnabled: !s.notificationsEnabled } : s);
+    onSaveSubscribers(updated);
+
+    try {
+      await fetch(`/api/subscribers/${sub.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationsEnabled: !sub.notificationsEnabled })
+      });
+      showBanner(`Notification status for ${sub.email} updated to ${!sub.notificationsEnabled ? 'ON' : 'OFF'}`);
+    } catch (e) {
+      console.warn("Failed syncing subscriber toggle:", e);
+    }
+  };
+
+  const handleDeleteSingleSubscriber = async (id: string, email: string) => {
+    if (!window.confirm(`Are you sure you want to permanently delete subscriber ${email}?`)) return;
+
+    const updated = subscribers.filter(s => s.id !== id);
+    onSaveSubscribers(updated);
+    setSelectedSubIds(prev => prev.filter(item => item !== id));
+
+    try {
+      await fetch(`/api/subscribers/${id}`, { method: 'DELETE' });
+      showBanner(`Subscriber ${email} deleted permanently.`);
+    } catch (e) {
+      console.warn("Error deleting subscriber:", e);
+    }
+  };
+
+  const handleDeleteSelectedSubscribers = async () => {
+    if (selectedSubIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to permanently remove ${selectedSubIds.length} subscriber(s)?`)) return;
+
+    const updated = subscribers.filter(s => !selectedSubIds.includes(s.id));
+    onSaveSubscribers(updated);
+
+    try {
+      await fetch('/api/subscribers/delete-multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedSubIds })
+      });
+      showBanner(`${selectedSubIds.length} subscriber(s) deleted permanently.`);
+      setSelectedSubIds([]);
+    } catch (e) {
+      console.warn("Error deleting selected subscribers:", e);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (subscribers.length === 0) return;
+    const headers = ["Subscriber ID", "Email", "Status", "Notifications Enabled", "Subscribed Date", "Total Emails Dispatched", "Last Notification Sent"];
+    const rows = subscribers.map(s => [
+      `"${s.id}"`,
+      `"${s.email}"`,
+      `"${s.status}"`,
+      `"${s.notificationsEnabled ? 'Yes' : 'No'}"`,
+      `"${new Date(s.subscribedAt).toLocaleString()}"`,
+      `"${s.totalEmailsSent || 0}"`,
+      `"${s.lastNotificationSent ? new Date(s.lastNotificationSent).toLocaleString() : 'N/A'}"`
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `fastcoverages_subscribers_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showBanner("Subscriber list exported to CSV successfully.");
+  };
+
+  const handleSendBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSendingBroadcast(true);
+
+    try {
+      let recipientEmails: string[] = [];
+      if (composeForm.recipientType === 'single') {
+        if (!composeForm.singleEmail) {
+          alert("Please specify a target email address.");
+          setIsSendingBroadcast(false);
+          return;
+        }
+        recipientEmails = [composeForm.singleEmail.trim()];
+      } else if (composeForm.recipientType === 'selected') {
+        const selectedEmails = subscribers.filter(s => selectedSubIds.includes(s.id)).map(s => s.email);
+        if (selectedEmails.length === 0) {
+          alert("Please select at least one subscriber from the table.");
+          setIsSendingBroadcast(false);
+          return;
+        }
+        recipientEmails = selectedEmails;
+      }
+
+      const res = await fetch('/api/newsletter/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientType: composeForm.recipientType,
+          recipientEmails,
+          subject: composeForm.subject,
+          title: composeForm.title,
+          summary: composeForm.summary,
+          actionUrl: composeForm.actionUrl
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showBanner(`Email broadcast dispatched to ${data.sentCount} subscriber(s)!`);
+        setIsComposeNewsletterOpen(false);
+      } else {
+        alert(data.error || "Failed to dispatch email broadcast.");
+      }
+    } catch (err: any) {
+      alert("Error sending email broadcast: " + err.message);
+    } finally {
+      setIsSendingBroadcast(false);
+    }
+  };
+
+  const handleSaveNewsletterSettingsForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    onSaveNewsletterSettings(localNewsletterSettings);
+
+    try {
+      await fetch('/api/newsletter/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(localNewsletterSettings)
+      });
+      showBanner("Newsletter & Automated Notification Settings saved successfully!");
+      setIsNewsletterSettingsOpen(false);
+    } catch (err) {
+      console.warn("Failed saving newsletter settings:", err);
+    }
+  };
+
   useEffect(() => {
     let interval: any;
     if (isLiveStreaming) {
@@ -505,6 +937,31 @@ export default function AdminPanel({
         liveVideoRef.current.play().catch(() => {});
       }
 
+      const targetStreamUrl = liveStreamUrl || '/api/live-stream/feed';
+      try {
+        await fetch('/api/live-stream/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            isLive: true,
+            title: liveTitle || 'LIVE BROADCAST',
+            description: liveDescription,
+            category: liveCategory || 'BREAKING NEWS',
+            streamUrl: targetStreamUrl,
+            thumbnailUrl: liveThumbnail,
+            viewerCount: 1,
+            isPinned,
+            enabled: isLiveEnabled,
+            scheduledTime,
+            startTime: new Date().toISOString(),
+            author: liveAuthor || 'Website Owner',
+            streamType: 'camera'
+          })
+        });
+      } catch (err) {
+        console.warn("Could not notify server of live stream start:", err);
+      }
+
       const chunks: Blob[] = [];
       let recorder: MediaRecorder;
       try {
@@ -513,9 +970,25 @@ export default function AdminPanel({
         recorder = new MediaRecorder(stream);
       }
 
-      recorder.ondataavailable = (e) => {
+      recorder.ondataavailable = async (e) => {
         if (e.data && e.data.size > 0) {
           chunks.push(e.data);
+          try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              if (reader.result) {
+                const base64Data = reader.result as string;
+                await fetch('/api/live-stream/chunk', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ base64: base64Data })
+                });
+              }
+            };
+            reader.readAsDataURL(e.data);
+          } catch (err) {
+            console.warn("Failed sending live stream chunk:", err);
+          }
         }
       };
 
@@ -529,7 +1002,7 @@ export default function AdminPanel({
         title: liveTitle || 'LIVE BROADCAST',
         description: liveDescription,
         category: liveCategory || 'BREAKING NEWS',
-        streamUrl: liveStreamUrl,
+        streamUrl: targetStreamUrl,
         thumbnailUrl: liveThumbnail,
         viewerCount: 1,
         isPinned,
@@ -543,7 +1016,7 @@ export default function AdminPanel({
         onSaveLiveBroadcast(updatedState);
       }
 
-      showBanner("LIVE BROADCAST ACTIVE! Broadcasting live worldwide on homepage!");
+      showBanner("LIVE BROADCAST ACTIVE! Broadcasting camera feed live worldwide on homepage!");
       setUserActivityLogs(prev => [`Website Owner started LIVE CAMERA BROADCAST: "${liveTitle || 'Live Stream'}"`, ...prev]);
     } catch (err: any) {
       console.warn("Camera/Mic hardware or permission unavailable:", err);
@@ -576,7 +1049,7 @@ export default function AdminPanel({
     }
   };
 
-  const stopLiveStream = () => {
+  const stopLiveStream = async () => {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       try { mediaRecorder.stop(); } catch {}
     }
@@ -584,8 +1057,24 @@ export default function AdminPanel({
       mediaStream.getTracks().forEach(track => track.stop());
     }
 
+    try {
+      await fetch('/api/live-stream/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: liveTitle,
+          description: liveDescription,
+          category: liveCategory,
+          author: liveAuthor,
+          thumbnailUrl: liveThumbnail
+        })
+      });
+    } catch (err) {
+      console.warn("Error calling stop live stream endpoint:", err);
+    }
+
     let recordedBlob: Blob | null = null;
-    let videoObjectUrl = liveStreamUrl || "";
+    let videoObjectUrl = liveStreamUrl || "/api/live-stream/feed";
     if (recordedChunks.length > 0) {
       recordedBlob = new Blob(recordedChunks, { type: 'video/webm' });
       videoObjectUrl = URL.createObjectURL(recordedBlob);
@@ -622,9 +1111,8 @@ export default function AdminPanel({
       onSaveLiveBroadcast(updatedState);
     }
 
-    // Prompt the 3 post-live options requested by user
     setShowPostLiveModal(true);
-    showBanner("LIVE BROADCAST STOPPED. Please select post-broadcast option.");
+    showBanner("LIVE BROADCAST STOPPED. Select post-broadcast option below.");
     setUserActivityLogs(prev => [`Website Owner ended LIVE BROADCAST: "${liveTitle}"`, ...prev]);
   };
 
@@ -901,7 +1389,7 @@ export default function AdminPanel({
           const updated = categories.filter(c => c.id !== id);
           onSaveCategories(updated);
         } else if (type === 'ad') {
-          const updated = adSlots.map(slot => slot.id === id ? { ...slot, active: false, label: "Empty Space", imageUrl: "", targetUrl: "" } : slot);
+          const updated = adSlots.filter(slot => slot.id !== id);
           onSaveAdSlots(updated);
           setAdForm(JSON.parse(JSON.stringify(updated)));
         } else if (type === 'comment') {
@@ -940,7 +1428,7 @@ export default function AdminPanel({
       } else if (type === 'category') {
         onSaveCategories(categories.filter(c => c.id !== id));
       } else if (type === 'ad') {
-        const updated = adSlots.map(slot => slot.id === id ? { ...slot, active: false, label: "Empty Space", imageUrl: "", targetUrl: "" } : slot);
+        const updated = adSlots.filter(slot => slot.id !== id);
         onSaveAdSlots(updated);
         setAdForm(JSON.parse(JSON.stringify(updated)));
       } else if (type === 'comment') {
@@ -1478,121 +1966,143 @@ INSERT INTO website_settings (name, tagline, footer_text, primary_color) VALUES
         </div>
 
         {/* Workspace Grid */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
           {/* Sidebar */}
-          <div className="w-64 bg-[#fcfbf9] dark:bg-editorial-dark border-r border-slate-200 dark:border-white/10 p-4 flex flex-col gap-1 overflow-y-auto shrink-0">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-editorial-text/40 font-mono px-2 mb-2 block">Management</span>
+          <div className="w-full lg:w-64 bg-[#fcfbf9] dark:bg-editorial-dark border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-white/10 p-3 lg:p-4 flex flex-row lg:flex-col gap-1.5 overflow-x-auto lg:overflow-y-auto shrink-0 no-scrollbar">
+            <span className="hidden lg:block text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-editorial-text/40 font-mono px-2 mb-2">Management</span>
             
             <button
               onClick={() => { setActiveTab('articles'); setEditingArticle(null); setIsCreatingArticle(false); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'articles' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'articles' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <FileText className="w-4.5 h-4.5" /> Articles (CRUD)
+              <FileText className="w-4 h-4 lg:w-4.5 lg:h-4.5" /> Articles
             </button>
 
             <button
               onClick={() => { setActiveTab('breaking-news'); setEditingBreaking(null); setIsCreatingBreaking(false); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'breaking-news' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'breaking-news' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Radio className="w-4.5 h-4.5 text-red-500" /> Ticker News
+              <Radio className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-red-500" /> Ticker
             </button>
 
             <button
               onClick={() => { setActiveTab('markets'); setEditingMarket(null); setIsCreatingMarket(false); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'markets' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'markets' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <BarChart3 className="w-4.5 h-4.5 text-emerald-500" /> Market Tickers
+              <BarChart3 className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-emerald-500" /> Markets
             </button>
 
             <button
               onClick={() => { setActiveTab('videos'); setEditingVideo(null); setIsCreatingVideo(false); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'videos' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'videos' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Video className="w-4.5 h-4.5 text-blue-500" /> Video Broadcasts
+              <Video className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-blue-500" /> Videos
             </button>
 
             <button
               onClick={() => { setActiveTab('live-broadcast'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'live-broadcast' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'live-broadcast' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Radio className="w-4.5 h-4.5 text-red-600 animate-pulse" /> Live Broadcasting
+              <Radio className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-red-600 animate-pulse" /> Live Stream
             </button>
 
             <button
               onClick={() => { setActiveTab('ai-writer'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'ai-writer' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'ai-writer' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Sparkles className="w-4.5 h-4.5 text-amber-500 animate-pulse" /> AI News Generator
+              <Sparkles className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-amber-500 animate-pulse" /> AI Generator
             </button>
 
             <button
               onClick={() => { setActiveTab('categories'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'categories' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'categories' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <FolderPlus className="w-4.5 h-4.5" /> Categories
+              <FolderPlus className="w-4 h-4 lg:w-4.5 lg:h-4.5" /> Categories
             </button>
 
             <button
               onClick={() => { setActiveTab('parent-sections'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'parent-sections' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'parent-sections' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Layers className="w-4.5 h-4.5 text-red-500" /> Parent Sections
+              <Layers className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-red-500" /> Parent Sections
             </button>
 
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-editorial-text/40 font-mono px-2 mt-4 mb-2 block">Commercials & Team</span>
+            <span className="hidden lg:block text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-editorial-text/40 font-mono px-2 mt-4 mb-2">Commercials & Team</span>
 
             <button
               onClick={() => { setActiveTab('ads'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'ads' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'ads' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Layout className="w-4.5 h-4.5" /> Advertisements
+              <Layout className="w-4 h-4 lg:w-4.5 lg:h-4.5" /> Ads
             </button>
 
             <button
               onClick={() => { setActiveTab('ebooks'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'ebooks' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'ebooks' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <BookOpen className="w-4.5 h-4.5 text-amber-500" /> E-Books Management
+              <BookOpen className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-amber-500" /> E-Books
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('subscribers'); }}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'subscribers' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
+            >
+              <Mail className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-red-500" /> Subscribers
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('inquiries'); }}
+              className={`flex items-center justify-between gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'inquiries' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
+            >
+              <div className="flex items-center gap-2 lg:gap-3">
+                <HelpCircle className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-amber-500" />
+                <span>Tips & Inquiries</span>
+              </div>
+              {unreadInquiriesCount > 0 && (
+                <span className="bg-red-600 text-white font-mono text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse ml-1">
+                  {unreadInquiriesCount}
+                </span>
+              )}
             </button>
 
             <button
               onClick={() => { setActiveTab('comments'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'comments' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'comments' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <MessageSquare className="w-4.5 h-4.5 text-blue-500" /> Comments Panel
+              <MessageSquare className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-blue-500" /> Comments
             </button>
 
             <button
               onClick={() => { setActiveTab('users'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'users' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'users' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Shield className="w-4.5 h-4.5 text-indigo-500" /> Editorial Team
+              <Shield className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-indigo-500" /> Team
             </button>
 
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-editorial-text/40 font-mono px-2 mt-4 mb-2 block">System</span>
+            <span className="hidden lg:block text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-editorial-text/40 font-mono px-2 mt-4 mb-2">System</span>
 
             <button
               onClick={() => { setActiveTab('settings'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'settings' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'settings' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <SettingsIcon className="w-4.5 h-4.5" /> Website Settings
+              <SettingsIcon className="w-4 h-4 lg:w-4.5 lg:h-4.5" /> Settings
             </button>
 
             <button
               onClick={() => { setActiveTab('contact-social'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'contact-social' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'contact-social' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Phone className="w-4.5 h-4.5 text-emerald-500" /> Contact & Social Media
+              <Phone className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-emerald-500" /> Contact
             </button>
 
             <button
               onClick={() => { setActiveTab('server-deploy'); }}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded text-sm font-semibold transition cursor-pointer ${activeTab === 'server-deploy' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg'}`}
+              className={`flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded text-xs lg:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === 'server-deploy' ? 'bg-editorial-accent text-white shadow-lg' : 'text-slate-700 dark:text-editorial-text/70 hover:bg-slate-100 dark:hover:bg-editorial-bg bg-white/60 dark:bg-white/5 lg:bg-transparent'}`}
             >
-              <Database className="w-4.5 h-4.5 text-blue-500" /> Export & Backup
+              <Database className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-blue-500" /> Backup
             </button>
 
-            <div className="mt-auto pt-6 border-t border-slate-200 dark:border-white/10 px-2 text-[11px] text-slate-400">
+            <div className="hidden lg:block mt-auto pt-6 border-t border-slate-200 dark:border-white/10 px-2 text-[11px] text-slate-400">
               <div className="flex items-center gap-1.5">
                 <Server className="w-3.5 h-3.5 text-emerald-600" />
                 <span className="font-semibold text-emerald-600">Database Connected</span>
@@ -2999,6 +3509,63 @@ INSERT INTO website_settings (name, tagline, footer_text, primary_color) VALUES
                             className="rounded border-slate-300 dark:border-slate-700 text-red-600 focus:ring-red-500"
                           />
                           <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Commodity Markets</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* MULTI-LANGUAGE SYSTEM SETTINGS */}
+                  <div className="md:col-span-2 border-t border-slate-200 dark:border-slate-800 pt-6 mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h4 className="text-sm font-black uppercase text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>🌐 Multi-Language Translation System</span>
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold">ACTIVE</span>
+                        </h4>
+                        <p className="text-xs text-slate-400">Configure global website language behavior, auto-translation engine, default language, and custom locale preferences.</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Default Website Language</label>
+                        <select
+                          value={settingsForm.defaultLanguage || 'en'}
+                          onChange={e => setSettingsForm({ ...settingsForm, defaultLanguage: e.target.value })}
+                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm rounded outline-none dark:text-white font-semibold"
+                        >
+                          <option value="en">English (US/UK Global Standard)</option>
+                          <option value="hi">Hindi (हिंदी)</option>
+                          <option value="ur">Urdu (اردو)</option>
+                          <option value="ar">Arabic (العربية)</option>
+                          <option value="es">Spanish (Español)</option>
+                          <option value="fr">French (Français)</option>
+                          <option value="zh-CN">Chinese Simplified (中文)</option>
+                          <option value="de">German (Deutsch)</option>
+                          <option value="ru">Russian (Русский)</option>
+                          <option value="ja">Japanese (日本語)</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-2 justify-center">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settingsForm.multiLanguageEnabled !== false}
+                            onChange={e => setSettingsForm({ ...settingsForm, multiLanguageEnabled: e.target.checked })}
+                            className="rounded border-slate-300 dark:border-slate-700 text-red-600 focus:ring-red-500"
+                          />
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Enable Multi-Language Switcher Header & Mobile Menu</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settingsForm.autoTranslateEnabled !== false}
+                            onChange={e => setSettingsForm({ ...settingsForm, autoTranslateEnabled: e.target.checked })}
+                            className="rounded border-slate-300 dark:border-slate-700 text-red-600 focus:ring-red-500"
+                          />
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Enable Real-Time Automatic Translation for Articles & Feeds</span>
                         </label>
                       </div>
                     </div>
@@ -4523,6 +5090,557 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
               </div>
             )}
 
+            {/* TIPS & DIRECT INQUIRIES MANAGEMENT PANEL */}
+            {activeTab === 'inquiries' && (
+              <div className="flex flex-col gap-6 animate-fade-in">
+                {/* Header & Metrics */}
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <HelpCircle className="w-5 h-5 text-editorial-accent" />
+                      <h3 className="text-lg font-black uppercase text-slate-900 dark:text-white font-mono">
+                        Tips & Direct Inquiry Management System
+                      </h3>
+                      <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                        Database Synced Live
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-editorial-text/60 font-serif">
+                      Review, filter, reply, and manage secure tips and general inquiry transmissions submitted by website visitors.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={fetchInquiries}
+                      className="bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-700 dark:text-slate-200 px-3 py-2 rounded text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
+                      title="Refresh Inquiries from database"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                    </button>
+                    <button
+                      onClick={exportInquiriesToCSV}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5" /> Export CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metrics Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                    <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Total Inquiries</span>
+                    <span className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1">{inquiries.length}</span>
+                  </div>
+                  <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                    <span className="text-[10px] font-mono font-bold uppercase text-red-500">Unread Transmissions</span>
+                    <span className="text-2xl font-black font-mono text-red-600 mt-1">{unreadInquiriesCount}</span>
+                  </div>
+                  <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                    <span className="text-[10px] font-mono font-bold uppercase text-emerald-500">Official Replies Sent</span>
+                    <span className="text-2xl font-black font-mono text-emerald-600 mt-1">{inquiries.filter(i => i.status === 'Replied').length}</span>
+                  </div>
+                  <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                    <span className="text-[10px] font-mono font-bold uppercase text-blue-500">With Attached Files</span>
+                    <span className="text-2xl font-black font-mono text-blue-600 mt-1">{inquiries.filter(i => Array.isArray(i.files) && i.files.length > 0).length}</span>
+                  </div>
+                </div>
+
+                {/* Filter and Search Bar */}
+                <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 p-4 rounded-xl shadow-sm flex flex-wrap items-center justify-between gap-3 font-sans">
+                  <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+                    <div className="relative flex-1 min-w-[200px]">
+                      <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={inquirySearch}
+                        onChange={e => setInquirySearch(e.target.value)}
+                        placeholder="Search ID, Name, Email, or keywords..."
+                        className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs pl-9 pr-3 py-2 rounded outline-none focus:border-editorial-accent text-slate-900 dark:text-editorial-text"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <Filter className="w-3.5 h-3.5 text-slate-400" />
+                      <select
+                        value={inquiryCategoryFilter}
+                        onChange={e => setInquiryCategoryFilter(e.target.value)}
+                        className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs py-2 px-2.5 rounded outline-none text-slate-800 dark:text-editorial-text font-mono font-semibold"
+                      >
+                        <option value="All">All Categories</option>
+                        <option value="Breaking News Tip">Breaking News Tip</option>
+                        <option value="Anonymous News Tip">Anonymous News Tip</option>
+                        <option value="Business Inquiry">Business Inquiry</option>
+                        <option value="Advertisement Inquiry">Advertisement Inquiry</option>
+                        <option value="Editorial Inquiry">Editorial Inquiry</option>
+                        <option value="Partnership Proposal">Partnership Proposal</option>
+                        <option value="Technical Support">Technical Support</option>
+                        <option value="General Feedback">General Feedback</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+
+                    <select
+                      value={inquiryStatusFilter}
+                      onChange={e => setInquiryStatusFilter(e.target.value)}
+                      className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs py-2 px-2.5 rounded outline-none text-slate-800 dark:text-editorial-text font-mono font-semibold"
+                    >
+                      <option value="All">All Statuses</option>
+                      <option value="Unread">Unread Only</option>
+                      <option value="Read">Read Only</option>
+                      <option value="Replied">Replied Only</option>
+                      <option value="Archived">Archived Only</option>
+                    </select>
+
+                    <select
+                      value={inquiryDateFilter}
+                      onChange={e => setInquiryDateFilter(e.target.value)}
+                      className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs py-2 px-2.5 rounded outline-none text-slate-800 dark:text-editorial-text font-mono font-semibold"
+                    >
+                      <option value="All">All Time</option>
+                      <option value="Today">Submitted Today</option>
+                      <option value="Week">Last 7 Days</option>
+                      <option value="Month">Last 30 Days</option>
+                    </select>
+                  </div>
+
+                  {selectedInquiryIds.length > 0 && (
+                    <button
+                      onClick={handleBulkDeleteInquiries}
+                      className="bg-red-600 hover:bg-red-700 text-white font-mono text-xs font-bold px-3 py-2 rounded flex items-center gap-1.5 transition cursor-pointer shadow-sm shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Purge Selected ({selectedInquiryIds.length})
+                    </button>
+                  )}
+                </div>
+
+                {/* Table View */}
+                {(() => {
+                  const filteredInquiries = inquiries.filter(i => {
+                    // Search Filter
+                    if (inquirySearch.trim()) {
+                      const q = inquirySearch.toLowerCase().trim();
+                      const matchId = (i.id || '').toLowerCase().includes(q);
+                      const matchName = (i.name || '').toLowerCase().includes(q);
+                      const matchEmail = (i.email || '').toLowerCase().includes(q);
+                      const matchCat = (i.category || '').toLowerCase().includes(q);
+                      const matchMsg = (i.message || '').toLowerCase().includes(q);
+                      if (!matchId && !matchName && !matchEmail && !matchCat && !matchMsg) return false;
+                    }
+
+                    // Category Filter
+                    if (inquiryCategoryFilter !== 'All' && i.category !== inquiryCategoryFilter) return false;
+
+                    // Status Filter
+                    if (inquiryStatusFilter !== 'All' && i.status !== inquiryStatusFilter) return false;
+
+                    // Date Filter
+                    if (inquiryDateFilter !== 'All') {
+                      const submittedDate = new Date(i.submittedAt).getTime();
+                      const now = Date.now();
+                      if (inquiryDateFilter === 'Today') {
+                        const todayStart = new Date().setHours(0, 0, 0, 0);
+                        if (submittedDate < todayStart) return false;
+                      } else if (inquiryDateFilter === 'Week') {
+                        if (now - submittedDate > 7 * 24 * 60 * 60 * 1000) return false;
+                      } else if (inquiryDateFilter === 'Month') {
+                        if (now - submittedDate > 30 * 24 * 60 * 60 * 1000) return false;
+                      }
+                    }
+
+                    return true;
+                  });
+
+                  if (filteredInquiries.length === 0) {
+                    return (
+                      <div className="p-12 text-center bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 rounded-xl flex flex-col items-center gap-3">
+                        <Inbox className="w-12 h-12 text-slate-300 dark:text-white/20" />
+                        <h4 className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">No Inquiries Found</h4>
+                        <p className="text-xs text-slate-400 font-serif max-w-sm">
+                          {inquiries.length === 0 ? "No visitor tips or inquiries have been submitted yet." : "No inquiry transmissions match your active search filter parameters."}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  const allFilteredIds = filteredInquiries.map(i => i.id);
+                  const isAllSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedInquiryIds.includes(id));
+
+                  const toggleSelectAll = () => {
+                    if (isAllSelected) {
+                      setSelectedInquiryIds([]);
+                    } else {
+                      setSelectedInquiryIds(allFilteredIds);
+                    }
+                  };
+
+                  const toggleSelectRow = (id: string) => {
+                    if (selectedInquiryIds.includes(id)) {
+                      setSelectedInquiryIds(selectedInquiryIds.filter(i => i !== id));
+                    } else {
+                      setSelectedInquiryIds([...selectedInquiryIds, id]);
+                    }
+                  };
+
+                  return (
+                    <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-editorial-text/50 font-mono font-black text-[10px] uppercase tracking-wider border-b border-slate-200 dark:border-white/10">
+                              <th className="p-3 w-10 text-center">
+                                <button type="button" onClick={toggleSelectAll} className="cursor-pointer text-slate-400 hover:text-slate-700">
+                                  {isAllSelected ? <CheckSquare className="w-4 h-4 text-editorial-accent" /> : <Square className="w-4 h-4" />}
+                                </button>
+                              </th>
+                              <th className="p-3">Status</th>
+                              <th className="p-3">Inquiry ID</th>
+                              <th className="p-3">Sender Details</th>
+                              <th className="p-3">Category</th>
+                              <th className="p-3">Date & Time</th>
+                              <th className="p-3">Files</th>
+                              <th className="p-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-sans">
+                            {filteredInquiries.map((inq) => {
+                              const isUnread = inq.status === 'Unread';
+                              const isSelected = selectedInquiryIds.includes(inq.id);
+
+                              return (
+                                <tr
+                                  key={inq.id}
+                                  className={`hover:bg-slate-50/80 dark:hover:bg-white/5 transition ${isUnread ? 'bg-amber-500/5 font-semibold' : ''}`}
+                                >
+                                  <td className="p-3 text-center">
+                                    <button type="button" onClick={() => toggleSelectRow(inq.id)} className="cursor-pointer text-slate-400 hover:text-slate-700">
+                                      {isSelected ? <CheckSquare className="w-4 h-4 text-editorial-accent" /> : <Square className="w-4 h-4" />}
+                                    </button>
+                                  </td>
+                                  <td className="p-3">
+                                    {inq.status === 'Unread' && (
+                                      <span className="bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase">
+                                        Unread
+                                      </span>
+                                    )}
+                                    {inq.status === 'Read' && (
+                                      <span className="bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-slate-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase">
+                                        Read
+                                      </span>
+                                    )}
+                                    {inq.status === 'Replied' && (
+                                      <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase">
+                                        Replied
+                                      </span>
+                                    )}
+                                    {inq.status === 'Archived' && (
+                                      <span className="bg-zinc-500/10 text-zinc-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase">
+                                        Archived
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 font-mono font-black text-slate-900 dark:text-white">
+                                    {inq.id}
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="flex flex-col">
+                                      <span className="font-bold text-slate-900 dark:text-editorial-text">{inq.name}</span>
+                                      <span className="text-[11px] text-slate-400 font-mono">{inq.email}</span>
+                                    </div>
+                                  </td>
+                                  <td className="p-3">
+                                    <span className="bg-slate-100 dark:bg-white/10 text-slate-800 dark:text-slate-200 text-[10px] font-mono font-bold px-2 py-1 rounded">
+                                      {inq.category}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 font-mono text-[11px] text-slate-500">
+                                    {new Date(inq.submittedAt).toLocaleString()}
+                                  </td>
+                                  <td className="p-3">
+                                    {Array.isArray(inq.files) && inq.files.length > 0 ? (
+                                      <span className="text-[11px] font-mono font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                                        <Paperclip className="w-3 h-3" /> {inq.files.length} File(s)
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-slate-400 font-mono">—</span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedInquiry(inq);
+                                          if (inq.status === 'Unread') handleUpdateInquiryStatus(inq.id, 'Read');
+                                        }}
+                                        className="bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded text-[11px] font-mono font-bold transition cursor-pointer"
+                                        title="View Full Transmission Details"
+                                      >
+                                        View Details
+                                      </button>
+                                      <button
+                                        onClick={() => setReplyModalInquiry(inq)}
+                                        className="bg-editorial-accent hover:bg-red-700 text-white px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
+                                        title="Reply to Inquiry"
+                                      >
+                                        <Send className="w-3 h-3" /> Reply
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteInquiry(inq.id)}
+                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 p-1.5 rounded transition cursor-pointer"
+                                        title="Delete Inquiry"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* INQUIRY DETAIL MODAL / DRAWER */}
+                {selectedInquiry && (
+                  <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                      {/* Modal Header */}
+                      <div className="p-4 border-b border-slate-200 dark:border-white/10 flex items-center justify-between bg-slate-50 dark:bg-editorial-bg">
+                        <div className="flex items-center gap-2">
+                          <HelpCircle className="w-5 h-5 text-editorial-accent" />
+                          <div>
+                            <h3 className="font-mono font-black text-sm uppercase text-slate-900 dark:text-white">
+                              Transmission Detail #{selectedInquiry.id}
+                            </h3>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              Submitted: {new Date(selectedInquiry.submittedAt).toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setSelectedInquiry(null)}
+                          className="text-slate-400 hover:text-slate-700 dark:hover:text-white font-mono text-xs font-bold px-2 py-1 rounded cursor-pointer"
+                        >
+                          ✕ Close
+                        </button>
+                      </div>
+
+                      {/* Modal Body */}
+                      <div className="p-6 overflow-y-auto flex flex-col gap-5 text-xs font-sans">
+                        {/* Status bar */}
+                        <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-editorial-bg rounded-lg border border-slate-200 dark:border-white/10 font-mono">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400 uppercase text-[10px] font-bold">Status:</span>
+                            <select
+                              value={selectedInquiry.status}
+                              onChange={e => handleUpdateInquiryStatus(selectedInquiry.id, e.target.value as any)}
+                              className="bg-white dark:bg-editorial-dark border border-slate-300 dark:border-white/20 text-xs font-bold py-1 px-2 rounded outline-none text-slate-800 dark:text-slate-200"
+                            >
+                              <option value="Unread">Unread</option>
+                              <option value="Read">Read</option>
+                              <option value="Replied">Replied</option>
+                              <option value="Archived">Archived</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400 uppercase text-[10px] font-bold">Category:</span>
+                            <span className="bg-editorial-accent/10 text-editorial-accent font-bold px-2 py-0.5 rounded">
+                              {selectedInquiry.category}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Sender info */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="p-3 bg-slate-50 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10 flex flex-col gap-1">
+                            <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Sender Name / Alias</span>
+                            <span className="font-bold text-sm text-slate-900 dark:text-white">{selectedInquiry.name}</span>
+                          </div>
+
+                          <div className="p-3 bg-slate-50 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10 flex flex-col gap-1">
+                            <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Contact Email</span>
+                            <a href={`mailto:${selectedInquiry.email}`} className="font-mono text-editorial-accent hover:underline font-bold">
+                              {selectedInquiry.email}
+                            </a>
+                          </div>
+
+                          {selectedInquiry.country && (
+                            <div className="p-3 bg-slate-50 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10 flex flex-col gap-1">
+                              <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Country / Time Zone</span>
+                              <span className="font-mono text-slate-700 dark:text-slate-300">{selectedInquiry.country}</span>
+                            </div>
+                          )}
+
+                          {selectedInquiry.deviceInfo && (
+                            <div className="p-3 bg-slate-50 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10 flex flex-col gap-1">
+                              <span className="text-[10px] font-mono font-bold uppercase text-slate-400">User Device Info</span>
+                              <span className="font-mono text-slate-700 dark:text-slate-300 truncate">{selectedInquiry.deviceInfo}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Message details */}
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Transmission Text / Message Details</span>
+                          <div className="p-4 bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 rounded-lg text-slate-900 dark:text-editorial-text whitespace-pre-wrap leading-relaxed font-sans text-xs">
+                            {selectedInquiry.message}
+                          </div>
+                        </div>
+
+                        {/* Attached Files */}
+                        {Array.isArray(selectedInquiry.files) && selectedInquiry.files.length > 0 && (
+                          <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg">
+                            <span className="text-[10px] font-mono font-bold uppercase text-slate-400 flex items-center gap-1">
+                              <Paperclip className="w-3.5 h-3.5 text-editorial-accent" />
+                              Attached Media & Documents ({selectedInquiry.files.length}):
+                            </span>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-1">
+                              {selectedInquiry.files.map((f, idx) => (
+                                <a
+                                  key={idx}
+                                  href={f.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center justify-between p-2.5 bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 rounded hover:border-editorial-accent transition group"
+                                >
+                                  <div className="flex items-center gap-2 overflow-hidden">
+                                    <FileText className="w-4 h-4 text-editorial-accent shrink-0" />
+                                    <span className="truncate font-mono font-bold text-slate-800 dark:text-slate-200 group-hover:text-editorial-accent">
+                                      {f.name}
+                                    </span>
+                                  </div>
+                                  <ExternalLink className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Replies Thread */}
+                        {Array.isArray(selectedInquiry.replies) && selectedInquiry.replies.length > 0 && (
+                          <div className="flex flex-col gap-3 pt-3 border-t border-slate-200 dark:border-white/10">
+                            <span className="text-[10px] font-mono font-bold uppercase text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                              <CornerDownRight className="w-3.5 h-3.5" />
+                              Official Editorial Replies Logged ({selectedInquiry.replies.length}):
+                            </span>
+                            {selectedInquiry.replies.map((rep) => (
+                              <div key={rep.id} className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex flex-col gap-1 font-sans">
+                                <div className="flex items-center justify-between text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                                  <span className="font-bold">{rep.senderName} ({rep.senderEmail})</span>
+                                  <span>{new Date(rep.sentAt).toLocaleString()}</span>
+                                </div>
+                                <p className="text-xs text-slate-800 dark:text-slate-200 mt-1 whitespace-pre-wrap">{rep.message}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Modal Footer */}
+                      <div className="p-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-editorial-bg flex items-center justify-between">
+                        <button
+                          onClick={() => handleDeleteInquiry(selectedInquiry.id)}
+                          className="text-red-500 hover:text-red-700 font-mono text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Purge Inquiry
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedInquiry(null)}
+                            className="bg-slate-200 dark:bg-white/10 hover:bg-slate-300 text-slate-800 dark:text-slate-200 px-4 py-2 rounded text-xs font-mono font-bold transition cursor-pointer"
+                          >
+                            Close
+                          </button>
+                          <button
+                            onClick={() => {
+                              const target = selectedInquiry;
+                              setSelectedInquiry(null);
+                              setReplyModalInquiry(target);
+                            }}
+                            className="bg-editorial-accent hover:bg-red-700 text-white px-4 py-2 rounded text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
+                          >
+                            <Send className="w-3.5 h-3.5" /> Compose Reply
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* REPLY COMPOSER MODAL */}
+                {replyModalInquiry && (
+                  <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 w-full max-w-xl rounded-xl shadow-2xl overflow-hidden flex flex-col">
+                      <div className="p-4 border-b border-slate-200 dark:border-white/10 flex items-center justify-between bg-slate-50 dark:bg-editorial-bg">
+                        <div className="flex items-center gap-2">
+                          <Send className="w-4 h-4 text-editorial-accent" />
+                          <h3 className="font-mono font-black text-xs uppercase text-slate-900 dark:text-white">
+                            Dispatch Reply to Inquiry #{replyModalInquiry.id}
+                          </h3>
+                        </div>
+                        <button
+                          onClick={() => setReplyModalInquiry(null)}
+                          className="text-slate-400 hover:text-slate-700 dark:hover:text-white font-mono text-xs font-bold px-2 py-1 rounded cursor-pointer"
+                        >
+                          ✕ Cancel
+                        </button>
+                      </div>
+
+                      <div className="p-6 flex flex-col gap-4 text-xs font-sans">
+                        <div className="p-3 bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 rounded-lg flex flex-col gap-1">
+                          <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Recipient Email:</span>
+                          <span className="font-mono font-bold text-slate-900 dark:text-white">{replyModalInquiry.email}</span>
+                          <span className="text-[10px] font-mono text-slate-400 mt-1">
+                            Original Topic: <span className="text-editorial-accent font-bold">{replyModalInquiry.category}</span>
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-mono font-bold uppercase text-slate-400">
+                            Official Newsroom Response Message *
+                          </label>
+                          <textarea
+                            rows={6}
+                            required
+                            value={replyText}
+                            onChange={e => setReplyText(e.target.value)}
+                            placeholder="Type your official response here. This message will be recorded in the database ledger and dispatched to the recipient's email..."
+                            className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent text-slate-900 dark:text-editorial-text font-sans leading-relaxed"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-editorial-bg flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setReplyModalInquiry(null)}
+                          className="bg-slate-200 dark:bg-white/10 hover:bg-slate-300 text-slate-800 dark:text-slate-200 px-4 py-2 rounded text-xs font-mono font-bold transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={replySending || !replyText.trim()}
+                          onClick={() => handleSendReply(replyModalInquiry.id)}
+                          className="bg-editorial-accent hover:bg-red-700 disabled:opacity-50 text-white font-mono text-xs font-bold px-5 py-2 rounded flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          {replySending ? "Dispatching..." : "Send Official Response"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
+
             {/* COMMENTS MANAGEMENT PANEL */}
             {activeTab === 'comments' && (
               <div className="flex flex-col gap-6 animate-fade-in">
@@ -4955,6 +6073,545 @@ GEMINI_API_KEY=${settings.name ? 'YOUR_GEMINI_KEY' : ''}`}
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* NEWSLETTER SUBSCRIBERS MANAGEMENT DESK */}
+            {activeTab === 'subscribers' && (
+              <div className="flex flex-col gap-6 animate-fade-in">
+                {/* Header Banner */}
+                <div className="bg-slate-900 text-white p-5 rounded-xl border border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-red-600/20 border border-red-600 flex items-center justify-center text-red-500 font-mono font-black shrink-0">
+                      <Mail className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-black uppercase tracking-wider font-mono text-white">
+                          Newsletter & Email Subscribers Desk
+                        </h3>
+                        <span className="bg-red-600 text-white text-[9px] font-black uppercase font-mono px-2 py-0.5 rounded tracking-widest">
+                          Live Database Sync
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 font-serif mt-0.5">
+                        Manage global subscribers, send broadcast digests, and configure automated breaking news email alerts.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setIsComposeNewsletterOpen(true)}
+                      className="bg-red-600 hover:bg-red-700 text-white px-3.5 py-2 rounded text-xs font-bold uppercase tracking-wider font-mono flex items-center gap-1.5 transition cursor-pointer shadow-md"
+                    >
+                      <Send className="w-3.5 h-3.5" /> Compose Broadcast
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsNewsletterSettingsOpen(true)}
+                      className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3.5 py-2 rounded text-xs font-bold uppercase tracking-wider font-mono flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <SettingsIcon className="w-3.5 h-3.5 text-amber-400" /> Auto-Alert Settings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportCSV}
+                      className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3.5 py-2 rounded text-xs font-bold uppercase tracking-wider font-mono flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-400" /> Export CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metrics Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider">Total Subscribers</span>
+                      <p className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-0.5">{subscribers.length}</p>
+                    </div>
+                    <div className="p-3 bg-red-500/10 text-red-500 rounded-lg">
+                      <Mail className="w-5 h-5" />
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider">Active Subscribers</span>
+                      <p className="text-2xl font-black font-mono text-emerald-500 mt-0.5">
+                        {subscribers.filter(s => s.status === 'Active' || s.notificationsEnabled !== false).length}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider">Auto Alerts Status</span>
+                      <p className="text-sm font-black font-mono text-amber-500 mt-1">
+                        {localNewsletterSettings.autoSendArticleAlerts ? '● ACTIVE (PUBLISH ALERTS)' : '○ PAUSED'}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg">
+                      <Bell className="w-5 h-5" />
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider">Sender Address</span>
+                      <p className="text-xs font-bold font-mono text-slate-800 dark:text-slate-200 mt-1 truncate max-w-[160px]" title={localNewsletterSettings.senderEmail || 'fastcoveragenews@gmail.com'}>
+                        {localNewsletterSettings.senderEmail || 'fastcoveragenews@gmail.com'}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-blue-500/10 text-blue-500 rounded-lg">
+                      <Globe className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filter and Table Container */}
+                <div className="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden">
+                  
+                  {/* Search and Filter Controls */}
+                  <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-[240px]">
+                      <input
+                        type="text"
+                        value={subscriberSearch}
+                        onChange={e => setSubscriberSearch(e.target.value)}
+                        placeholder="Search subscribers by email address..."
+                        className="w-full max-w-sm bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded outline-none font-mono text-slate-900 dark:text-white focus:border-red-500"
+                      />
+                      <select
+                        value={subscriberStatusFilter}
+                        onChange={e => setSubscriberStatusFilter(e.target.value as any)}
+                        className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-mono text-slate-900 dark:text-white"
+                      >
+                        <option value="All">All Statuses</option>
+                        <option value="Active">Active Only</option>
+                        <option value="Inactive">Inactive / Unsubscribed</option>
+                      </select>
+                    </div>
+
+                    {selectedSubIds.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-red-500">
+                          {selectedSubIds.length} Selected
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setComposeForm(prev => ({ ...prev, recipientType: 'selected' }));
+                            setIsComposeNewsletterOpen(true);
+                          }}
+                          className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 rounded text-[11px] font-bold uppercase font-mono transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Send className="w-3 h-3" /> Email Selected
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteSelectedSubscribers}
+                          className="bg-slate-800 hover:bg-red-950 text-red-400 border border-red-900/50 px-2.5 py-1.5 rounded text-[11px] font-bold uppercase font-mono transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete Selected
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Subscribers Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-900/80 text-slate-500 uppercase font-mono font-black text-[10px] border-b border-slate-200 dark:border-slate-800">
+                          <th className="p-3 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={subscribers.length > 0 && selectedSubIds.length === subscribers.length}
+                              onChange={e => {
+                                if (e.target.checked) {
+                                  setSelectedSubIds(subscribers.map(s => s.id));
+                                } else {
+                                  setSelectedSubIds([]);
+                                }
+                              }}
+                              className="rounded border-slate-300 dark:border-slate-700 text-red-600"
+                            />
+                          </th>
+                          <th className="px-4 py-3">Subscriber Email</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">Auto Notifications</th>
+                          <th className="px-4 py-3">Subscribed On</th>
+                          <th className="px-4 py-3 text-center">Emails Sent</th>
+                          <th className="px-4 py-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                        {subscribers
+                          .filter(s => {
+                            if (subscriberSearch && !s.email.toLowerCase().includes(subscriberSearch.toLowerCase())) {
+                              return false;
+                            }
+                            if (subscriberStatusFilter === 'Active' && s.status === 'Inactive') return false;
+                            if (subscriberStatusFilter === 'Inactive' && s.status === 'Active') return false;
+                            return true;
+                          })
+                          .map(sub => {
+                            const isSelected = selectedSubIds.includes(sub.id);
+                            return (
+                              <tr key={sub.id} className={`hover:bg-slate-50 dark:hover:bg-slate-900/40 ${isSelected ? 'bg-red-500/5 dark:bg-red-500/10' : ''}`}>
+                                <td className="p-3 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={e => {
+                                      if (e.target.checked) {
+                                        setSelectedSubIds(prev => [...prev, sub.id]);
+                                      } else {
+                                        setSelectedSubIds(prev => prev.filter(id => id !== sub.id));
+                                      }
+                                    }}
+                                    className="rounded border-slate-300 dark:border-slate-700 text-red-600"
+                                  />
+                                </td>
+                                <td className="px-4 py-3 font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                  <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span>{sub.email}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${sub.status === 'Inactive' ? 'bg-slate-200 dark:bg-slate-800 text-slate-500' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'}`}>
+                                    {sub.status || 'Active'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSubscriberNotification(sub)}
+                                    className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${sub.notificationsEnabled !== false ? 'bg-emerald-600 text-white' : 'bg-slate-300 dark:bg-slate-800 text-slate-500'}`}
+                                  >
+                                    <Power className="w-3 h-3" />
+                                    {sub.notificationsEnabled !== false ? 'ENABLED' : 'DISABLED'}
+                                  </button>
+                                </td>
+                                <td className="px-4 py-3 text-slate-500 text-[11px]">
+                                  {new Date(sub.subscribedAt).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-3 text-center font-bold text-slate-800 dark:text-slate-200">
+                                  {sub.totalEmailsSent || 0}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setComposeForm(prev => ({ ...prev, recipientType: 'single', singleEmail: sub.email }));
+                                        setIsComposeNewsletterOpen(true);
+                                      }}
+                                      className="p-1.5 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition cursor-pointer"
+                                      title="Send direct email to subscriber"
+                                    >
+                                      <Send className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteSingleSubscriber(sub.id, sub.email)}
+                                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition cursor-pointer"
+                                      title="Delete subscriber permanently"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        {subscribers.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="p-8 text-center text-slate-400 italic">
+                              No subscribers found in database ledger. New email subscriptions from the footer will appear here automatically.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* MODAL: Compose Broadcast Email */}
+                {isComposeNewsletterOpen && (
+                  <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-60 p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-6 w-full max-w-xl shadow-2xl flex flex-col gap-4">
+                      <div className="flex items-center justify-between border-b border-slate-150 dark:border-slate-800 pb-3">
+                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white font-mono flex items-center gap-2">
+                          <Send className="w-4 h-4 text-red-600" /> Compose & Broadcast Email Digest
+                        </h3>
+                        <button
+                          onClick={() => setIsComposeNewsletterOpen(false)}
+                          className="text-slate-400 hover:text-slate-600 font-mono text-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleSendBroadcast} className="flex flex-col gap-3 font-sans">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Target Recipients</label>
+                          <select
+                            value={composeForm.recipientType}
+                            onChange={e => setComposeForm({ ...composeForm, recipientType: e.target.value as any })}
+                            className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-mono text-slate-900 dark:text-white"
+                          >
+                            <option value="all">All Active Subscribers ({subscribers.filter(s => s.status !== 'Inactive').length})</option>
+                            <option value="selected">Selected Subscribers ({selectedSubIds.length})</option>
+                            <option value="single">Single Target Email Address</option>
+                          </select>
+                        </div>
+
+                        {composeForm.recipientType === 'single' && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Target Email Address *</label>
+                            <input
+                              type="email"
+                              required
+                              value={composeForm.singleEmail}
+                              onChange={e => setComposeForm({ ...composeForm, singleEmail: e.target.value })}
+                              placeholder="reader@example.com"
+                              className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-mono text-slate-900 dark:text-white"
+                            />
+                          </div>
+                        )}
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Email Subject Line *</label>
+                          <input
+                            type="text"
+                            required
+                            value={composeForm.subject}
+                            onChange={e => setComposeForm({ ...composeForm, subject: e.target.value })}
+                            placeholder="BREAKING: Global Economic Summit Direct Dispatch"
+                            className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold text-slate-900 dark:text-white"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Headline Title *</label>
+                          <input
+                            type="text"
+                            required
+                            value={composeForm.title}
+                            onChange={e => setComposeForm({ ...composeForm, title: e.target.value })}
+                            placeholder="FAST COVERAGES SPECIAL REPORT"
+                            className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-bold text-slate-900 dark:text-white"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Digest Body Text *</label>
+                          <textarea
+                            rows={4}
+                            required
+                            value={composeForm.summary}
+                            onChange={e => setComposeForm({ ...composeForm, summary: e.target.value })}
+                            placeholder="Type report text to broadcast to subscribers..."
+                            className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none text-slate-800 dark:text-slate-200 font-serif leading-relaxed"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Action / Website Link</label>
+                          <input
+                            type="url"
+                            value={composeForm.actionUrl}
+                            onChange={e => setComposeForm({ ...composeForm, actionUrl: e.target.value })}
+                            placeholder="https://fastcoverages.com"
+                            className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs px-3 py-2 rounded outline-none font-mono text-slate-900 dark:text-white"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-150 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setIsComposeNewsletterOpen(false)}
+                            className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isSendingBroadcast}
+                            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded font-mono transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            {isSendingBroadcast ? 'Dispatching Broadcast...' : 'Dispatch Email Broadcast'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {/* MODAL: Auto-Alert & Newsletter Settings */}
+                {isNewsletterSettingsOpen && (
+                  <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-60 p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-6 w-full max-w-xl shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+                      <div className="flex items-center justify-between border-b border-slate-150 dark:border-slate-800 pb-3">
+                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white font-mono flex items-center gap-2">
+                          <SettingsIcon className="w-4 h-4 text-amber-500" /> Newsletter & Auto-Notification Settings
+                        </h3>
+                        <button
+                          onClick={() => setIsNewsletterSettingsOpen(false)}
+                          className="text-slate-400 hover:text-slate-600 font-mono text-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleSaveNewsletterSettingsForm} className="flex flex-col gap-4 font-sans text-xs">
+                        
+                        {/* Sender Email Address */}
+                        <div className="flex flex-col gap-1 bg-slate-50 dark:bg-slate-900/60 p-3 rounded border border-slate-200 dark:border-slate-800">
+                          <label className="text-[10px] font-black uppercase text-slate-400 font-mono">Official Notification Sender Email Address</label>
+                          <input
+                            type="email"
+                            required
+                            value={localNewsletterSettings.senderEmail || 'fastcoveragenews@gmail.com'}
+                            onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, senderEmail: e.target.value })}
+                            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded text-xs font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-red-500"
+                          />
+                          <span className="text-[9px] text-slate-400 font-mono mt-0.5">All automated breaking news alerts and welcome emails will be sent from this email.</span>
+                        </div>
+
+                        {/* Automatic Triggers */}
+                        <div className="flex flex-col gap-2.5 bg-slate-50 dark:bg-slate-900/60 p-3 rounded border border-slate-200 dark:border-slate-800">
+                          <span className="text-[10px] font-black uppercase text-slate-400 font-mono">Automated Email Notification Triggers</span>
+                          
+                          <label className="flex items-center justify-between cursor-pointer select-none py-1 border-b border-slate-200/50 dark:border-slate-800/50">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">Auto-Send Article Publishing Alerts</span>
+                            <input
+                              type="checkbox"
+                              checked={localNewsletterSettings.autoSendArticleAlerts !== false}
+                              onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, autoSendArticleAlerts: e.target.checked })}
+                              className="w-4 h-4 text-red-600 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between cursor-pointer select-none py-1 border-b border-slate-200/50 dark:border-slate-800/50">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">Auto-Send Breaking Ticker Alerts</span>
+                            <input
+                              type="checkbox"
+                              checked={localNewsletterSettings.sendBreakingNewsAlerts !== false}
+                              onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, sendBreakingNewsAlerts: e.target.checked })}
+                              className="w-4 h-4 text-red-600 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between cursor-pointer select-none py-1">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">Auto-Send Daily/Weekly Bulletins</span>
+                            <input
+                              type="checkbox"
+                              checked={localNewsletterSettings.sendWeeklyNewsletters !== false}
+                              onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, sendWeeklyNewsletters: e.target.checked })}
+                              className="w-4 h-4 text-red-600 rounded"
+                            />
+                          </label>
+                        </div>
+
+                        {/* Welcome Email Configuration */}
+                        <div className="flex flex-col gap-2 bg-slate-50 dark:bg-slate-900/60 p-3 rounded border border-slate-200 dark:border-slate-800">
+                          <span className="text-[10px] font-black uppercase text-slate-400 font-mono">Welcome Email Templates</span>
+                          
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500">Welcome Subject</label>
+                            <input
+                              type="text"
+                              value={localNewsletterSettings.welcomeSubject || ''}
+                              onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, welcomeSubject: e.target.value })}
+                              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded text-xs text-slate-900 dark:text-white outline-none"
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500">Welcome Message Content</label>
+                            <textarea
+                              rows={3}
+                              value={localNewsletterSettings.welcomeMessage || ''}
+                              onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, welcomeMessage: e.target.value })}
+                              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded text-xs text-slate-800 dark:text-slate-200 outline-none leading-relaxed"
+                            />
+                          </div>
+                        </div>
+
+                        {/* SMTP Server Relay Config (Optional GoDaddy/Gmail SMTP) */}
+                        <div className="flex flex-col gap-2 bg-slate-50 dark:bg-slate-900/60 p-3 rounded border border-slate-200 dark:border-slate-800 font-mono">
+                          <span className="text-[10px] font-black uppercase text-slate-400">Live SMTP Server Settings (GoDaddy / Gmail)</span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[9px] text-slate-400 uppercase">SMTP Host</label>
+                              <input
+                                type="text"
+                                value={localNewsletterSettings.smtpHost || ''}
+                                onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, smtpHost: e.target.value })}
+                                placeholder="smtp.gmail.com"
+                                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1.5 rounded text-[11px] text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] text-slate-400 uppercase">SMTP Port</label>
+                              <input
+                                type="number"
+                                value={localNewsletterSettings.smtpPort || 587}
+                                onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, smtpPort: parseInt(e.target.value, 10) || 587 })}
+                                placeholder="587"
+                                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1.5 rounded text-[11px] text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] text-slate-400 uppercase">SMTP User</label>
+                              <input
+                                type="text"
+                                value={localNewsletterSettings.smtpUser || ''}
+                                onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, smtpUser: e.target.value })}
+                                placeholder="fastcoveragenews@gmail.com"
+                                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1.5 rounded text-[11px] text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] text-slate-400 uppercase">SMTP Pass</label>
+                              <input
+                                type="password"
+                                value={localNewsletterSettings.smtpPass || ''}
+                                onChange={e => setLocalNewsletterSettings({ ...localNewsletterSettings, smtpPass: e.target.value })}
+                                placeholder="••••••••••••"
+                                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1.5 rounded text-[11px] text-slate-900 dark:text-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-150 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setIsNewsletterSettingsOpen(false)}
+                            className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded font-mono transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Check className="w-3.5 h-3.5" /> Save Newsletter Settings
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

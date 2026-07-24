@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { 
   Mail, MapPin, Send, Briefcase, Award, CheckCircle2, 
   Play, Users, Heart, Eye, Megaphone, ShieldCheck, 
-  HelpCircle, Sparkles, Video, Image, ExternalLink, Phone, MessageCircle, Globe, Facebook, Twitter, Instagram, Youtube, Share2, Map
+  HelpCircle, Sparkles, Video, Image, ExternalLink, Phone, MessageCircle, Globe, Facebook, Twitter, Instagram, Youtube, Share2, Map,
+  Paperclip, Trash2, Upload, Shield, FileText, AlertCircle, Loader2
 } from 'lucide-react';
 import { Article, CareerListing, User, WebsiteSettings, AdSlot } from '../types';
 
@@ -119,13 +120,166 @@ function AboutUs({ users, settings, onNavigate }: { users: User[]; settings: Web
   );
 }
 
-/* ================== CONTACT US ================== */
+/* ================== CONTACT US & TIPS SUBMISSION ================== */
 function ContactUs({ settings }: { settings: WebsiteSettings }) {
-  const [sent, setSent] = useState(false);
-  const handleSubmit = (e: React.FormEvent) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    category: 'Breaking News Tip',
+    message: '',
+    honeypot: '',
+    captchaInput: ''
+  });
+
+  const [files, setFiles] = useState<{ name: string; url: string; size?: string; type?: string }[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState<{ id: string; msg: string } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Security captcha state: simple math calculation
+  const [numA] = useState(() => Math.floor(Math.random() * 8) + 2);
+  const [numB] = useState(() => Math.floor(Math.random() * 8) + 1);
+
+  const categories = [
+    'Breaking News Tip',
+    'Anonymous News Tip',
+    'Business Inquiry',
+    'Advertisement Inquiry',
+    'Editorial Inquiry',
+    'Partnership Proposal',
+    'Technical Support',
+    'General Feedback',
+    'Other'
+  ];
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files;
+    if (!selectedFiles || selectedFiles.length === 0) return;
+
+    setIsUploading(true);
+    setErrorMsg(null);
+
+    try {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+
+        // Check 100MB limit
+        if (file.size > 100 * 1024 * 1024) {
+          setErrorMsg(`File "${file.name}" exceeds the 100MB size limit.`);
+          continue;
+        }
+
+        const reader = new FileReader();
+        const uploadPromise = new Promise<{ name: string; url: string; size?: string; type?: string }>((resolve, reject) => {
+          reader.onload = async () => {
+            try {
+              const res = await fetch('/api/inquiries/upload-attachment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name: file.name,
+                  base64: reader.result as string,
+                  size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+                  type: file.type
+                })
+              });
+              const data = await res.json();
+              if (data.success && data.file) {
+                resolve(data.file);
+              } else {
+                reject(new Error(data.error || 'Upload failed'));
+              }
+            } catch (err) {
+              reject(err);
+            }
+          };
+          reader.onerror = () => reject(new Error('Failed reading file'));
+          reader.readAsDataURL(file);
+        });
+
+        const uploadedFile = await uploadPromise;
+        setFiles(prev => [...prev, uploadedFile]);
+      }
+    } catch (err: any) {
+      console.error('File upload error:', err);
+      setErrorMsg(err.message || 'Error uploading file attachment.');
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSent(true);
-    setTimeout(() => setSent(false), 5000);
+    setErrorMsg(null);
+    setSubmitSuccess(null);
+
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email.trim())) {
+      setErrorMsg('Please enter a valid email address (e.g. name@domain.com).');
+      return;
+    }
+
+    // CAPTCHA verification
+    if (parseInt(formData.captchaInput.trim(), 10) !== (numA + numB)) {
+      setErrorMsg(`Security verification answer is incorrect (${numA} + ${numB} = ${numA + numB}). Please re-enter.`);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Auto capture client metadata
+      const userAgent = navigator.userAgent;
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Global Client';
+
+      const response = await fetch('/api/inquiries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          category: formData.category,
+          message: formData.message,
+          files: files,
+          deviceInfo: userAgent,
+          country: timeZone,
+          website_hp: formData.honeypot
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setSubmitSuccess({
+          id: result.inquiryId,
+          msg: result.message || 'Transmission received and logged securely in newsroom desk.'
+        });
+        // Reset form
+        setFormData({
+          name: '',
+          email: '',
+          category: 'Breaking News Tip',
+          message: '',
+          honeypot: '',
+          captchaInput: ''
+        });
+        setFiles([]);
+      } else {
+        setErrorMsg(result.error || 'Failed to submit inquiry transmission.');
+      }
+    } catch (err: any) {
+      console.error('Submit Inquiry Error:', err);
+      setErrorMsg('Network error while connecting to newsroom server. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const activeMobileNumbers = (settings.mobileNumbers || []).filter(item => item.active !== false);
@@ -142,49 +296,224 @@ function ContactUs({ settings }: { settings: WebsiteSettings }) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
       <div className="lg:col-span-2 bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-6 md:p-8 rounded-lg shadow-sm flex flex-col gap-6">
         <div>
-          <h2 className="text-xs font-black uppercase text-editorial-accent tracking-[0.25em] font-mono mb-2">Editorial Desk</h2>
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck className="w-4 h-4 text-editorial-accent" />
+            <h2 className="text-xs font-black uppercase text-editorial-accent tracking-[0.25em] font-mono">Encrypted Newsroom Desk</h2>
+          </div>
           <h1 className="text-xl md:text-3xl font-black text-slate-950 dark:text-editorial-text leading-tight mb-3">Submit Tips & Direct Inquiries</h1>
           <p className="text-xs text-slate-500 dark:text-editorial-text/60 leading-relaxed font-serif">
-            Do you have a secure leak, breaking bulletin tip, or general feedback about our global coverages? Fill out the encrypted registry below. All submissions are processed under Strict Journalist Privilege protocols.
+            Do you have a secure leak, breaking bulletin tip, business proposal, or editorial feedback? Submit your transmission below. All submissions are automatically saved into our central newsroom registry and synchronized live to senior editors.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">Your Name / Alias *</label>
-              <input type="text" required placeholder="John Doe or Anonymous" className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" />
+        {submitSuccess ? (
+          <div className="p-6 bg-emerald-950/20 border-2 border-emerald-500/60 rounded-xl flex flex-col gap-4 animate-fade-in text-emerald-900 dark:text-emerald-300">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-emerald-500/20 rounded-full text-emerald-500 shrink-0">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="font-mono font-black text-sm uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                  TRANSMISSION CONFIRMED & LOGGED
+                </h3>
+                <p className="text-xs font-mono font-bold text-slate-800 dark:text-emerald-200 mt-0.5">
+                  Unique Inquiry ID: <span className="bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-700 dark:text-emerald-300 select-all font-black">{submitSuccess.id}</span>
+                </p>
+              </div>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">Contact Email *</label>
-              <input type="email" required placeholder="alias@domain.com" className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" />
-            </div>
+            <p className="text-xs text-slate-600 dark:text-emerald-300/80 leading-relaxed font-sans">
+              {submitSuccess.msg} Your message and attached documents are now logged in our editorial database. An editor will review and follow up if required.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSubmitSuccess(null)}
+              className="self-start bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold uppercase tracking-wider px-4 py-2 rounded transition cursor-pointer"
+            >
+              Submit Another Transmission
+            </button>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">Inquiry Category *</label>
-            <select className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text">
-              <option>Breaking News Tip (Anonymous)</option>
-              <option>Editorial Correction Request</option>
-              <option>Commercial / Ad Partnership</option>
-              <option>General Press Bulletin</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">Message / Details *</label>
-            <textarea rows={5} required placeholder="Provide details, dates, locations or verified references..." className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" />
-          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {/* Anti-Spam Honeypot Field (Hidden from normal humans) */}
+            <input
+              type="text"
+              name="website_hp"
+              value={formData.honeypot}
+              onChange={e => setFormData({ ...formData, honeypot: e.target.value })}
+              className="hidden"
+              tabIndex={-1}
+              autoComplete="off"
+            />
 
-          <button type="submit" className="bg-editorial-accent hover:bg-red-700 text-white font-black py-3 px-6 rounded text-xs uppercase tracking-widest transition flex items-center justify-center gap-2 cursor-pointer font-mono">
-            <Send className="w-4 h-4" /> Send Transmission
-          </button>
+            {errorMsg && (
+              <div className="p-3.5 bg-red-500/10 border border-red-500/40 text-red-600 dark:text-red-400 rounded-lg text-xs flex items-center gap-2.5 font-mono">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
 
-          {sent && (
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/30 text-emerald-600 dark:text-emerald-400 rounded text-xs flex items-center gap-2 font-mono">
-              <CheckCircle2 className="w-4.5 h-4.5 shrink-0" />
-              <span>Transmission sent successfully! Logged in our newsroom desk.</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">
+                  Full Name / Alias *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={e => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g. John Doe or Confidential Whistleblower"
+                  className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text font-sans"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">
+                  Contact Email Address *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={e => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="e.g. reporter@domain.com"
+                  className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text font-sans"
+                />
+              </div>
             </div>
-          )}
-        </form>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">
+                Inquiry Category *
+              </label>
+              <select
+                value={formData.category}
+                onChange={e => setFormData({ ...formData, category: e.target.value })}
+                className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text font-sans font-medium"
+              >
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">
+                Message / Transmission Details *
+              </label>
+              <textarea
+                rows={6}
+                required
+                value={formData.message}
+                onChange={e => setFormData({ ...formData, message: e.target.value })}
+                placeholder="Provide comprehensive details, timeline events, verified quotes or reference documents..."
+                className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-3 rounded outline-none focus:border-editorial-accent dark:text-editorial-text font-sans leading-relaxed"
+              />
+            </div>
+
+            {/* File Upload Option */}
+            <div className="flex flex-col gap-2 p-4 bg-slate-50 dark:bg-editorial-bg/60 border border-slate-200 dark:border-white/10 rounded-lg">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-slate-600 dark:text-slate-300 font-mono flex items-center gap-1.5">
+                  <Paperclip className="w-3.5 h-3.5 text-editorial-accent" />
+                  <span>Attach Documents, Images, PDFs, or Videos (Optional)</span>
+                </label>
+                <span className="text-[10px] font-mono text-slate-400">Max 100MB per file</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 text-slate-800 dark:text-slate-200 px-3 py-2 rounded text-xs font-mono font-bold flex items-center gap-2 cursor-pointer transition shrink-0">
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Uploading File...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Choose Files</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    multiple
+                    disabled={isUploading}
+                    accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-sans">
+                  Supports Images, PDFs, DOCX, and MP4/WebM videos.
+                </span>
+              </div>
+
+              {files.length > 0 && (
+                <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-slate-200 dark:border-white/10">
+                  <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Attached Files ({files.length}):</span>
+                  <div className="flex flex-wrap gap-2">
+                    {files.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 bg-white dark:bg-editorial-dark border border-slate-200 dark:border-white/10 text-xs px-2.5 py-1.5 rounded shadow-sm text-slate-800 dark:text-slate-200 font-mono"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-editorial-accent shrink-0" />
+                        <span className="truncate max-w-[160px]">{file.name}</span>
+                        {file.size && <span className="text-[10px] text-slate-400">({file.size})</span>}
+                        <button
+                          type="button"
+                          onClick={() => removeFile(idx)}
+                          className="text-red-500 hover:text-red-700 ml-1 p-0.5 rounded cursor-pointer"
+                          title="Remove file"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* CAPTCHA Security Verification */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200">
+                  Security Check: What is <span className="text-editorial-accent font-black text-sm">{numA} + {numB}</span> ?
+                </span>
+              </div>
+              <input
+                type="number"
+                required
+                value={formData.captchaInput}
+                onChange={e => setFormData({ ...formData, captchaInput: e.target.value })}
+                placeholder="Answer"
+                className="w-24 bg-white dark:bg-editorial-bg border border-slate-300 dark:border-white/20 text-xs font-mono font-bold p-2 rounded text-center outline-none focus:border-editorial-accent dark:text-editorial-text"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting || isUploading}
+              className="bg-editorial-accent hover:bg-red-700 disabled:opacity-50 text-white font-black py-3.5 px-6 rounded text-xs uppercase tracking-widest transition flex items-center justify-center gap-2 cursor-pointer font-mono shadow-md"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Transmitting Data to Server...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  <span>Send Transmission</span>
+                </>
+              )}
+            </button>
+          </form>
+        )}
 
         {/* Embedded Google Map if present */}
         {settings.googleMapsEmbedUrl && (
@@ -406,15 +735,75 @@ function ContactUs({ settings }: { settings: WebsiteSettings }) {
 
 /* ================== ADVERTISE WITH US ================== */
 function AdvertiseWithUs({ adSlots }: { adSlots: AdSlot[] }) {
-  const [submitted, setSubmitted] = useState(false);
+  const [formData, setFormData] = useState({
+    companyName: '',
+    partnerEmail: '',
+    mobileNumber: '',
+    companyWebsite: '',
+    advertisingRequirement: 'Homepage Top Banner (728x90)',
+    message: '',
+    website_hp: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    if (!formData.companyName.trim()) {
+      setErrorMessage('Company Name is required.');
+      return;
+    }
+    if (!formData.partnerEmail.trim()) {
+      setErrorMessage('Partner Email is required.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch('/api/ad-inquiries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          deviceInfo: typeof navigator !== 'undefined' ? navigator.userAgent : 'Web Browser'
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Failed to record advertising inquiry.');
+      }
+
+      setSuccessMessage('Your advertising inquiry has been submitted successfully. Our team will contact you soon.');
+      setFormData({
+        companyName: '',
+        partnerEmail: '',
+        mobileNumber: '',
+        companyWebsite: '',
+        advertisingRequirement: 'Homepage Top Banner (728x90)',
+        message: '',
+        website_hp: ''
+      });
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error submitting advertising inquiry. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
       <div className="lg:col-span-2 bg-white dark:bg-editorial-dark border border-slate-200/80 dark:border-white/5 p-6 md:p-8 rounded-lg shadow-sm">
-        <h2 className="text-xs font-black uppercase text-editorial-accent tracking-[0.25em] font-mono mb-2">Partnerships</h2>
+        <h2 className="text-xs font-black uppercase text-editorial-accent tracking-[0.25em] font-mono mb-2">Partnerships & Sponsorships</h2>
         <h1 className="text-xl md:text-3xl font-black text-slate-950 dark:text-editorial-text leading-tight mb-4">Enterprise Commercial Banners</h1>
         <p className="text-xs text-slate-500 dark:text-editorial-text/60 leading-relaxed mb-6 font-serif">
-          Partner with FAST COVERAGES to put your product in front of millions of highly engaged business, politics, and technology visitors globally. Our dynamic advertisement controller manages delivery seamlessly across devices with responsive tracking.
+          Partner with FAST COVERAGES to put your product in front of millions of highly engaged business, politics, and technology decision-makers globally. Our dynamic advertisement server manages delivery seamlessly across desktop, tablet, and mobile devices.
         </p>
 
         <h3 className="text-xs font-black uppercase text-slate-900 dark:text-editorial-text font-mono tracking-wider mb-3">Available High-Yield Ad Slots</h3>
@@ -432,19 +821,128 @@ function AdvertiseWithUs({ adSlots }: { adSlots: AdSlot[] }) {
           ))}
         </div>
 
-        <form onSubmit={(e) => { e.preventDefault(); setSubmitted(true); setTimeout(() => setSubmitted(false), 5000); }} className="flex flex-col gap-4 border-t border-slate-100 dark:border-white/5 pt-5">
-          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-editorial-text/40 font-mono">Inquire For Advertising Placements</span>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <input type="text" required placeholder="Company Name" className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" />
-            <input type="email" required placeholder="Partner Email" className="bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" />
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 border-t border-slate-200 dark:border-white/10 pt-5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-black uppercase text-slate-900 dark:text-editorial-text font-mono tracking-wider">Inquire For Enterprise Commercial Placements</span>
+            <span className="text-[10px] font-mono text-slate-400">* Required Fields</span>
           </div>
-          <button type="submit" className="bg-editorial-accent hover:bg-red-700 text-white font-black py-2.5 px-4 rounded text-xs uppercase tracking-widest transition flex items-center justify-center gap-1.5 cursor-pointer font-mono">
-            <Megaphone className="w-3.5 h-3.5" /> Request Media Kit Rate-Card
+
+          {/* Honeypot field for spam prevention */}
+          <input
+            type="text"
+            name="website_hp"
+            value={formData.website_hp}
+            onChange={(e) => setFormData({ ...formData, website_hp: e.target.value })}
+            className="hidden"
+            tabIndex={-1}
+            autoComplete="off"
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-editorial-text/60 mb-1">Company Name *</label>
+              <input 
+                type="text" 
+                required 
+                placeholder="e.g. Apex Global Energy Corp" 
+                value={formData.companyName}
+                onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" 
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-editorial-text/60 mb-1">Partner Email *</label>
+              <input 
+                type="email" 
+                required 
+                placeholder="e.g. marketing@company.com" 
+                value={formData.partnerEmail}
+                onChange={(e) => setFormData({ ...formData, partnerEmail: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" 
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-editorial-text/60 mb-1">Mobile Number (Optional)</label>
+              <input 
+                type="tel" 
+                placeholder="e.g. +1 (555) 019-2834" 
+                value={formData.mobileNumber}
+                onChange={(e) => setFormData({ ...formData, mobileNumber: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" 
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-editorial-text/60 mb-1">Company Website (Optional)</label>
+              <input 
+                type="url" 
+                placeholder="e.g. https://company.com" 
+                value={formData.companyWebsite}
+                onChange={(e) => setFormData({ ...formData, companyWebsite: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text" 
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-editorial-text/60 mb-1">Advertising Requirement (Optional)</label>
+            <select
+              value={formData.advertisingRequirement}
+              onChange={(e) => setFormData({ ...formData, advertisingRequirement: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text"
+            >
+              <option value="Homepage Top Banner (728x90)">Homepage Top Banner (728x90)</option>
+              <option value="Sidebar Sticky Rectangle (300x600)">Sidebar Sticky Rectangle (300x600)</option>
+              <option value="In-Article Mid Banner (728x90)">In-Article Mid Banner (728x90)</option>
+              <option value="Video Pre-Roll Commercial">Video Pre-Roll Commercial</option>
+              <option value="Full Website Takeover & Header Sponsorship">Full Website Takeover & Header Sponsorship</option>
+              <option value="Custom Enterprise Media Package">Custom Enterprise Media Package</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-editorial-text/60 mb-1">Message / Notes (Optional)</label>
+            <textarea
+              rows={3}
+              placeholder="Provide campaign duration, target geo, budget range, or specific advertising objectives..."
+              value={formData.message}
+              onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-editorial-bg border border-slate-200 dark:border-white/10 text-xs p-2.5 rounded outline-none focus:border-editorial-accent dark:text-editorial-text resize-none"
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={isSubmitting}
+            className="bg-editorial-accent hover:bg-red-700 text-white font-black py-3 px-5 rounded text-xs uppercase tracking-widest transition flex items-center justify-center gap-2 cursor-pointer font-mono disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Transmitting Inquiry...
+              </>
+            ) : (
+              <>
+                <Megaphone className="w-4 h-4" /> REQUEST MEDIA KIT RATE-CARD
+              </>
+            )}
           </button>
-          {submitted && (
-            <p className="text-xs font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" /> Request logged! Our sales board will transmit the rates folder shortly.
-            </p>
+
+          {successMessage && (
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded text-xs font-mono text-emerald-700 dark:text-emerald-300 flex items-start gap-2 animate-fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <span>{successMessage}</span>
+            </div>
+          )}
+
+          {errorMessage && (
+            <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded text-xs font-mono text-red-700 dark:text-red-300 flex items-start gap-2 animate-fade-in">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <span>{errorMessage}</span>
+            </div>
           )}
         </form>
       </div>
